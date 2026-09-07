@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+.next/
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!.env.example.txt
+
+# Reference source trees (run via Docker images, not part of platform repo)
+/backend/
+/lobechat/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,87 @@
+# ============================================================================
+# Agent Platform - Unified Services Orchestration
+# ============================================================================
+# Manages: n8n (workflow engine), SearXNG (search), LobeChat (chat frontend)
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose down           # Stop all services
+#   docker compose logs -f n8n    # Follow n8n logs
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # n8n - Core Workflow & Agent Runtime
+  # --------------------------------------------------------------------------
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_RUNNERS_AUTH_TOKEN=my-secret-key
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - n8n-net
+
+  # --------------------------------------------------------------------------
+  # SearXNG - Privacy-respecting search engine (used by n8n tools)
+  # --------------------------------------------------------------------------
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - n8n-net
+
+  # --------------------------------------------------------------------------
+  # n8n Code Sandbox - Isolated Python execution environment
+  # --------------------------------------------------------------------------
+  n8n-sandbox:
+    image: python:3-alpine
+    container_name: n8n-sandbox
+    restart: unless-stopped
+    command: ["python", "/mock.py"]
+    volumes:
+      - ./n8n/mock.py:/mock.py:ro
+    networks:
+      - n8n-net
+
+  # --------------------------------------------------------------------------
+  # LobeChat - AI Conversation Frontend (User-facing)
+  # --------------------------------------------------------------------------
+  lobechat:
+    image: lobehub/lobe-chat:latest
+    container_name: lobechat
+    restart: unless-stopped
+    ports:
+      - "3210:3210"
+    environment:
+      # Custom model provider pointing to n8n's OpenAI-compatible webhook
+      - CUSTOM_MODELS=deepseek-agent
+      - OPENAI_PROXY_URL=http://n8n:5678/webhook/v1
+      - OPENAI_API_KEY=sk-n8n-agent
+      - OPENAI_MODEL_LIST=deepseek-agent
+      # Access control (optional, set your own password)
+      - ACCESS_CODE=agent-platform
+    depends_on:
+      - n8n
+    networks:
+      - n8n-net
+
+# ============================================================================
+# Shared network & persistent volumes
+# ============================================================================
+networks:
+  n8n-net:
+    name: n8n-net
+    external: true
+
+volumes:
+  n8n_data:
+    name: n8n_data
+    external: true
