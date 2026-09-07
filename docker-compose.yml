@@ -14,13 +14,23 @@ services:
   # n8n - Core Workflow & Agent Runtime
   # --------------------------------------------------------------------------
   n8n:
-    image: docker.n8n.io/n8nio/n8n:latest
+    # Pinned to the version the platform was validated against (was :latest)
+    image: docker.n8n.io/n8nio/n8n:2.37.7
     container_name: n8n
     restart: unless-stopped
     ports:
       - "5678:5678"
     environment:
       - N8N_RUNNERS_AUTH_TOKEN=my-secret-key
+      - N8N_RELEASE_TYPE=stable
+      # Extracted from the existing n8n_data volume so credentials survive a
+      # volume/container rebuild. Do not change unless migrating deliberately.
+      - N8N_ENCRYPTION_KEY=XgBegHlcqxgM02km4DiUWgqVC0w87U+t
+      # Chat Gateway reads the shared API key at runtime ($env.CHAT_API_KEY).
+      # Must match lobechat's OPENAI_API_KEY below; rotate both together.
+      - CHAT_API_KEY=sk-n8n-agent
+      # Workflows read CHAT_API_KEY via $env — explicitly allow env access
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
       - n8n_data:/home/node/.n8n
     networks:
@@ -35,6 +45,10 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    volumes:
+      # Config extracted from the previous manual container; JSON format
+      # enabled so n8n search tools can call it as an API
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     networks:
       - n8n-net
 
