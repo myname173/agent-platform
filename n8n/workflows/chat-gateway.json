@@ -15,7 +15,10 @@
       "webhookId": "v1-chat-completions",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -25,7 +28,10 @@
       "name": "Parse & Validate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 0]
+      "position": [
+        220,
+        0
+      ]
     },
     {
       "parameters": {
@@ -56,7 +62,10 @@
       "name": "Has Error",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [440, 0]
+      "position": [
+        440,
+        0
+      ]
     },
     {
       "parameters": {
@@ -66,7 +75,10 @@
       "name": "Format Error Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, 200]
+      "position": [
+        660,
+        200
+      ]
     },
     {
       "parameters": {
@@ -80,7 +92,84 @@
       "name": "Respond Error",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
-      "position": [880, 200]
+      "position": [
+        880,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-needs-history",
+              "leftValue": "={{ $json.needs_history }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-needs-history",
+      "name": "Needs History",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@chat_messages",
+          "mode": "id"
+        },
+        "returnAll": false,
+        "limit": 50,
+        "orderBy": true,
+        "orderByColumn": "createdAt",
+        "orderByDirection": "DESC",
+        "options": {}
+      },
+      "id": "load-history",
+      "name": "Load Session History",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        100
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Merge persisted session history with the client's incoming messages.\n   Used when the client relies on server-side memory (single new message). */\nconst meta = $('Parse & Validate').first().json;\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.session_id === meta.session_id && (r.role === 'user' || r.role === 'assistant'));\nconst history = rows.reverse().slice(-20).map((r) => ({ role: r.role, content: String(r.content ?? '') }));\nconst messages = [...history, ...(meta.messages || [])];\nconst upstreamPayload = {\n  model: meta.upstream_model,\n  messages,\n  stream: false,\n  ...(meta.llm_params || {}),\n};\nreturn [{ json: { ...meta, messages, upstream_payload: upstreamPayload } }];"
+      },
+      "id": "build-with-memory",
+      "name": "Build Messages With Memory",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        100
+      ]
     },
     {
       "parameters": {
@@ -90,7 +179,10 @@
       "name": "Build Upstream Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, -120]
+      "position": [
+        1320,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -109,7 +201,10 @@
       "name": "Call DeepSeek",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [880, -120],
+      "position": [
+        1540,
+        -40
+      ],
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 2000,
@@ -123,13 +218,16 @@
     },
     {
       "parameters": {
-        "jsCode": "/* Wrap the upstream chat completion into the OpenAI-compatible response.\n   Echoes the requested alias model name and surfaces real token usage. */\nconst item = $input.first().json;\nconst completion = item.choices?.[0] || {};\nconst executionId = $execution.id;\nreturn [{ json: {\n  id: `chatcmpl-n8n-${executionId}`,\n  object: 'chat.completion',\n  created: Math.floor(Date.now() / 1000),\n  model: item.model,\n  choices: [\n    {\n      index: 0,\n      message: { role: 'assistant', content: completion.message?.content ?? '' },\n      finish_reason: completion.finish_reason ?? 'stop',\n    },\n  ],\n  usage: {\n    prompt_tokens: item.usage?.prompt_tokens ?? 0,\n    completion_tokens: item.usage?.completion_tokens ?? 0,\n    total_tokens: item.usage?.total_tokens ?? 0,\n  },\n} }];"
+        "jsCode": "/* Wrap the upstream chat completion into the OpenAI-compatible response.\n   Echoes the upstream model and surfaces real token usage. */\nconst item = $input.first().json;\nconst completion = item.choices?.[0] || {};\nconst executionId = $execution.id;\nreturn [{ json: {\n  id: `chatcmpl-n8n-${executionId}`,\n  object: 'chat.completion',\n  created: Math.floor(Date.now() / 1000),\n  model: $('Parse & Validate').first().json.model,\n  choices: [\n    {\n      index: 0,\n      message: { role: 'assistant', content: completion.message?.content ?? '' },\n      finish_reason: completion.finish_reason ?? 'stop',\n    },\n  ],\n  usage: {\n    prompt_tokens: item.usage?.prompt_tokens ?? 0,\n    completion_tokens: item.usage?.completion_tokens ?? 0,\n    total_tokens: item.usage?.total_tokens ?? 0,\n  },\n} }];"
       },
       "id": "format-response",
       "name": "Format OpenAI Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1100, -120]
+      "position": [
+        1760,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -140,36 +238,304 @@
       "name": "Respond 200",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
-      "position": [1320, -120]
+      "position": [
+        1980,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Build the chat_executions row for a successful completion. */\nconst meta = $('Parse & Validate').first().json;\nconst resp = $input.first().json;\nreturn [{ json: {\n  execution_id: String($execution.id),\n  session_id: meta.session_id,\n  model: meta.model,\n  client: meta.client,\n  status: 'success',\n  error_code: '',\n  error_message: '',\n  latency_ms: Date.now() - meta.started_at,\n  prompt_tokens: resp.usage?.prompt_tokens ?? 0,\n  completion_tokens: resp.usage?.completion_tokens ?? 0,\n  total_tokens: resp.usage?.total_tokens ?? 0,\n} }];"
+      },
+      "id": "prep-success-log",
+      "name": "Prep Success Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@chat_executions",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "insert-exec-row",
+      "name": "Insert Exec Row",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2420,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Persist the turn transcript (user + assistant) for session memory. */\nconst meta = $('Parse & Validate').first().json;\nconst resp = $('Format OpenAI Response').first().json;\nconst userMsg = [...(meta.messages || [])].reverse().find((m) => m.role === 'user');\nconst rows = [\n  { session_id: meta.session_id, role: 'user', content: userMsg?.content ?? '', model: meta.model, client: meta.client },\n  { session_id: meta.session_id, role: 'assistant', content: resp.choices?.[0]?.message?.content ?? '', model: meta.model, client: meta.client },\n];\nreturn rows.map((json) => ({ json }));"
+      },
+      "id": "prep-message-rows",
+      "name": "Prep Message Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@chat_messages",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "insert-message-rows",
+      "name": "Insert Message Rows",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2860,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Build the chat_executions row for a failed request/completion. */\nconst item = $input.first().json;\nlet meta = {};\ntry { meta = $('Parse & Validate').first().json || {}; } catch (e) { meta = {}; }\nreturn [{ json: {\n  execution_id: String($execution.id),\n  session_id: meta.session_id || 'unknown',\n  model: meta.model || 'unknown',\n  client: meta.client || 'unknown',\n  status: 'error',\n  error_code: item.body?.error?.code || 'unknown_error',\n  error_message: String(item.body?.error?.message || '').slice(0, 500),\n  latency_ms: meta.started_at ? Date.now() - meta.started_at : 0,\n  prompt_tokens: 0,\n  completion_tokens: 0,\n  total_tokens: 0,\n} }];"
+      },
+      "id": "prep-error-log",
+      "name": "Prep Error Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        200
+      ]
     }
   ],
   "connections": {
     "Webhook": {
-      "main": [[{ "node": "Parse & Validate", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Parse & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Parse & Validate": {
-      "main": [[{ "node": "Has Error", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Has Error": {
       "main": [
-        [{ "node": "Format Error Response", "type": "main", "index": 0 }],
-        [{ "node": "Build Upstream Payload", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs History",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Format Error Response": {
-      "main": [[{ "node": "Respond Error", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs History": {
+      "main": [
+        [
+          {
+            "node": "Load Session History",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Upstream Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Session History": {
+      "main": [
+        [
+          {
+            "node": "Build Messages With Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Messages With Memory": {
+      "main": [
+        [
+          {
+            "node": "Build Upstream Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Build Upstream Payload": {
-      "main": [[{ "node": "Call DeepSeek", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Call DeepSeek",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Call DeepSeek": {
       "main": [
-        [{ "node": "Format OpenAI Response", "type": "main", "index": 0 }],
-        [{ "node": "Format Error Response", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Format OpenAI Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Format OpenAI Response": {
-      "main": [[{ "node": "Respond 200", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Success Log": {
+      "main": [
+        [
+          {
+            "node": "Insert Exec Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Exec Row": {
+      "main": [
+        [
+          {
+            "node": "Prep Message Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Message Rows": {
+      "main": [
+        [
+          {
+            "node": "Insert Message Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Error": {
+      "main": [
+        [
+          {
+            "node": "Prep Error Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Error Log": {
+      "main": [
+        [
+          {
+            "node": "Insert Exec Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200": {
+      "main": [
+        [
+          {
+            "node": "Prep Success Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
