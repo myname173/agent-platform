@@ -1,0 +1,367 @@
+{
+  "id": "CoDXkubDVKS1hn9o",
+  "name": "OpenAI Compatible Chat Agent",
+  "description": null,
+  "active": true,
+  "activeVersionId": "8bef10f8-8f7a-4f32-ad0b-40e3b052202b",
+  "createdAt": "2026-09-04T08:56:32.913Z",
+  "updatedAt": "2026-09-04T09:23:31.276Z",
+  "isArchived": false,
+  "versionId": "8bef10f8-8f7a-4f32-ad0b-40e3b052202b",
+  "versionCounter": 2,
+  "sourceWorkflowId": null,
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "position": [
+        200,
+        0
+      ],
+      "name": "Webhook",
+      "id": "webhook-openai",
+      "webhookId": "v1-chat-completions",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "path": "v1/chat/completions",
+        "responseMode": "responseNode",
+        "options": {},
+        "httpMethod": "POST"
+      },
+      "typeVersion": 2.1
+    },
+    {
+      "position": [
+        420,
+        0
+      ],
+      "name": "Extract Message",
+      "id": "code-extract",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const body = $json.body || {};\nconst messages = body.messages || [];\nconst lastUserMsg = messages.filter(m => m.role === 'user').pop();\nconst chatInput = lastUserMsg ? (typeof lastUserMsg.content === 'string' ? lastUserMsg.content : JSON.stringify(lastUserMsg.content)) : 'Hello';\n\nreturn { json: { chatInput, messages, model: body.model || 'deepseek-agent' } };"
+      },
+      "typeVersion": 2
+    },
+    {
+      "position": [
+        640,
+        0
+      ],
+      "name": "LLM Chain",
+      "id": "llm-chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "parameters": {
+        "batching": {},
+        "promptType": "define",
+        "text": "={{ $json.chatInput }}"
+      },
+      "typeVersion": 1.9
+    },
+    {
+      "position": [
+        580,
+        208
+      ],
+      "name": "DeepSeek Chat Model",
+      "id": "deepseek-model",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "vdF0C5ulfD4B9mup",
+          "name": "DeepSeek account"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "parameters": {
+        "options": {}
+      },
+      "typeVersion": 1
+    },
+    {
+      "position": [
+        860,
+        0
+      ],
+      "name": "Format OpenAI Response",
+      "id": "code-format-openai",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const outputText = $json.text || $json.output || '';\nreturn {\n  json: {\n    id: 'chatcmpl-n8n-' + Date.now(),\n    object: 'chat.completion',\n    created: Math.floor(Date.now() / 1000),\n    model: 'deepseek-agent',\n    choices: [\n      {\n        index: 0,\n        message: {\n          role: 'assistant',\n          content: outputText\n        },\n        finish_reason: 'stop'\n      }\n    ],\n    usage: {\n      prompt_tokens: 0,\n      completion_tokens: 0,\n      total_tokens: 0\n    }\n  }\n};"
+      },
+      "typeVersion": 2
+    },
+    {
+      "position": [
+        1080,
+        0
+      ],
+      "name": "Respond OpenAI Format",
+      "id": "respond-openai",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "parameters": {
+        "options": {},
+        "respondWith": "firstIncomingItem"
+      },
+      "typeVersion": 1.5
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Message": {
+      "main": [
+        [
+          {
+            "node": "LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format OpenAI Response": {
+      "main": [
+        [
+          {
+            "node": "Respond OpenAI Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Format OpenAI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": null,
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "CoDXkubDVKS1hn9o",
+      "projectId": "HA8gJLbBUHiVPdoZ",
+      "project": {
+        "id": "HA8gJLbBUHiVPdoZ",
+        "name": "意霄 清 <yixiaoq783@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "1a2378c0-f1b9-4d23-b8f7-515ed1fdf752",
+        "createdAt": "2026-09-03T07:52:36.463Z",
+        "updatedAt": "2026-09-03T07:54:30.542Z"
+      },
+      "createdAt": "2026-09-04T08:56:33.016Z",
+      "updatedAt": "2026-09-04T08:56:33.016Z"
+    }
+  ],
+  "activeVersion": {
+    "versionId": "8bef10f8-8f7a-4f32-ad0b-40e3b052202b",
+    "workflowId": "CoDXkubDVKS1hn9o",
+    "nodes": [
+      {
+        "position": [
+          200,
+          0
+        ],
+        "name": "Webhook",
+        "id": "webhook-openai",
+        "webhookId": "v1-chat-completions",
+        "type": "n8n-nodes-base.webhook",
+        "parameters": {
+          "path": "v1/chat/completions",
+          "responseMode": "responseNode",
+          "options": {},
+          "httpMethod": "POST"
+        },
+        "typeVersion": 2.1
+      },
+      {
+        "position": [
+          420,
+          0
+        ],
+        "name": "Extract Message",
+        "id": "code-extract",
+        "type": "n8n-nodes-base.code",
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "const body = $json.body || {};\nconst messages = body.messages || [];\nconst lastUserMsg = messages.filter(m => m.role === 'user').pop();\nconst chatInput = lastUserMsg ? (typeof lastUserMsg.content === 'string' ? lastUserMsg.content : JSON.stringify(lastUserMsg.content)) : 'Hello';\n\nreturn { json: { chatInput, messages, model: body.model || 'deepseek-agent' } };"
+        },
+        "typeVersion": 2
+      },
+      {
+        "position": [
+          640,
+          0
+        ],
+        "name": "LLM Chain",
+        "id": "llm-chain",
+        "type": "@n8n/n8n-nodes-langchain.chainLlm",
+        "parameters": {
+          "batching": {},
+          "promptType": "define",
+          "text": "={{ $json.chatInput }}"
+        },
+        "typeVersion": 1.9
+      },
+      {
+        "position": [
+          580,
+          208
+        ],
+        "name": "DeepSeek Chat Model",
+        "id": "deepseek-model",
+        "credentials": {
+          "deepSeekApi": {
+            "id": "vdF0C5ulfD4B9mup",
+            "name": "DeepSeek account"
+          }
+        },
+        "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+        "parameters": {
+          "options": {}
+        },
+        "typeVersion": 1
+      },
+      {
+        "position": [
+          860,
+          0
+        ],
+        "name": "Format OpenAI Response",
+        "id": "code-format-openai",
+        "type": "n8n-nodes-base.code",
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "const outputText = $json.text || $json.output || '';\nreturn {\n  json: {\n    id: 'chatcmpl-n8n-' + Date.now(),\n    object: 'chat.completion',\n    created: Math.floor(Date.now() / 1000),\n    model: 'deepseek-agent',\n    choices: [\n      {\n        index: 0,\n        message: {\n          role: 'assistant',\n          content: outputText\n        },\n        finish_reason: 'stop'\n      }\n    ],\n    usage: {\n      prompt_tokens: 0,\n      completion_tokens: 0,\n      total_tokens: 0\n    }\n  }\n};"
+        },
+        "typeVersion": 2
+      },
+      {
+        "position": [
+          1080,
+          0
+        ],
+        "name": "Respond OpenAI Format",
+        "id": "respond-openai",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "parameters": {
+          "options": {},
+          "respondWith": "firstIncomingItem"
+        },
+        "typeVersion": 1.5
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "Extract Message",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Extract Message": {
+        "main": [
+          [
+            {
+              "node": "LLM Chain",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "DeepSeek Chat Model": {
+        "ai_languageModel": [
+          [
+            {
+              "node": "LLM Chain",
+              "type": "ai_languageModel",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format OpenAI Response": {
+        "main": [
+          [
+            {
+              "node": "Respond OpenAI Format",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "LLM Chain": {
+        "main": [
+          [
+            {
+              "node": "Format OpenAI Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "意霄 清",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "createdAt": "2026-09-04T09:23:31.289Z",
+    "updatedAt": "2026-09-04T09:23:31.289Z",
+    "workflowPublishHistory": [
+      {
+        "id": 4,
+        "workflowId": "CoDXkubDVKS1hn9o",
+        "versionId": "8bef10f8-8f7a-4f32-ad0b-40e3b052202b",
+        "event": "activated",
+        "userId": "1a2378c0-f1b9-4d23-b8f7-515ed1fdf752",
+        "createdAt": "2026-09-04T09:23:32.320Z"
+      }
+    ]
+  }
+}

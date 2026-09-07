@@ -1,0 +1,272 @@
+{
+  "id": "fSfw09WtIB3nEd4n",
+  "name": "My workflow",
+  "description": null,
+  "active": true,
+  "activeVersionId": "93469504-fa80-42f0-b7ea-5f00c1df2309",
+  "createdAt": "2026-09-04T04:07:53.843Z",
+  "updatedAt": "2026-09-04T07:21:25.052Z",
+  "isArchived": false,
+  "versionId": "93469504-fa80-42f0-b7ea-5f00c1df2309",
+  "versionCounter": 33,
+  "sourceWorkflowId": null,
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "0bc981c1-fbef-4360-a33b-49988b18eee6",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        426.96759259259255,
+        0
+      ],
+      "id": "ccf32c1b-7f29-4222-bf57-34f2202d4ddf",
+      "name": "Webhook",
+      "webhookId": "0bc981c1-fbef-4360-a33b-49988b18eee6"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.chatInput }}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        656,
+        0
+      ],
+      "id": "58ba322f-cf5f-4b2c-b862-7ee49d7ce0da",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        592,
+        208
+      ],
+      "id": "b53ebf5a-0200-41d7-a8c7-4284b2d94db6",
+      "name": "DeepSeek Chat Model",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "vdF0C5ulfD4B9mup",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"output\": \"{{ $json.output }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1024,
+        0
+      ],
+      "id": "18f51f5b-676c-4db2-a2a1-ca8a5cb56aea",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "fSfw09WtIB3nEd4n",
+      "projectId": "HA8gJLbBUHiVPdoZ",
+      "project": {
+        "id": "HA8gJLbBUHiVPdoZ",
+        "name": "意霄 清 <yixiaoq783@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "1a2378c0-f1b9-4d23-b8f7-515ed1fdf752",
+        "createdAt": "2026-09-03T07:52:36.463Z",
+        "updatedAt": "2026-09-03T07:54:30.542Z"
+      },
+      "createdAt": "2026-09-04T04:07:53.851Z",
+      "updatedAt": "2026-09-04T04:07:53.851Z"
+    }
+  ],
+  "activeVersion": {
+    "versionId": "93469504-fa80-42f0-b7ea-5f00c1df2309",
+    "workflowId": "fSfw09WtIB3nEd4n",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "0bc981c1-fbef-4360-a33b-49988b18eee6",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          426.96759259259255,
+          0
+        ],
+        "id": "ccf32c1b-7f29-4222-bf57-34f2202d4ddf",
+        "name": "Webhook",
+        "webhookId": "0bc981c1-fbef-4360-a33b-49988b18eee6"
+      },
+      {
+        "parameters": {
+          "promptType": "define",
+          "text": "={{ $json.body.chatInput }}",
+          "batching": {}
+        },
+        "type": "@n8n/n8n-nodes-langchain.chainLlm",
+        "typeVersion": 1.9,
+        "position": [
+          656,
+          0
+        ],
+        "id": "58ba322f-cf5f-4b2c-b862-7ee49d7ce0da",
+        "name": "Basic LLM Chain"
+      },
+      {
+        "parameters": {
+          "options": {}
+        },
+        "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+        "typeVersion": 1,
+        "position": [
+          592,
+          208
+        ],
+        "id": "b53ebf5a-0200-41d7-a8c7-4284b2d94db6",
+        "name": "DeepSeek Chat Model",
+        "credentials": {
+          "deepSeekApi": {
+            "id": "vdF0C5ulfD4B9mup",
+            "name": "DeepSeek account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "{\n  \"output\": \"{{ $json.output }}\"\n}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          1024,
+          0
+        ],
+        "id": "18f51f5b-676c-4db2-a2a1-ca8a5cb56aea",
+        "name": "Respond to Webhook"
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "Basic LLM Chain",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "DeepSeek Chat Model": {
+        "ai_languageModel": [
+          [
+            {
+              "node": "Basic LLM Chain",
+              "type": "ai_languageModel",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Basic LLM Chain": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "意霄 清",
+    "name": "Version 93469504",
+    "description": "",
+    "autosaved": true,
+    "createdAt": "2026-09-04T07:21:25.054Z",
+    "updatedAt": "2026-09-04T08:06:02.000Z",
+    "workflowPublishHistory": [
+      {
+        "id": 1,
+        "workflowId": "fSfw09WtIB3nEd4n",
+        "versionId": "93469504-fa80-42f0-b7ea-5f00c1df2309",
+        "event": "activated",
+        "userId": "1a2378c0-f1b9-4d23-b8f7-515ed1fdf752",
+        "createdAt": "2026-09-04T08:06:02.487Z"
+      }
+    ]
+  }
+}
