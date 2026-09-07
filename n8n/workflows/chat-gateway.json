@@ -1,0 +1,178 @@
+{
+  "id": "CoDXkubDVKS1hn9o",
+  "name": "Chat Gateway",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "v1/chat/completions",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-openai",
+      "name": "Webhook",
+      "webhookId": "v1-chat-completions",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Parse & Validate the OpenAI-compatible request.\n   Outputs either {ok:true, ...} for the happy path or\n   {__error:true, status, openai_error} which the error branch turns into\n   an OpenAI-format HTTP error response. */\nconst req = $input.first().json;\nconst body = req.body || {};\nconst headers = req.headers || {};\nconst startedAt = Date.now();\n\nconst error = (status, code, message) => [{ json: { __error: true, status, openai_error: { error: { message, type: 'invalid_request_error', code } } } }];\n\n// --- model routing (P1 will extend this to per-model sub-workflows) ---\nconst MODEL_ALIASES = {\n  'deepseek-agent': 'deepseek-chat',\n};\nconst DEFAULT_MODEL = 'deepseek-agent';\n\nconst model = body.model || DEFAULT_MODEL;\nconst upstreamModel = MODEL_ALIASES[model];\nif (!upstreamModel) {\n  return error(404, 'model_not_found', `The model '${model}' does not exist. Available: ${Object.keys(MODEL_ALIASES).join(', ')}`);\n}\n\n// --- messages ---\nconst rawMessages = body.messages;\nif (!Array.isArray(rawMessages) || rawMessages.length === 0) {\n  return error(400, 'missing_messages', \"'messages' must be a non-empty array\");\n}\nconst flatten = (content) => {\n  if (typeof content === 'string') return content;\n  if (Array.isArray(content)) return content.map((p) => p.text || '').join('\\n');\n  return JSON.stringify(content);\n};\nconst messages = rawMessages\n  .filter((m) => m && typeof m.role === 'string')\n  .map((m) => ({ role: m.role, content: flatten(m.content) }));\nconst lastUser = [...messages].reverse().find((m) => m.role === 'user');\nif (!lastUser) {\n  return error(400, 'missing_user_message', 'No user message found in messages');\n}\n\n// --- session identity: explicit header > OpenAI user field > anonymous ---\nconst sessionId = String(headers['x-session-id'] || body.user || 'anonymous');\nconst client = String(headers['x-client'] || 'unknown');\n\n// Pass through supported sampling params when the client sends them\nconst llmParams = {};\nfor (const k of ['temperature', 'top_p', 'max_tokens', 'presence_penalty', 'frequency_penalty']) {\n  if (body[k] !== undefined && body[k] !== null) llmParams[k] = body[k];\n}\n\n// Server-side memory is only meaningful when the client does NOT send full\n// history (LobeChat always sends the full transcript, so it uses passthrough).\nconst needsHistory = messages.length <= 2 && lastUser === messages[messages.length - 1];\n\nreturn [{ json: { ok: true, messages, model, upstream_model: upstreamModel, llm_params: llmParams, session_id: sessionId, client, started_at: startedAt, needs_history: needsHistory } }];"
+      },
+      "id": "parse-validate",
+      "name": "Parse & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-error",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Unify validation errors and upstream (HTTP) failures into one shape:\n   { status, body: <OpenAI error envelope> } */\nconst item = $input.first().json;\n\nif (item.__error) {\n  return [{ json: { status: item.status, body: item.openai_error } }];\n}\n\n// HTTP Request node error output shape\nconst err = item.error || {};\nconst message = err.description || err.message || 'Upstream model call failed';\nreturn [{ json: { status: 502, body: { error: { message, type: 'api_error', code: 'upstream_error' } } } }];"
+      },
+      "id": "format-error",
+      "name": "Format Error Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      },
+      "id": "respond-error",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Assemble the upstream payload (DeepSeek is OpenAI-compatible) and carry\n   gateway metadata forward. */\nconst item = $input.first().json;\nconst upstreamPayload = {\n  model: item.upstream_model,\n  messages: item.messages,\n  stream: false,\n  ...item.llm_params,\n};\nreturn [{ json: { ...item, upstream_payload: upstreamPayload } }];"
+      },
+      "id": "build-upstream",
+      "name": "Build Upstream Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, -120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.deepseek.com/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "deepSeekApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.upstream_payload) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "call-llm",
+      "name": "Call DeepSeek",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, -120],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "vdF0C5ulfD4B9mup",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Wrap the upstream chat completion into the OpenAI-compatible response.\n   Echoes the requested alias model name and surfaces real token usage. */\nconst item = $input.first().json;\nconst completion = item.choices?.[0] || {};\nconst executionId = $execution.id;\nreturn [{ json: {\n  id: `chatcmpl-n8n-${executionId}`,\n  object: 'chat.completion',\n  created: Math.floor(Date.now() / 1000),\n  model: item.model,\n  choices: [\n    {\n      index: 0,\n      message: { role: 'assistant', content: completion.message?.content ?? '' },\n      finish_reason: completion.finish_reason ?? 'stop',\n    },\n  ],\n  usage: {\n    prompt_tokens: item.usage?.prompt_tokens ?? 0,\n    completion_tokens: item.usage?.completion_tokens ?? 0,\n    total_tokens: item.usage?.total_tokens ?? 0,\n  },\n} }];"
+      },
+      "id": "format-response",
+      "name": "Format OpenAI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, -120]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "respond-200",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1320, -120]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Parse & Validate", "type": "main", "index": 0 }]]
+    },
+    "Parse & Validate": {
+      "main": [[{ "node": "Has Error", "type": "main", "index": 0 }]]
+    },
+    "Has Error": {
+      "main": [
+        [{ "node": "Format Error Response", "type": "main", "index": 0 }],
+        [{ "node": "Build Upstream Payload", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Error Response": {
+      "main": [[{ "node": "Respond Error", "type": "main", "index": 0 }]]
+    },
+    "Build Upstream Payload": {
+      "main": [[{ "node": "Call DeepSeek", "type": "main", "index": 0 }]]
+    },
+    "Call DeepSeek": {
+      "main": [
+        [{ "node": "Format OpenAI Response", "type": "main", "index": 0 }],
+        [{ "node": "Format Error Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format OpenAI Response": {
+      "main": [[{ "node": "Respond 200", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
