@@ -70,18 +70,49 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
 
 ## 数据流说明
 
-### 对话链路（LobeChat → n8n → 大模型）
+### 对话链路（LobeChat → n8n Chat Gateway → 大模型）
 1. 用户在 LobeChat 发送消息
 2. LobeChat 以 OpenAI 协议 POST 到 `http://n8n:5678/webhook/v1/chat/completions`
-3. n8n Webhook 节点接收请求，提取 `messages` 数组
-4. n8n 调用 DeepSeek Chat Model 生成回复
-5. n8n 将回复包装为 OpenAI 标准格式返回
-6. LobeChat 渲染 Markdown 回复
+   （鉴权：`Authorization: Bearer sk-n8n-agent`，与 compose 中 LobeChat 的 `OPENAI_API_KEY` 一致）
+3. **Chat Gateway** 工作流（源码在 `n8n/workflows/chat-gateway.json`）：
+   - 校验 Bearer key（读取 n8n env `CHAT_API_KEY`），失败返回 401 + OpenAI 错误格式
+   - 解析 `messages`，映射模型别名（`deepseek-agent` → `deepseek-chat`），未知模型返回 404
+   - session 身份：`X-Session-Id` 头 > OpenAI `user` 字段 > anonymous
+   - 请求只带单条消息时，自动从 Data Table `chat_messages` 合并该会话最近 20 轮历史（服务端记忆）；
+     LobeChat 等全量历史的客户端走透传路径
+   - 调用 DeepSeek（60s 超时 + 1 次重试），包装为 OpenAI 标准响应（含真实 token usage）
+   - 任何失败统一返回 `{error:{message,type,code}}` + 400/401/404/502
+4. 每次执行写入 Data Table `chat_executions`（session/model/client/status/latency/tokens），
+   对话轮次写入 `chat_messages`
 
 ### 管理链路（Kiranism → n8n API）
 1. Kiranism 后台通过服务端 API 路由代理访问 n8n
 2. `N8N_API_KEY` 仅存在于 Next.js 服务端，不暴露给浏览器
 3. 可查看工作流状态、执行记录、健康检查等
+
+### 统计接口（新增，供 Kiranism 后续接入）
+```
+GET http://localhost:5678/webhook/v1/stats/executions
+Authorization: Bearer sk-n8n-agent
+```
+返回总量/成功率/平均延迟/按模型与客户端分布/独立会话数/最近 20 条执行。
+Kiranism 需要时在 `frontent/src/app/api/n8n/` 下加一条服务端路由代理即可（已有三条路由不受影响）。
+
+## 工作流管理（源码化）
+
+工作流不再只存在于 n8n 数据库中：
+
+- `n8n/workflows/*.json` — 可部署的 workflow 源码（`chat-gateway`、`chat-stats-api`）
+- `n8n/workflows/baseline/` — 重构前旧 workflow 的快照（仅存档，勿部署）
+- `n8n/scripts/deploy.mjs` — 部署脚本：按 id 更新或创建 workflow、激活生产 webhook、
+  自动创建缺失的 Data Table（`chat_messages`、`chat_executions`）
+
+```bash
+export N8N_API_KEY=<your-n8n-api-key>
+node n8n/scripts/deploy.mjs
+```
+
+修改 workflow 的正确姿势：改 `n8n/workflows/*.json` → 跑 deploy → 验证 → 提交。
 
 ## 常用命令
 
