@@ -1,5 +1,5 @@
 import PageContainer from '@/components/layout/page-container';
-import WorkflowDashboard from '@/features/workflows/components/workflow-dashboard';
+import OperationsDashboard from '@/features/workflows/components/operations-dashboard';
 
 export const metadata = {
   title: 'Dashboard: Workflows'
@@ -9,9 +9,9 @@ export default function WorkflowsPage() {
   return (
     <PageContainer
       pageTitle="Workflows"
-      pageDescription="Manage and monitor your n8n workflows."
+      pageDescription="Chat Gateway 运行态势与执行明细。"
     >
-      <WorkflowDashboard />
+      <OperationsDashboard />
     </PageContainer>
   );
 }
