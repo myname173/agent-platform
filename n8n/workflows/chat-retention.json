@@ -1,0 +1,203 @@
+{
+  "name": "Chat Retention",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 3
+            }
+          ]
+        }
+      },
+      "id": "schedule-daily",
+      "name": "Schedule Daily 3am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/retention/run",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-manual-run",
+      "name": "Manual Run",
+      "webhookId": "admin-retention-run",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Auth gate — only meaningful for the manual webhook input\n   (schedule-triggered items carry no headers). */\nconst input = $input.first().json;\nif (input.headers) {\n  const provided = String(input.headers.authorization || '').replace(/^Bearer\\s+/i, '');\n  if (provided !== $env.CHAT_API_KEY) {\n    return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key. Provide it via the Authorization: Bearer header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n  }\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-error",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      },
+      "id": "respond-error",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        680,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Enforce data-table retention via the n8n public API.\n   Rows older than RETENTION_DAYS_* are deleted; a dry-run first counts\n   what would go, then the real delete only runs when count > 0. */\nconst base = 'http://localhost:5678/api/v1';\nconst headers = { 'X-N8N-API-KEY': $env.N8N_API_KEY };\nconst api = (method, path, qs) => this.helpers.httpRequest({ method, url: base + path, headers, qs });\n\nconst tables = await api('GET', '/data-tables', { limit: 100 });\nconst byName = {};\nfor (const t of tables.data || []) byName[t.name] = t.id;\n\nconst jobs = [\n  { table: 'chat_messages', days: Number($env.RETENTION_DAYS_MESSAGES || 30) },\n  { table: 'chat_executions', days: Number($env.RETENTION_DAYS_EXECUTIONS || 90) },\n];\n\nconst results = [];\nfor (const job of jobs) {\n  const tableId = byName[job.table];\n  if (!tableId) {\n    results.push({ table: job.table, error: 'table not found' });\n    continue;\n  }\n  const filter = JSON.stringify({\n    type: 'and',\n    filters: [{ columnName: 'createdAt', condition: 'lt', value: new Date(Date.now() - job.days * 86400000).toISOString() }],\n  });\n  try {\n    const preview = await api('DELETE', `/data-tables/${tableId}/rows/delete`, { filter, dryRun: 'true', returnData: 'true' });\n    const count = Array.isArray(preview) ? preview.length : 0;\n    if (count > 0) {\n      await api('DELETE', `/data-tables/${tableId}/rows/delete`, { filter });\n    }\n    results.push({ table: job.table, cutoff_days: job.days, deleted: count });\n  } catch (e) {\n    results.push({ table: job.table, error: String(e && e.message ? e.message : e).slice(0, 200) });\n  }\n}\nreturn [{ json: { retention: results, ran_at: new Date().toISOString() } }];"
+      },
+      "id": "run-retention",
+      "name": "Run Retention",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "respond-result",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        900,
+        -100
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Daily 3am": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Run": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run Retention",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Retention": {
+      "main": [
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "OCpYi0chYDQlxZRk"
+}

@@ -98,11 +98,35 @@ Authorization: Bearer sk-n8n-agent
 返回总量/成功率/平均延迟/按模型与客户端分布/独立会话数/最近 20 条执行。
 Kiranism 需要时在 `frontent/src/app/api/n8n/` 下加一条服务端路由代理即可（已有三条路由不受影响）。
 
+## 运维
+
+### 密钥与配置（.env）
+
+所有密钥/实例配置在根目录 `.env`（已 gitignore），`docker-compose.yml` 通过变量引用。
+首次搭建：`cp .env.example .env` 后填入真实值。**勿把 `.env` 提交到任何远端。**
+
+### 备份与恢复（n8n/scripts/backup.sh）
+
+```bash
+bash n8n/scripts/backup.sh            # 备份 n8n_data 卷 + compose/.env，保留最近 14 份
+bash n8n/scripts/backup.sh 30         # 保留最近 30 份
+bash n8n/scripts/backup.sh restore backups/n8n-data-XXXX.tar.gz   # 恢复（会停 n8n 并清空卷）
+```
+归档含凭据与对话数据，妥善保管。热备（n8n 运行中）对 SQLite 有极小的不一致风险，
+要求严格一致时先 `docker compose stop n8n` 再备份。
+
+### 数据保留（Chat Retention workflow）
+
+每日 3:00 自动清理网关数据表的过期行（先 dryRun 计数、再真删）：
+`chat_messages` 默认保留 30 天、`chat_executions` 默认 90 天，由 `.env` 的
+`RETENTION_DAYS_MESSAGES` / `RETENTION_DAYS_EXECUTIONS` 控制。
+手动触发：`POST /webhook/admin/retention/run`（Bearer CHAT_API_KEY）。
+
 ## 工作流管理（源码化）
 
 工作流不再只存在于 n8n 数据库中：
 
-- `n8n/workflows/*.json` — 可部署的 workflow 源码（`chat-gateway`、`chat-stats-api`）
+- `n8n/workflows/*.json` — 可部署的 workflow 源码（`chat-gateway`、`chat-stats-api`、`chat-retention`）
 - `n8n/workflows/baseline/` — 重构前旧 workflow 的快照（仅存档，勿部署）
 - `n8n/scripts/deploy.mjs` — 部署脚本：按 id 更新或创建 workflow、激活生产 webhook、
   自动创建缺失的 Data Table（`chat_messages`、`chat_executions`）

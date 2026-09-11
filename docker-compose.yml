@@ -14,22 +14,26 @@ services:
   # n8n - Core Workflow & Agent Runtime
   # --------------------------------------------------------------------------
   n8n:
-    # Pinned to the version the platform was validated against (was :latest)
-    image: docker.n8n.io/n8nio/n8n:2.37.7
+    # Version pinned via .env (N8N_VERSION); secrets come from .env too
+    image: docker.n8n.io/n8nio/n8n:${N8N_VERSION}
     container_name: n8n
     restart: unless-stopped
     ports:
       - "5678:5678"
     environment:
-      - N8N_RUNNERS_AUTH_TOKEN=my-secret-key
+      - N8N_RUNNERS_AUTH_TOKEN=${N8N_RUNNERS_AUTH_TOKEN}
       - N8N_RELEASE_TYPE=stable
-      # Extracted from the existing n8n_data volume so credentials survive a
-      # volume/container rebuild. Do not change unless migrating deliberately.
-      - N8N_ENCRYPTION_KEY=XgBegHlcqxgM02km4DiUWgqVC0w87U+t
+      # Encryption key pinned in .env so credentials survive rebuilds
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       # Chat Gateway reads the shared API key at runtime ($env.CHAT_API_KEY).
       # Must match lobechat's OPENAI_API_KEY below; rotate both together.
-      - CHAT_API_KEY=sk-n8n-agent
-      # Workflows read CHAT_API_KEY via $env — explicitly allow env access
+      - CHAT_API_KEY=${CHAT_API_KEY}
+      # Public API key used by the retention workflow (self API calls)
+      - N8N_API_KEY=${N8N_API_KEY}
+      # Data table retention (days), consumed by Chat Retention workflow
+      - RETENTION_DAYS_MESSAGES=${RETENTION_DAYS_MESSAGES}
+      - RETENTION_DAYS_EXECUTIONS=${RETENTION_DAYS_EXECUTIONS}
+      # Workflows read env vars via $env — explicitly allow env access
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
       - n8n_data:/home/node/.n8n
