@@ -82,10 +82,15 @@ services:
       # Custom model provider pointing to n8n's OpenAI-compatible webhook
       - CUSTOM_MODELS=deepseek-agent
       - OPENAI_PROXY_URL=http://n8n:5678/webhook/v1
-      - OPENAI_API_KEY=sk-n8n-agent
+      # Same key as n8n's CHAT_API_KEY — gateway auth depends on the match
+      - OPENAI_API_KEY=${CHAT_API_KEY}
       - OPENAI_MODEL_LIST=deepseek-agent
-      # Access control (optional, set your own password)
-      - ACCESS_CODE=agent-platform
+      # Access control (UI entry password)
+      - ACCESS_CODE=${LOBECHAT_ACCESS_CODE}
+      # NextAuth secret — required, otherwise /api/auth/* 500s and LobeChat
+      # hangs on the loading screen.
+      - AUTH_SECRET=${AUTH_SECRET}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
     depends_on:
       - n8n
     networks:

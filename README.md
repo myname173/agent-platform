@@ -138,6 +138,24 @@ node n8n/scripts/deploy.mjs
 
 修改 workflow 的正确姿势：改 `n8n/workflows/*.json` → 跑 deploy → 验证 → 提交。
 
+
+## CI 与契约测试
+
+- **结构校验** `n8n/scripts/validate-workflows.mjs`（无网络/无依赖，CI 用）：workflow JSON
+  字段与连线完整性、webhook path 全局唯一、workflow 与 compose 无硬编码密钥、
+  compose 引用的每个 `${VAR}` 必须在 `.env.example` 中声明。
+- **契约冒烟** `n8n/scripts/smoke-test.mjs`（需已部署的实例）：网关鉴权、请求校验、
+  模型路由、真实对话往返 + OpenAI 响应契约、Stats / Retention API 鉴权与响应形状，共 29 项断言。
+- **最小 CI** `.github/workflows/ci.yml`：Kiranism typecheck + workflow 结构校验。
+  集成 smoke 需要真实实例与 API key（无法 headless 引导），部署后手动跑：
+
+```bash
+export N8N_URL=http://localhost:5678
+export CHAT_API_KEY=<your-chat-key>
+node n8n/scripts/smoke-test.mjs
+```
+
+
 ## PivotAI 前台视觉与动效系统 (Cyber Glassmorphism & Aurora)
 
 前台已升级为年轻、高辨识度的 **PivotAI** 沉浸式赛博流光视觉风格：
