@@ -89,6 +89,9 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
    - 请求只带单条消息时，自动从 Data Table `chat_messages` 合并该会话最近 20 轮历史（服务端记忆）；
      LobeChat 等全量历史的客户端走透传路径
    - 调用 DeepSeek（60s 超时 + 1 次重试），包装为 OpenAI 标准响应（含真实 token usage）
+   - **模型路由**（2026-09-14 扩展）：`deepseek-agent`（默认，携工具：web_search + kb_search）、
+     `deepseek-chat`（纯对话）、`deepseek-reasoner`（推理，较慢）；别名映射在网关 Parse & Validate 节点，
+     新增模型 = 加一条别名 + LobeHub 侧 CUSTOM_MODELS / OPENAI_MODEL_LIST 同步
    - **Agent 工具循环**（优先级 5）：请求携带 web_search（SearXNG 公网）与 kb_search（私域知识库）
      两个工具，模型自主决定是否/用哪个搜索；最多 2 轮工具调用，第 2 轮后强制收口；
      usage 跨轮累计计入成本；工具故障时降级为错误说明回答；响应新增 `tool_rounds` 字段
@@ -154,7 +157,8 @@ curl -X POST http://localhost:5678/webhook/admin/kb/ingest \
 
 - **登录**：首次打开注册即可（Better Auth 邮箱密码制；本机使用 `owner@agent-platform.local`）
 - 旧版（v1 客户端模式）的浏览器本地会话数据不在服务端；如需保留，临时移除 DATABASE_URL 重启可切回 v1 导出
-- PivotAI 主题（custom-theme/ + apply-theme.ps1）是 v1 资产，LobeHub 2.x 的样式结构不同，适配待做
+- 外观：设置 → 外观（主题模式 / 强调色，随账号保存在浏览器端）；PivotAI 主题（custom-theme/ + apply-theme.ps1）是 v1 资产，
+  LobeHub 2.x 为运行时样式注入、无官方自定义 CSS 途径，整套皮肤暂不改（如需换 logo 可用 NEXT_PUBLIC_BRAND_LOGO 指定图片 URL）
 - 文件存储（S3）未配置：图片/文件类消息受限，纯对话不受影响
 - 市场（模板/发现 Agent）需要 LobeHub 云端账号授权（market.lobehub.com 全端点要求登录）；不影响核心对话，注册 lobehub.com 账号后可在应用内连接
 
