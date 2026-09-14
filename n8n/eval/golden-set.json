@@ -1,0 +1,28 @@
+{
+  "version": "v0",
+  "note": "知识库评估金标准集 v0：语料自包含（kb-eval 运行时自动摄取 docs），后续扩充到 20-50 条并覆盖真实文档。",
+  "docs": [
+    {
+      "title": "平台架构速览",
+      "text": "agent-platform 由五个服务组成：n8n 是核心工作流引擎，端口 5678，负责网关与 Agent 编排；LobeChat 是用户对话前台，端口 3210；Kiranism 是运营管理后台，端口 3000；SearXNG 是隐私搜索引擎，端口 8080，供网关的 web_search 工具调用；Postgres 是主数据库，端口 5432 仅内网开放。所有对话经 LobeChat 以 OpenAI 协议转发到 n8n 的 Chat Gateway 工作流。网关做三级鉴权校验与按 key 限流，每次对话写入 chat_messages 与 chat_executions 两张数据表用于统计与成本核算。"
+    },
+    {
+      "title": "知识库检索说明",
+      "text": "知识库检索使用 pgvector 的 HNSW 索引，向量维度 1024，距离度量为余弦相似度。文档摄取时按句子边界分块，目标 500 token，重叠 10%。查询侧使用 text_type=query 并携带英文任务指令 instruct 以提升检索精度，文档侧使用 text_type=document。检索返回的每条结果都带有文档标题与块序号，生成回答时必须以来源标注格式引用。若知识库中没有相关内容，回答应明确说明未收录而不是编造。"
+    }
+  ],
+  "cases": [
+    { "q": "平台的对话前台是哪个服务？端口是多少？", "expect_title": "平台架构速览" },
+    { "q": "LobeChat 的对话请求最终发到哪里处理？", "expect_title": "平台架构速览" },
+    { "q": "web_search 工具背后用的是哪个搜索引擎？", "expect_title": "平台架构速览" },
+    { "q": "哪个端口只在内网开放不对外暴露？", "expect_title": "平台架构速览" },
+    { "q": "对话数据写入哪两张表？", "expect_title": "平台架构速览" },
+    { "q": "网关的鉴权和限流是按什么维度做的？", "expect_title": "平台架构速览" },
+    { "q": "知识库的向量索引是什么类型？", "expect_title": "知识库检索说明" },
+    { "q": "embedding 的向量维度是多少？", "expect_title": "知识库检索说明" },
+    { "q": "文档分块的目标大小和重叠比例是多少？", "expect_title": "知识库检索说明" },
+    { "q": "查询侧和文档侧的 text_type 有什么区别？", "expect_title": "知识库检索说明" },
+    { "q": "知识库回答的来源标注格式是什么？", "expect_title": "知识库检索说明" },
+    { "q": "知识库没有相关内容时应该怎么回答？", "expect_title": "知识库检索说明" }
+  ]
+}

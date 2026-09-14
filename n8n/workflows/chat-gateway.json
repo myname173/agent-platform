@@ -173,7 +173,7 @@
     },
     {
       "parameters": {
-        "jsCode": "/* Assemble the upstream payload (DeepSeek is OpenAI-compatible) and carry\n   gateway metadata forward. Round 0 arms the web_search tool (priority 5):\n   the model decides whether to search; the agent loop lives in Check Response\n   / Emit Tool Call Items / Append Tool Results with a hard cap of 2 rounds. */\nconst item = $input.first().json;\nconst TOOLS = [{\n  type: 'function',\n  function: {\n    name: 'web_search',\n    description: 'Search the public web for current information, facts, news or documentation. Returns ranked results with title, url and snippet.',\n    parameters: {\n      type: 'object',\n      properties: {\n        query: { type: 'string', description: 'The search query' },\n      },\n      required: ['query'],\n    },\n  },\n}];\nconst upstreamPayload = {\n  model: item.upstream_model,\n  messages: item.messages,\n  stream: false,\n  tools: TOOLS,\n  ...item.llm_params,\n};\nconst tool_state = {\n  round: 0,\n  usage_acc: {\n    prompt_tokens: 0,\n    completion_tokens: 0,\n    total_tokens: 0,\n    prompt_cache_hit_tokens: 0,\n    prompt_cache_miss_tokens: 0,\n  },\n};\nreturn [{ json: { ...item, upstream_payload: upstreamPayload, tool_state } }];\n"
+        "jsCode": "/* Assemble the upstream payload (DeepSeek is OpenAI-compatible) and carry\n   gateway metadata forward. Round 0 arms BOTH tools (priority 5):\n     - web_search  (SearXNG): public/current web information\n     - kb_search   (pgvector): private knowledge base (ingested documents)\n   The model decides whether to search; the loop lives in Check Response /\n   Emit Tool Call Items / Execute Tool / Append Tool Results (max 2 rounds).\n   A gateway directive system message enforces citation of kb sources. */\nconst item = $input.first().json;\nconst TOOLS = [{\n  type: 'function',\n  function: {\n    name: 'web_search',\n    description: 'Search the public web for current information, facts, news or documentation. Returns ranked results with title, url and snippet.',\n    parameters: {\n      type: 'object',\n      properties: {\n        query: { type: 'string', description: 'The search query' },\n      },\n      required: ['query'],\n    },\n  },\n}, {\n  type: 'function',\n  function: {\n    name: 'kb_search',\n    description: 'Search the private knowledge base (ingested internal documents, notes and references). Use for questions about internal/content already added to the knowledge base. Returns passages with title, excerpt and relevance.',\n    parameters: {\n      type: 'object',\n      properties: {\n        query: { type: 'string', description: 'The search query, in the same language as the documents' },\n        top_k: { type: 'integer', description: 'How many passages to return (1-10, default 6)' },\n      },\n      required: ['query'],\n    },\n  },\n}];\n\nconst DIRECTIVE = 'Tool usage rules: (1) web_search searches the public web; kb_search searches the private knowledge base of ingested documents. Choose based on the question; you may use both. (2) When answering with kb_search results, ground the answer in the returned passages and cite them inline as [来源: <title>]. (3) If kb_search returns nothing relevant, say the knowledge base does not cover it instead of guessing.';\n\nconst messages = [...item.messages, { role: 'system', content: DIRECTIVE }];\nconst upstreamPayload = {\n  model: item.upstream_model,\n  messages,\n  stream: false,\n  tools: TOOLS,\n  ...item.llm_params,\n};\nconst tool_state = {\n  round: 0,\n  usage_acc: {\n    prompt_tokens: 0,\n    completion_tokens: 0,\n    total_tokens: 0,\n    prompt_cache_hit_tokens: 0,\n    prompt_cache_miss_tokens: 0,\n  },\n};\nreturn [{ json: { ...item, messages, upstream_payload: upstreamPayload, tool_state } }];\n"
       },
       "id": "build-upstream",
       "name": "Build Upstream Payload",
@@ -286,7 +286,7 @@
     },
     {
       "parameters": {
-        "jsCode": "/* Persist the turn transcript (user + assistant) for session memory.\n   The assistant row carries the request's computed cost for per-turn\n   accounting; the user row logs 0. */\nconst meta = $('Parse & Validate').first().json;\nconst success = $('Prep Success Log').first().json;\nconst resp = $('Format OpenAI Response').first().json;\nconst userMsg = [...(meta.messages || [])].reverse().find((m) => m.role === 'user');\nconst rows = [\n  { session_id: meta.session_id, role: 'user', content: userMsg?.content ?? '', model: meta.model, client: meta.client, key_name: meta.key_name || '', cost_usd: 0 },\n  { session_id: meta.session_id, role: 'assistant', content: resp.choices?.[0]?.message?.content ?? '', model: meta.model, client: meta.client, key_name: meta.key_name || '', cost_usd: success.cost_usd ?? 0 },\n];\nreturn rows.map((json) => ({ json }));\n"
+        "jsCode": "/* Persist the turn transcript (user + assistant) for session memory.\n   Runs on BOTH the success and error paths (after Insert Exec Row); on the\n   error path Prep Success Log never ran, so the message rows are skipped. */\nconst meta = $('Parse & Validate').first().json;\nlet success = null;\ntry { success = $('Prep Success Log').first().json; } catch (e) { success = null; }\nif (!success) return [];\nconst resp = $('Format OpenAI Response').first().json;\nconst userMsg = [...(meta.messages || [])].reverse().find((m) => m.role === 'user');\nconst rows = [\n  { session_id: meta.session_id, role: 'user', content: userMsg?.content ?? '', model: meta.model, client: meta.client, key_name: meta.key_name || '', cost_usd: 0 },\n  { session_id: meta.session_id, role: 'assistant', content: resp.choices?.[0]?.message?.content ?? '', model: meta.model, client: meta.client, key_name: meta.key_name || '', cost_usd: success.cost_usd ?? 0 },\n];\nreturn rows.map((json) => ({ json }));\n"
       },
       "id": "prep-message-rows",
       "name": "Prep Message Rows",
@@ -340,7 +340,7 @@
     },
     {
       "parameters": {
-        "jsCode": "/* Inspect the upstream response: accumulate usage across agent-loop rounds,\n   detect tool_calls, and decide whether the loop continues (hard cap: 2 tool\n   rounds — after that the follow-up request omits tools entirely, which\n   guarantees termination). */\nconst item = $input.first().json; // DeepSeek response\nconst MAX_ROUNDS = 2;\n\n// state of the request that produced this response\nlet prev_payload, tool_state;\ntry {\n  ({ upstream_payload: prev_payload, tool_state } = $('Append Tool Results').first().json);\n} catch {\n  ({ upstream_payload: prev_payload, tool_state } = $('Build Upstream Payload').first().json);\n}\n\nconst u = item.usage || {};\nconst acc = {\n  prompt_tokens: (tool_state.usage_acc.prompt_tokens || 0) + (u.prompt_tokens || 0),\n  completion_tokens: (tool_state.usage_acc.completion_tokens || 0) + (u.completion_tokens || 0),\n  total_tokens: (tool_state.usage_acc.total_tokens || 0) + (u.total_tokens || 0),\n  prompt_cache_hit_tokens: (tool_state.usage_acc.prompt_cache_hit_tokens || 0) + (u.prompt_cache_hit_tokens || 0),\n  prompt_cache_miss_tokens: (tool_state.usage_acc.prompt_cache_miss_tokens || 0) + (u.prompt_cache_miss_tokens || 0),\n};\nconst msg = item.choices?.[0]?.message || {};\nconst calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];\nconst round = tool_state.round || 0;\nconst hasToolCalls = item.choices?.[0]?.finish_reason === 'tool_calls' && calls.length > 0 && round < MAX_ROUNDS;\n\nif (!hasToolCalls) {\n  return [{ json: { ...item, tool_state: { ...tool_state, usage_acc: acc }, has_tool_calls: false } }];\n}\n\n// build the assistant tool_calls message once for the follow-up request\nconst assistantMsg = { role: 'assistant', content: msg.content ?? null, tool_calls: calls };\nconst messages_base = [...(prev_payload.messages || []), assistantMsg];\nconst parsed = calls.map((c) => {\n  let query = '';\n  try {\n    query = String(JSON.parse(c.function?.arguments || '{}').query || '').slice(0, 400);\n  } catch (e) {\n    query = '';\n  }\n  return { tool_call_id: c.id, query };\n});\nreturn [{ json: {\n  has_tool_calls: true,\n  tool_state: { round: round + 1, usage_acc: acc },\n  messages_base,\n  model: prev_payload.model,\n  llm_params: prev_payload.llm_params || {},\n  tool_calls: parsed,\n} }];\n"
+        "jsCode": "/* Inspect the upstream response: accumulate usage across agent-loop rounds,\n   detect tool_calls, and decide whether the loop continues (hard cap: 2 tool\n   rounds — after that the follow-up request omits tools entirely, which\n   guarantees termination). */\nconst item = $input.first().json; // DeepSeek response\n\n// state of the request that produced this response\nlet prev_payload, tool_state;\ntry {\n  ({ upstream_payload: prev_payload, tool_state } = $('Append Tool Results').first().json);\n} catch {\n  ({ upstream_payload: prev_payload, tool_state } = $('Build Upstream Payload').first().json);\n}\n\nconst u = item.usage || {};\nconst acc = {\n  prompt_tokens: (tool_state.usage_acc.prompt_tokens || 0) + (u.prompt_tokens || 0),\n  completion_tokens: (tool_state.usage_acc.completion_tokens || 0) + (u.completion_tokens || 0),\n  total_tokens: (tool_state.usage_acc.total_tokens || 0) + (u.total_tokens || 0),\n  prompt_cache_hit_tokens: (tool_state.usage_acc.prompt_cache_hit_tokens || 0) + (u.prompt_cache_hit_tokens || 0),\n  prompt_cache_miss_tokens: (tool_state.usage_acc.prompt_cache_miss_tokens || 0) + (u.prompt_cache_miss_tokens || 0),\n};\nconst msg = item.choices?.[0]?.message || {};\nconst calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];\nconst round = tool_state.round || 0;\nconst hasToolCalls = item.choices?.[0]?.finish_reason === 'tool_calls' && calls.length > 0 && round < 2;\n\nif (!hasToolCalls) {\n  return [{ json: { ...item, tool_state: { ...tool_state, usage_acc: acc }, has_tool_calls: false } }];\n}\n\n// build the assistant tool_calls message once for the follow-up request\nconst assistantMsg = { role: 'assistant', content: msg.content ?? null, tool_calls: calls };\nconst messages_base = [...(prev_payload.messages || []), assistantMsg];\nconst parsed = calls.map((c) => {\n  let args = {};\n  try {\n    args = JSON.parse(c.function?.arguments || '{}') || {};\n  } catch (e) {\n    args = {};\n  }\n  return { tool_call_id: c.id, tool_name: c.function?.name || 'unknown', args };\n});\nreturn [{ json: {\n  has_tool_calls: true,\n  tool_state: { round: round + 1, usage_acc: acc },\n  messages_base,\n  model: prev_payload.model,\n  llm_params: prev_payload.llm_params || {},\n  tool_calls: parsed,\n} }];\n"
       },
       "id": "p5-check-response",
       "name": "Check Response",
@@ -387,7 +387,7 @@
     },
     {
       "parameters": {
-        "jsCode": "/* Split the parsed tool calls into one item each so the search node runs per\n   call. Each item carries the full loop state for Append Tool Results. */\nconst item = $input.first().json;\nconst calls = item.tool_calls || [];\nif (!calls.length) return [];\nconst { tool_calls, ...rest } = item;\nreturn calls.map((c) => ({ json: { ...rest, tool_call_id: c.tool_call_id, query: c.query } }));\n"
+        "jsCode": "/* Split the parsed tool calls into one item each so each tool executes on its\n   own. Every item carries the full loop state for Append Tool Results. */\nconst item = $input.first().json;\nconst calls = item.tool_calls || [];\nif (!calls.length) return [];\nconst { tool_calls, ...rest } = item;\nreturn calls.map((c) => ({ json: { ...rest, tool_call_id: c.tool_call_id, tool_name: c.tool_name, args: c.args || {} } }));\n"
       },
       "id": "p5-emit-tool-items",
       "name": "Emit Tool Call Items",
@@ -400,30 +400,12 @@
     },
     {
       "parameters": {
-        "method": "GET",
-        "url": "http://searxng:8080/search",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "q",
-              "value": "={{ $json.query }}"
-            },
-            {
-              "name": "format",
-              "value": "json"
-            }
-          ]
-        },
-        "options": {
-          "timeout": 20000
-        }
+        "jsCode": "/* Execute each requested tool call and attach the result to the item.\n     web_search -> SearXNG JSON API\n     kb_search  -> DashScope query embedding + pgvector ANN over kb_chunks\n   Failures become .result.error so the model can recover via the tool\n   message instead of the workflow failing. */\nconst items = $input.all().map((i) => i.json);\nconst out = [];\n\nfor (const it of items) {\n  let result;\n  try {\n    if (it.tool_name === 'web_search') {\n      const res = await this.helpers.httpRequest({\n        method: 'GET',\n        url: 'http://searxng:8080/search',\n        qs: { q: it.query, format: 'json' },\n        headers: { Accept: 'application/json' },\n        timeout: 20000,\n      });\n      result = {\n        type: 'web',\n        results: (res.results || []).slice(0, 5).map((r) => ({\n          title: r.title,\n          url: r.url,\n          snippet: (r.content || '').slice(0, 300),\n        })),\n      };\n    } else if (it.tool_name === 'kb_search') {\n      if (!($env.DASHSCOPE_API_KEY || '').trim()) {\n        throw new Error('knowledge base is not configured (DASHSCOPE_API_KEY missing)');\n      }\n      const emb = await this.helpers.httpRequest({\n        method: 'POST',\n        url: 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding',\n        headers: { Authorization: 'Bearer ' + $env.DASHSCOPE_API_KEY, 'Content-Type': 'application/json' },\n        body: {\n          model: 'qwen3.7-text-embedding',\n          input: { texts: [it.query] },\n          parameters: {\n            dimension: 1024,\n            text_type: 'query',\n            output_type: 'dense',\n            instruct: 'Given a user question about internal documents, retrieve the most relevant passages',\n          },\n        },\n      });\n      const vec = emb.output.embeddings[0].embedding;\n      const { Client } = require('pg');\n      const pg = new Client({\n        host: $env.DB_POSTGRESDB_HOST || 'postgres',\n        port: Number($env.DB_POSTGRESDB_PORT || 5432),\n        database: $env.DB_POSTGRESDB_DATABASE || 'n8n',\n        user: $env.DB_POSTGRESDB_USER || 'n8n',\n        password: $env.DB_POSTGRESDB_PASSWORD,\n      });\n      await pg.connect();\n      try {\n        const k = Math.min(Math.max(Number(it.args && it.args.top_k) || 6, 1), 10);\n        const q = await pg.query(\n          `SELECT c.content, c.seq, d.title, 1 - (c.embedding <=> $1::vector) AS score\n             FROM kb_chunks c JOIN kb_documents d ON d.doc_id = c.doc_id\n            WHERE d.status = 'active'\n            ORDER BY c.embedding <=> $1::vector LIMIT $2`,\n          ['[' + vec.join(',') + ']', k]\n        );\n        result = {\n          type: 'kb',\n          results: q.rows.map((r) => ({\n            title: r.title,\n            seq: r.seq,\n            excerpt: String(r.content).slice(0, 600),\n            score: Math.round(Number(r.score) * 1000) / 1000,\n          })),\n        };\n      } finally {\n        await pg.end();\n      }\n    } else {\n      result = { type: 'unknown', error: 'unknown tool: ' + it.tool_name };\n    }\n  } catch (e) {\n    result = { error: String(e && e.message ? e.message : e).slice(0, 200) };\n  }\n  const { tool_calls, ...rest } = it;\n  out.push({ json: { ...rest, result } });\n}\nreturn out;\n"
       },
-      "onError": "continueRegularOutput",
-      "id": "p5-searxng-search",
-      "name": "SearXNG Search",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "id": "p5b-execute-tool",
+      "name": "Execute Tool",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         2420,
         280
@@ -431,7 +413,7 @@
     },
     {
       "parameters": {
-        "jsCode": "/* Aggregate per-call search results into tool messages and build the next\n   upstream payload. After MAX_ROUNDS the follow-up request omits tools\n   entirely, forcing a final answer. SearXNG failures become tool messages so\n   the model can answer without search instead of erroring out. */\nconst emitted = $('Emit Tool Call Items').all().map((i) => i.json); // per-call state, ordered\nconst responses = $input.all().map((i) => i.json);                  // SearXNG responses, same order\nconst MAX_ROUNDS = 2;\n\nconst TOOLS = [{\n  type: 'function',\n  function: {\n    name: 'web_search',\n    description: 'Search the public web for current information, facts, news or documentation. Returns ranked results with title, url and snippet.',\n    parameters: {\n      type: 'object',\n      properties: {\n        query: { type: 'string', description: 'The search query' },\n      },\n      required: ['query'],\n    },\n  },\n}];\n\nconst first = emitted[0] || {};\nconst round = first.tool_state?.round ?? 1;\n\nconst toolMsgs = emitted.map((it, idx) => {\n  const res = responses[idx] || {};\n  let content;\n  if (res.error || !Array.isArray(res.results)) {\n    content = JSON.stringify({ query: it.query, error: 'web_search failed or returned no results' });\n  } else {\n    const top = res.results.slice(0, 5).map((r) => ({\n      title: r.title,\n      url: r.url,\n      snippet: (r.content || '').slice(0, 300),\n    }));\n    content = JSON.stringify({ query: it.query, results: top });\n  }\n  return { role: 'tool', tool_call_id: it.tool_call_id, content };\n});\n\nconst messages = [...(first.messages_base || []), ...toolMsgs];\nconst upstreamPayload = {\n  model: first.model,\n  messages,\n  stream: false,\n  ...(first.llm_params || {}),\n};\nif (round < MAX_ROUNDS) upstreamPayload.tools = TOOLS;\n\nreturn [{ json: { upstream_payload: upstreamPayload, tool_state: first.tool_state } }];\n"
+        "jsCode": "/* Aggregate tool results into tool messages and build the next upstream\n   payload. After MAX_ROUNDS the follow-up request omits tools entirely,\n   forcing a final answer. Tool failures become error tool messages so the\n   model can answer without that tool instead of the workflow failing. */\nconst items = $input.all().map((i) => i.json);\nconst MAX_ROUNDS = 2;\n\nconst TOOLS = [{\n  type: 'function',\n  function: {\n    name: 'web_search',\n    description: 'Search the public web for current information, facts, news or documentation. Returns ranked results with title, url and snippet.',\n    parameters: {\n      type: 'object',\n      properties: {\n        query: { type: 'string', description: 'The search query' },\n      },\n      required: ['query'],\n    },\n  },\n}, {\n  type: 'function',\n  function: {\n    name: 'kb_search',\n    description: 'Search the private knowledge base (ingested internal documents, notes and references). Use for questions about internal/content already added to the knowledge base. Returns passages with title, excerpt and relevance.',\n    parameters: {\n      type: 'object',\n      properties: {\n        query: { type: 'string', description: 'The search query, in the same language as the documents' },\n        top_k: { type: 'integer', description: 'How many passages to return (1-10, default 6)' },\n      },\n      required: ['query'],\n    },\n  },\n}];\n\nconst first = items[0] || {};\nconst round = first.tool_state?.round ?? 1;\n\nconst toolMsgs = items.map((it) => {\n  const res = it.result || {};\n  let content;\n  if (res.error) {\n    content = JSON.stringify({ query: it.query, error: res.error });\n  } else if (res.type === 'kb') {\n    content = JSON.stringify({ query: it.query, sources: res.results });\n  } else {\n    content = JSON.stringify({ query: it.query, results: res.results });\n  }\n  return { role: 'tool', tool_call_id: it.tool_call_id, content };\n});\n\nconst messages = [...(first.messages_base || []), ...toolMsgs];\nconst upstreamPayload = {\n  model: first.model,\n  messages,\n  stream: false,\n  ...(first.llm_params || {}),\n};\nif (round < MAX_ROUNDS) upstreamPayload.tools = TOOLS;\n\nreturn [{ json: { upstream_payload: upstreamPayload, tool_state: first.tool_state } }];\n"
       },
       "id": "p5-append-tool-results",
       "name": "Append Tool Results",
@@ -674,18 +656,7 @@
       "main": [
         [
           {
-            "node": "SearXNG Search",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "SearXNG Search": {
-      "main": [
-        [
-          {
-            "node": "Append Tool Results",
+            "node": "Execute Tool",
             "type": "main",
             "index": 0
           }
@@ -697,6 +668,17 @@
         [
           {
             "node": "Call DeepSeek",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Tool": {
+      "main": [
+        [
+          {
+            "node": "Append Tool Results",
             "type": "main",
             "index": 0
           }

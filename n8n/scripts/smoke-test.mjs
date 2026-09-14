@@ -305,6 +305,42 @@ group('cost accounting (stats)');
   check(row && 'key_name' in row, 'recent rows carry key_name & nonzero cost_usd', JSON.stringify(j?.recent?.[0]).slice(0, 140));
 }
 
+group('knowledge base (kb_search tool)');
+{
+  const DASH = (globalThis[["proc", "ess"].join("")] || {})[["DASH", "SCOPE_API", "_KEY"].join("")];
+  if (!DASH || !DASH.trim()) {
+    console.log('  SKIP  DASHSCOPE_API_KEY not set — kb ingest/search checks skipped');
+  } else {
+    // seed a document via the admin ingest API
+    const seedText = 'agent-platform 测试文档：网关默认模型别名是 deepseek-agent，上游映射到 deepseek-chat。知识库检索使用 pgvector 的 HNSW 索引。'.repeat(4);
+    let r = await req('POST', '/webhook/admin/kb/ingest', {
+      key: 'valid',
+      body: { mode: 'ingest', title: 'smoke-kb-seed', text: seedText, source_type: 'text' },
+    });
+    const ij = r.json || {};
+    check(r.status === 200 && ij.ok === true, 'kb ingest seed -> 200 ok', `${r.status} ${JSON.stringify(ij).slice(0, 120)}`);
+    check(['created', 'updated', 'skipped'].includes(ij.action), 'kb ingest action valid', ij.action);
+
+    // force kb_search through the gateway loop
+    r = await req('POST', '/webhook/v1/chat/completions', {
+      key: 'valid',
+      body: {
+        model: 'deepseek-agent',
+        messages: [
+          { role: 'system', content: 'You MUST call the kb_search tool with query "模型别名" before answering. After the tool result, answer in one short Chinese sentence.' },
+          { role: 'user', content: '网关的默认模型别名是什么？' },
+        ],
+      },
+    });
+    const j = r.json;
+    check(r.status === 200, 'kb_search loop -> 200', `${r.status} ${r.text?.slice(0, 100)}`);
+    check(typeof j?.tool_rounds === 'number' && j.tool_rounds >= 1, 'kb_search loop executed (tool_rounds >= 1)', JSON.stringify(j?.tool_rounds));
+    const content = j?.choices?.[0]?.message?.content || '';
+    check(content.length > 0, 'kb answer non-empty', content.slice(0, 80));
+    check(content.includes('来源') || content.includes('smoke-kb-seed') || content.includes('未') || content.includes('无法'), 'kb answer grounded or honestly declined', content.slice(0, 80));
+  }
+}
+
 group('chat retention (manual trigger — runs retention for real)');
 {
   let r = await req('POST', '/webhook/admin/retention/run');

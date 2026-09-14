@@ -88,7 +88,9 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
    - 请求只带单条消息时，自动从 Data Table `chat_messages` 合并该会话最近 20 轮历史（服务端记忆）；
      LobeChat 等全量历史的客户端走透传路径
    - 调用 DeepSeek（60s 超时 + 1 次重试），包装为 OpenAI 标准响应（含真实 token usage）
-   - **Agent 工具循环**（优先级 5）：请求携带 web_search 工具（SearXNG），模型自主决定是否
+   - **Agent 工具循环**（优先级 5）：请求携带 web_search（SearXNG 公网）与 kb_search（私域知识库）
+     两个工具，模型自主决定是否/用哪个搜索；最多 2 轮工具调用，第 2 轮后强制收口；
+     usage 跨轮累计计入成本；工具故障时降级为错误说明回答；响应新增 `tool_rounds` 字段
      搜索；最多 2 轮工具调用，第 2 轮后强制收口；usage 跨轮累计计入成本；SearXNG 故障时
      降级为无搜索回答；响应新增 `tool_rounds` 字段（0 = 直接回答）
    - 任何失败统一返回 `{error:{message,type,code}}` + 400/401/404/502
@@ -127,6 +129,22 @@ bash n8n/scripts/backup.sh restore backups/n8n-data-XXXX.tar.gz   # 恢复卷（
 `pg-n8n-*.sql.gz`（数据库主存储逻辑导出）、`config-*.tar.gz`（compose + .env）。
 Postgres 恢复：`gunzip -c backups/pg-n8n-*.sql.gz | docker exec -i postgres psql -U n8n -d n8n`。
 归档含凭据与对话数据，妥善保管。
+
+### 知识库（KB-DESIGN v1.1）
+
+私域知识库：Postgres + pgvector（`kb_documents` / `kb_chunks` 表，HNSW 索引），
+embedding 用阿里百炼 `qwen3.7-text-embedding`（1024 维，text_type 区分 query/document）。
+检索经网关 `kb_search` 工具进入 Agent 循环，回答强制标注 [来源: 文档标题]。
+
+```bash
+# 摄取（幂等，同内容自动跳过）；mode=retire 下架；mode=list 列出
+curl -X POST http://localhost:5678/webhook/admin/kb/ingest \
+  -H "Authorization: Bearer $CHAT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"mode":"ingest","title":"文档标题","text":"正文……"}'
+```
+
+评估：`node --env-file=.env n8n/scripts/kb-eval.mjs`（golden set hit@5 / MRR）。
+设计详见 KB-DESIGN 文档；表结构 `n8n/scripts/kb-schema.sql`（换镜像后重跑一次即可）。
 
 ### 多 Key 与限流（n8n/scripts/keys.mjs）
 

@@ -1,0 +1,171 @@
+{
+  "name": "KB Ingest",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/kb/ingest",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-manual-run",
+      "name": "Ingest Run",
+      "webhookId": "admin-retention-run",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Same Bearer auth as Chat Retention; passes the request body through. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true, body: req.body || {} } }];\n"
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-error",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      },
+      "id": "respond-error",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        680,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Knowledge-base ingest / retire / list (KB-DESIGN v1.1, P1).\n   Modes via request body:\n     { mode: 'ingest', title, text, source_type?, source_ref? }\n     { mode: 'retire', doc_id | title }\n     { mode: 'list' }\n   Embedding: DashScope native API, qwen3.7-text-embedding, dim 1024,\n   text_type=document. Idempotent via content hash. */\nconst { Client } = require('pg');\nconst item = $input.first().json;\nconst body = item.body || {};\nconst mode = body.mode || 'ingest';\n\nconst DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding';\nconst EMBED_MODEL = 'qwen3.7-text-embedding';\nconst EMBED_DIM = 1024;\nconst BATCH = 20;                 // DashScope limit: 20 texts per call\nconst TARGET_CHARS = 750;         // ≈500 tokens for mixed zh/en\nconst OVERLAP_CHARS = 80;\n\nconst pgClient = () => new Client({\n  host: $env.DB_POSTGRESDB_HOST || 'postgres',\n  port: Number($env.DB_POSTGRESDB_PORT || 5432),\n  database: $env.DB_POSTGRESDB_DATABASE || 'n8n',\n  user: $env.DB_POSTGRESDB_USER || 'n8n',\n  password: $env.DB_POSTGRESDB_PASSWORD,\n});\n\nconst dashHeaders = { Authorization: 'Bearer ' + ($env.DASHSCOPE_API_KEY || ''), 'Content-Type': 'application/json' };\n\nfunction chunkText(text) {\n  // markdown headings are hard boundaries; sentences are soft ones\n  const sections = text.split(/\\n(?=#{1,6}\\s)/);\n  const chunks = [];\n  for (const section of sections) {\n    const sents = section.replace(/\\s+/g, ' ').match(/[^。！？!?\\n]+[。！？!?\\n]?/g) || [section];\n    let cur = '';\n    for (const s of sents) {\n      if (cur && (cur + s).length > TARGET_CHARS) {\n        chunks.push(cur.trim());\n        cur = cur.slice(-Math.min(OVERLAP_CHARS, cur.length)) + s;\n      } else {\n        cur += s;\n      }\n    }\n    if (cur.trim()) chunks.push(cur.trim());\n  }\n  return chunks.filter((c) => c.length > 0);\n}\n\nconst vectorLiteral = (vec) => '[' + vec.join(',') + ']';\n\nconst client = pgClient();\nawait client.connect();\n\ntry {\n  if (mode === 'list') {\n    const docs = await client.query(\n      `SELECT d.doc_id, d.title, d.source_type, d.status, d.created_at,\n              COUNT(c.chunk_id)::int AS chunks\n         FROM kb_documents d LEFT JOIN kb_chunks c ON c.doc_id = d.doc_id\n        GROUP BY d.doc_id ORDER BY d.created_at DESC LIMIT 100`\n    );\n    return [{ json: { ok: true, mode, docs: docs.rows } }];\n  }\n\n  if (mode === 'retire') {\n    const key = body.doc_id || body.title;\n    if (!key) return [{ json: { ok: false, mode, error: 'doc_id or title required' } }];\n    const r = await client.query(\n      `UPDATE kb_documents SET status='retired', updated_at=now()\n        WHERE doc_id = $1 OR title = $1 RETURNING doc_id`, [key]\n    );\n    return [{ json: { ok: true, mode, retired: r.rowCount } }];\n  }\n\n  // ---- mode: ingest ----\n  if (!body.title || !body.text) {\n    return [{ json: { ok: false, mode, error: 'title and text are required' } }];\n  }\n  if (!($env.DASHSCOPE_API_KEY || '').trim()) {\n    return [{ json: { ok: false, mode, error: 'DASHSCOPE_API_KEY not configured — set it in .env and restart n8n' } }];\n  }\n\n  const sha = require('crypto').createHash('sha256').update(body.text).digest('hex');\n  const docId = 'kb-' + sha.slice(0, 16);\n  const sourceType = body.source_type || 'text';\n\n  const existing = await client.query('SELECT content_sha, status FROM kb_documents WHERE doc_id = $1', [docId]);\n  if (existing.rows.length && existing.rows[0].content_sha === sha && existing.rows[0].status === 'active') {\n    return [{ json: { ok: true, mode, action: 'skipped', doc_id: docId, reason: 'identical content already active' } }];\n  }\n\n  const chunks = chunkText(body.text);\n  if (!chunks.length) {\n    return [{ json: { ok: false, mode, error: 'text produced no chunks' } }];\n  }\n\n  const embeddings = [];\n  for (let i = 0; i < chunks.length; i += BATCH) {\n    const part = chunks.slice(i, i + BATCH);\n    const resp = await this.helpers.httpRequest({\n      method: 'POST',\n      url: DASHSCOPE_URL,\n      headers: dashHeaders,\n      body: {\n        model: EMBED_MODEL,\n        input: { texts: part },\n        parameters: { dimension: EMBED_DIM, text_type: 'document', output_type: 'dense' },\n      },\n    });\n    const out = resp.output && resp.output.embeddings ? resp.output.embeddings : null;\n    if (!out || out.length !== part.length) throw new Error('unexpected embedding response shape');\n    for (const e of out) embeddings.push(e.embedding);\n  }\n\n  try {\n    await client.query('BEGIN');\n    await client.query(\n      `INSERT INTO kb_documents (doc_id, title, source_type, source_ref, content_sha, status)\n       VALUES ($1,$2,$3,$4,$5,'active')\n       ON CONFLICT (doc_id) DO UPDATE SET status='active', updated_at=now()`,\n      [docId, body.title, sourceType, body.source_ref || null, sha]\n    );\n    await client.query('DELETE FROM kb_chunks WHERE doc_id = $1', [docId]);\n    for (let i = 0; i < chunks.length; i++) {\n      await client.query(\n        `INSERT INTO kb_chunks (doc_id, seq, content, n_tokens, embedding) VALUES ($1,$2,$3,$4,$5::vector)`,\n        [docId, i, chunks[i], Math.round(chunks[i].length / 1.5), vectorLiteral(embeddings[i])]\n      );\n    }\n    await client.query('COMMIT');\n  } catch (e) {\n    await client.query('ROLLBACK');\n    return [{ json: { ok: false, mode, error: 'db failure: ' + String(e.message).slice(0, 200) } }];\n  }\n\n  return [{ json: { ok: true, mode, action: existing.rows.length ? 'updated' : 'created', doc_id: docId, chunks: chunks.length, tokens_billed: Math.round(body.text.length / 1.5) } }];\n} catch (e) {\n  return [{ json: { ok: false, mode, error: String(e && e.message ? e.message : e).slice(0, 300) } }];\n} finally {\n  await client.end();\n}\n"
+      },
+      "id": "run-retention",
+      "name": "Run KB Ops",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "respond-result",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        900,
+        -100
+      ]
+    }
+  ],
+  "connections": {
+    "Ingest Run": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run KB Ops",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run KB Ops": {
+      "main": [
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "ip9r56a90uKJHFUb"
+}

@@ -39,6 +39,11 @@ services:
       - NODE_FUNCTION_ALLOW_BUILTIN=crypto
       # Postgres is the primary datastore (migrated from SQLite 2026-09-14)
       - DB_TYPE=postgresdb
+      # Knowledge base: pg module for SQL in Code nodes + DashScope embeddings
+      - NODE_FUNCTION_ALLOW_EXTERNAL=pg
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - EMBEDDING_PROVIDER=dashscope/qwen3.7-text-embedding
+      - EMBEDDING_DIM=1024
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
@@ -56,7 +61,7 @@ services:
   # Postgres - n8n primary datastore (production-grade, replaced SQLite)
   # --------------------------------------------------------------------------
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16  # postgres + pgvector extension (kb embeddings)
     container_name: postgres
     restart: unless-stopped
     environment:
