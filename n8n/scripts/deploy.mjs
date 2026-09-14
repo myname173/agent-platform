@@ -62,6 +62,7 @@ const DATA_TABLE_COLUMNS = {
     // priority 3: multi-key attribution + per-request cost
     { name: 'key_name', type: 'string' },
     { name: 'cost_usd', type: 'number' },
+    { name: 'error_raw', type: 'string' },
     { name: 'status', type: 'string' },
     { name: 'error_code', type: 'string' },
     { name: 'error_message', type: 'string' },
@@ -71,6 +72,16 @@ const DATA_TABLE_COLUMNS = {
     { name: 'total_tokens', type: 'number' },
   ],
   // priority 3: managed gateway keys (hash-only storage, per-key limits & spend)
+  // priority 6: error-rate alerting (data table, API-accessible)
+  ops_alerts: [
+    { name: 'kind', type: 'string' },
+    { name: 'window_minutes', type: 'number' },
+    { name: 'total', type: 'number' },
+    { name: 'errors', type: 'number' },
+    { name: 'error_rate', type: 'number' },
+    { name: 'threshold', type: 'number' },
+    { name: 'message', type: 'string' },
+  ],
   gateway_keys: [
     { name: 'key_hash', type: 'string' },
     { name: 'name', type: 'string' },

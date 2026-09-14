@@ -1,0 +1,202 @@
+{
+  "name": "Chat Alerts",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "schedule-daily",
+      "name": "Schedule Alert Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/alerts/run",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-manual-run",
+      "name": "Alert Run Webhook",
+      "webhookId": "admin-retention-run",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Same Bearer auth as Chat Retention; passes the request body through. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true, body: req.body || {} } }];\n"
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-error",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      },
+      "id": "respond-error",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        680,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Error-rate alert check (priority 6, Langfuse-minimal).\n   ALL data access via the n8n public API (helpers.httpRequest) — the same\n   pattern as Chat Retention — because direct pg queries inside task-runner\n   Code nodes crash the runner on any DatabaseError (read-only 'name' on the\n   pg-protocol error object kills the runner process).\n\n   Window: last ALERT_WINDOW_MIN minutes of chat_executions rows (fetched\n   newest-first, filtered by createdAt in code). Fires an ops_alerts row when\n   total >= ALERT_MIN_TOTAL and error rate >= ALERT_RATE_THRESHOLD, with\n   ALERT_COOLDOWN_MIN cooldown. mode='list' returns recent alerts. */\nconst item = $input.first().json;\nconst body = item.body || {};\nconst mode = body.mode || 'check';\n\nconst WINDOW_MIN = Number($env.ALERT_WINDOW_MIN || 60);\nconst THRESHOLD = Number($env.ALERT_RATE_THRESHOLD || 0.5);\nconst MIN_TOTAL = Number($env.ALERT_MIN_TOTAL || 5);\nconst COOLDOWN_MIN = Number($env.ALERT_COOLDOWN_MIN || 60);\nconst API = 'http://localhost:5678/api/v1';\nconst H = { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' };\nconst api = (method, path, qs, payload) => this.helpers.httpRequest({ method, url: API + path, headers: H, qs, body: payload });\nconst filterEq = (col, value) => JSON.stringify({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });\n\ntry {\n  const tables = (await api('GET', '/data-tables', { limit: 100 })).data || [];\n  const byName = {};\n  for (const t of tables) byName[t.name] = t.id;\n  const execId = byName['chat_executions'];\n  const alertsId = byName['ops_alerts'];\n  if (!execId || !alertsId) {\n    return [{ json: { ok: false, mode, error: 'chat_executions / ops_alerts data tables missing (run deploy.mjs)' } }];\n  }\n\n  if (mode === 'list') {\n    const rows = (await api('GET', `/data-tables/${alertsId}/rows`, { limit: 20, sortBy: 'createdAt:desc' })).data || [];\n    return [{ json: { ok: true, mode, alerts: rows } }];\n  }\n\n  // ---- mode: check ----\n  // fetch newest chat_executions rows (data table rows API), filter window in code\n  const rows = (await api('GET', `/data-tables/${execId}/rows`, { limit: 250, sortBy: 'createdAt:desc' })).data || [];\n  const cutoff = Date.now() - WINDOW_MIN * 60000;\n  let total = 0;\n  let errors = 0;\n  for (const row of rows) {\n    const t = Date.parse(row.createdAt || '');\n    if (!(t >= cutoff)) break; // rows arrive newest-first\n    total += 1;\n    if (row.status === 'error') errors += 1;\n  }\n  const rate = total > 0 ? errors / total : 0;\n\n  let alertFired = false;\n  let skipReason = null;\n  if (total >= MIN_TOTAL && rate >= THRESHOLD) {\n    const lastRows = (await api('GET', `/data-tables/${alertsId}/rows`, { limit: 1, sortBy: 'createdAt:desc' })).data || [];\n    const lastAt = lastRows.length ? Date.parse(lastRows[0].createdAt || '') || 0 : 0;\n    if (Date.now() - lastAt >= COOLDOWN_MIN * 60000) {\n      const message = '错误率 ' + (rate * 100).toFixed(1) + '%（' + errors + '/' + total + '，窗口 ' + WINDOW_MIN + ' 分钟）超过阈值 ' + (THRESHOLD * 100) + '%';\n      await api('POST', `/data-tables/${alertsId}/rows`, null, { data: [{\n        kind: 'error_rate',\n        window_minutes: WINDOW_MIN,\n        total,\n        errors,\n        error_rate: Math.round(rate * 1000) / 1000,\n        threshold: THRESHOLD,\n        message,\n      }] });\n      alertFired = true;\n    } else {\n      skipReason = 'cooldown';\n    }\n  } else if (total < MIN_TOTAL) {\n    skipReason = 'below min total';\n  }\n\n  return [{ json: {\n    ok: true,\n    mode: 'check',\n    window_minutes: WINDOW_MIN,\n    total,\n    errors,\n    error_rate: Math.round(rate * 1000) / 1000,\n    threshold: THRESHOLD,\n    min_total: MIN_TOTAL,\n    alert_fired: alertFired,\n    ...(skipReason ? { skip_reason: skipReason } : {}),\n    checked_at: new Date().toISOString(),\n  } }];\n} catch (e) {\n  return [{ json: { ok: false, mode, error: String(e && e.message ? e.message : e).slice(0, 300) } }];\n}\n"
+      },
+      "id": "run-retention",
+      "name": "Run Alert Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "respond-result",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        900,
+        -100
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Alert Check": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Run Webhook": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run Alert Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Alert Check": {
+      "main": [
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "qLfCMfXnKeuZzYzF"
+}

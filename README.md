@@ -146,6 +146,14 @@ curl -X POST http://localhost:5678/webhook/admin/kb/ingest \
 评估：`node --env-file=.env n8n/scripts/kb-eval.mjs`（golden set hit@5 / MRR）。
 设计详见 KB-DESIGN 文档；表结构 `n8n/scripts/kb-schema.sql`（换镜像后重跑一次即可）。
 
+### 错误率告警（Chat Alerts workflow）
+
+每 15 分钟自动检查最近 60 分钟的网关错误率（读 chat_executions），错误率 ≥ 50% 且
+样本 ≥ 5 时写入 ops_alerts 数据表（60 分钟冷却防风暴）。阈值经 .env 的
+`ALERT_WINDOW_MIN` / `ALERT_RATE_THRESHOLD` / `ALERT_MIN_TOTAL` / `ALERT_COOLDOWN_MIN` 调整。
+手动触发与查询：`POST /webhook/admin/alerts/run`（Bearer CHAT_API_KEY；body `{"mode":"list"}` 查看告警历史）。
+错误响应原文落库：chat_executions 的 `error_raw` 列保存上游完整错误体（截断 2000 字符）。
+
 ### 多 Key 与限流（n8n/scripts/keys.mjs）
 
 除主 key 外可为其他客户端签发托管 key（哈希存储，泄露即废、可随时吊销）：
