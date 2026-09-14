@@ -19,6 +19,9 @@
 
 **核心原则**：两端前台不直接互调，所有业务逻辑与 Agent 编排统一收敛到 n8n。
 
+**数据存储**：n8n 主存储为 Postgres（`postgres` 服务，卷 `postgres_data`；2026-09-14 从 SQLite 迁移，
+凭据/工作流/数据表/网关 key 全量保留，迁移导出归档在 `backups/migration/`）。
+
 ## 端口分配
 
 | 服务 | 端口 | 用途 |
@@ -27,6 +30,7 @@
 | LobeChat | 3210 | 终端用户 AI 对话界面 |
 | Kiranism | 3000 | 运营管理后台（Next.js dev server） |
 | SearXNG | 8080 | 搜索引擎（供 n8n 工具链调用） |
+| Postgres | 5432（仅内网） | n8n 主数据库（不在宿主机暴露端口） |
 
 ## 快速启动
 
@@ -112,12 +116,14 @@ Kiranism 需要时在 `frontent/src/app/api/n8n/` 下加一条服务端路由代
 ### 备份与恢复（n8n/scripts/backup.sh）
 
 ```bash
-bash n8n/scripts/backup.sh            # 备份 n8n_data 卷 + compose/.env，保留最近 14 份
+bash n8n/scripts/backup.sh            # 备份 n8n_data 卷 + Postgres 逻辑导出 + compose/.env
 bash n8n/scripts/backup.sh 30         # 保留最近 30 份
-bash n8n/scripts/backup.sh restore backups/n8n-data-XXXX.tar.gz   # 恢复（会停 n8n 并清空卷）
+bash n8n/scripts/backup.sh restore backups/n8n-data-XXXX.tar.gz   # 恢复卷（会停 n8n 并清空卷）
 ```
-归档含凭据与对话数据，妥善保管。热备（n8n 运行中）对 SQLite 有极小的不一致风险，
-要求严格一致时先 `docker compose stop n8n` 再备份。
+每次备份生成三件：`n8n-data-*.tar.gz`（卷：n8n 配置与旧 SQLite 回滚件）、
+`pg-n8n-*.sql.gz`（数据库主存储逻辑导出）、`config-*.tar.gz`（compose + .env）。
+Postgres 恢复：`gunzip -c backups/pg-n8n-*.sql.gz | docker exec -i postgres psql -U n8n -d n8n`。
+归档含凭据与对话数据，妥善保管。
 
 ### 多 Key 与限流（n8n/scripts/keys.mjs）
 
