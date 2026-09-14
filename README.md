@@ -156,6 +156,7 @@ curl -X POST http://localhost:5678/webhook/admin/kb/ingest \
 - 旧版（v1 客户端模式）的浏览器本地会话数据不在服务端；如需保留，临时移除 DATABASE_URL 重启可切回 v1 导出
 - PivotAI 主题（custom-theme/ + apply-theme.ps1）是 v1 资产，LobeHub 2.x 的样式结构不同，适配待做
 - 文件存储（S3）未配置：图片/文件类消息受限，纯对话不受影响
+- 市场（模板/发现 Agent）需要 LobeHub 云端账号授权（market.lobehub.com 全端点要求登录）；不影响核心对话，注册 lobehub.com 账号后可在应用内连接
 
 ### 错误率告警（Chat Alerts workflow）
 
