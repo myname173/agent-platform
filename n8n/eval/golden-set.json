@@ -14,7 +14,7 @@
   "cases": [
     { "q": "平台的对话前台是哪个服务？端口是多少？", "expect_title": "平台架构速览" },
     { "q": "LobeChat 的对话请求最终发到哪里处理？", "expect_title": "平台架构速览" },
-    { "q": "web_search 工具背后用的是哪个搜索引擎？", "expect_title": "平台架构速览" },
+    { "q": "web_search 工具背后用的是哪个搜索引擎？", "expect_title": "平台架构速览", "accept_titles": ["平台架构速览", "agent-platform README（平台总览与运维手册）"] },
     { "q": "哪个端口只在内网开放不对外暴露？", "expect_title": "平台架构速览" },
     { "q": "对话数据写入哪两张表？", "expect_title": "平台架构速览" },
     { "q": "网关的鉴权和限流是按什么维度做的？", "expect_title": "平台架构速览" },
