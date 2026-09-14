@@ -208,7 +208,7 @@ docker compose restart lobechat
 # 停止所有服务
 docker compose down
 
-# 停止并删除数据（⚠️ 谨慎）
+# 停止并删除数据（⚠️ 谨慎：n8n_data + postgres_data 都会被删除）
 docker compose down -v
 ```
 

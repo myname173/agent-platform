@@ -145,7 +145,9 @@ async function deploy(file) {
     id = created.id;
     console.log(`created  ${wf.name} (${id})`);
     // persist the generated id back into the source file for future updates
-    if (!wf.id) {
+    // (also covers recreation on a fresh instance, where the old id no
+    //  longer exists and the source must follow the new one)
+    if (String(created.id) !== String(raw.id)) {
       const { writeFileSync } = await import('node:fs');
       writeFileSync(file, JSON.stringify({ ...raw, id }, null, 2) + '\n');
     }

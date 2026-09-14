@@ -37,8 +37,39 @@ services:
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       # Code nodes use node:crypto for managed API key hashing (gateway auth)
       - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+      # Postgres is the primary datastore (migrated from SQLite 2026-09-14)
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - n8n_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - n8n-net
+
+  # --------------------------------------------------------------------------
+  # Postgres - n8n primary datastore (production-grade, replaced SQLite)
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     networks:
       - n8n-net
 
@@ -110,3 +141,5 @@ volumes:
   n8n_data:
     name: n8n_data
     external: true
+  postgres_data:
+    name: postgres_data

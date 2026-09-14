@@ -8,7 +8,9 @@
 #   bash n8n/scripts/backup.sh restore <archive> # restore a backup (destructive)
 #
 # What is backed up:
-#   - the whole n8n_data volume (SQLite db, credentials, data tables, config)
+#   - the whole n8n_data volume (n8n config files; SQLite legacy since the
+#     Postgres migration — kept as a rollback artifact)
+#   - a Postgres logical dump (pg_dump) — the live n8n datastore
 #   - docker-compose.yml and .env (so a restore is self-contained)
 #
 # Notes:
@@ -23,6 +25,14 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKUP_DIR="${REPO_DIR}/backups"
 VOLUME="n8n_data"
 KEEP_DAYS="${1:-14}"
+
+# Postgres is the n8n primary datastore since 2026-09-14; pull creds from .env
+if [ -f "${REPO_DIR}/.env" ]; then
+  set -a; . "${REPO_DIR}/.env"; set +a
+fi
+PG_CONTAINER="${PG_CONTAINER:-postgres}"
+PG_USER="${POSTGRES_USER:-n8n}"
+PG_DB="${POSTGRES_DB:-n8n}"
 
 mkdir -p "$BACKUP_DIR"
 
@@ -67,10 +77,18 @@ case "${1:-}" in
         alpine sh -c "tar czf /backup/config-${NAME} -C /repo docker-compose.yml .env"
       echo "config bundle: $BACKUP_DIR/config-${NAME}"
     fi
+    # Postgres logical dump (n8n primary datastore)
+    if docker ps --format '{{.Names}}' | grep -qx "$PG_CONTAINER"; then
+      PGNAME="pg-n8n-${STAMP}.sql.gz"
+      docker exec "$PG_CONTAINER" pg_dump -U "$PG_USER" -d "$PG_DB" | gzip > "${BACKUP_DIR}/${PGNAME}"
+      echo "postgres dump: ${BACKUP_DIR}/${PGNAME} ($(du -h "${BACKUP_DIR}/${PGNAME}" | cut -f1))"
+    else
+      echo "WARNING: ${PG_CONTAINER} not running — skipped the Postgres dump" >&2
+    fi
     SIZE=$(du -h "$TARGET" | cut -f1)
     echo "backup complete: $TARGET ($SIZE)"
     # prune old archives
-    PRUNED=$(find "$BACKUP_DIR" -name 'n8n-data-*.tar.gz*' -mtime "+${KEEP_DAYS}" -print -delete || true)
+    PRUNED=$(find "$BACKUP_DIR" \( -name 'n8n-data-*.tar.gz*' -o -name 'pg-n8n-*.sql.gz' \) -mtime "+${KEEP_DAYS}" -print -delete || true)
     if [ -n "$PRUNED" ]; then
       echo "pruned archives older than ${KEEP_DAYS} days:"
       echo "$PRUNED"
