@@ -157,9 +157,21 @@ curl -X POST http://localhost:5678/webhook/admin/kb/ingest \
 
 - **登录**：首次打开注册即可（Better Auth 邮箱密码制；本机使用 `owner@agent-platform.local`）
 - 旧版（v1 客户端模式）的浏览器本地会话数据不在服务端；如需保留，临时移除 DATABASE_URL 重启可切回 v1 导出
-- 外观：设置 → 外观（主题模式 / 强调色，随账号保存在浏览器端）；PivotAI 主题（custom-theme/ + apply-theme.ps1）是 v1 资产，
-  LobeHub 2.x 为运行时样式注入、无官方自定义 CSS 途径，整套皮肤暂不改（如需换 logo 可用 NEXT_PUBLIC_BRAND_LOGO 指定图片 URL）
+- 外观：PivotAI 主题 v2 已注入（见下节）；也可在设置 → 外观调整主题模式/强调色
 - 文件存储（S3）未配置：图片/文件类消息受限，纯对话不受影响
+
+### PivotAI 主题（LobeHub 2.x 版）
+
+深空黑 + 极光流 + 玻璃拟态皮肤：`custom-theme/pivot-theme-v2.css`（样式）与 `pivot-theme-v2.js`（极光引擎：
+Canvas 光斑 + 鼠标视差 + 品牌徽标）。通过 `apply-theme-v2.ps1` 幂等注入到容器内全部 SPA 样式表与共享运行时模块。
+
+```bash
+powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1          # 应用 / 更新（容器重建后需重跑）
+powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Remove  # 卸载（去除注入块，保留原文件）
+```
+
+改文案/颜色：编辑仓库 `custom-theme/pivot-theme-v2.*`（颜色集中在 :root 的 --pivot-* 变量）→ 重跑脚本 → 浏览器强刷（Ctrl+Shift+R）。
+注意：LobeHub 容器每次重建/升级会重置文件系统，升级后需重新运行一次脚本；注入器自动为每个文件保留 `.pivot-backup` 原始备份。
 - 市场（模板/发现 Agent）需要 LobeHub 云端账号授权（market.lobehub.com 全端点要求登录）；不影响核心对话，注册 lobehub.com 账号后可在应用内连接
 
 ### 错误率告警（Chat Alerts workflow）

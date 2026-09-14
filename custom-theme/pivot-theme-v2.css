@@ -1,0 +1,358 @@
+/* ==========================================================================
+   PivotAI Cyber Glassmorphism & Aurora Fluid Theme — LobeHub 2.x Edition
+   Brand: PivotAI   |   Slogan: 从对话到执行 / Chat less. Ship more.
+   Colors: Primary #3B82F6 (Electric Blue) · Accent #06B6D4 (Cyber Cyan)
+           Background #030712 (Cyber Deep Black)
+   Ported from the LobeChat v1 theme for LobeHub 2.x.
+   Injected by apply-theme-v2.ps1 (managed block — edit the repo copy only).
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Design tokens + antd cssVar overrides (both naming families)
+   -------------------------------------------------------------------------- */
+:root, html, html[data-theme], html[data-theme='dark'], html[data-theme='light'] {
+  --pivot-primary: #3b82f6;
+  --pivot-accent: #06b6d4;
+  --pivot-bg-black: #030712;
+  --pivot-glass-surface: rgba(10, 16, 31, 0.68);
+  --pivot-glass-card: rgba(15, 23, 42, 0.62);
+  --pivot-glass-border: rgba(59, 130, 246, 0.22);
+  --pivot-glow-blue: rgba(59, 130, 246, 0.35);
+  --pivot-glow-cyan: rgba(6, 182, 212, 0.4);
+
+  /* antd v5 cssVar token family (v2 uses --colorXxx) */
+  --colorPrimary: #3b82f6 !important;
+  --colorPrimaryHover: #60a5fa !important;
+  --colorPrimaryActive: #2563eb !important;
+  --colorPrimaryBg: rgba(59, 130, 246, 0.12) !important;
+  --colorPrimaryBgHover: rgba(6, 182, 212, 0.2) !important;
+  --colorPrimaryBorder: rgba(59, 130, 246, 0.35) !important;
+  --colorPrimaryBorderHover: rgba(6, 182, 212, 0.6) !important;
+  --colorInfo: #38bdf8 !important;
+  --colorLink: #38bdf8 !important;
+  --colorBgBase: #030712 !important;
+  --colorBgLayout: #030712 !important;
+  --colorBgContainer: rgba(13, 20, 36, 0.65) !important;
+  --colorBgElevated: rgba(15, 23, 42, 0.88) !important;
+  --colorBgSpotlight: rgba(15, 23, 42, 0.92) !important;
+  --colorBorder: rgba(59, 130, 246, 0.22) !important;
+  --colorBorderSecondary: rgba(6, 182, 212, 0.16) !important;
+  --colorSplit: rgba(59, 130, 246, 0.16) !important;
+  --colorTextBase: #f8fafc !important;
+  --colorText: #f1f5f9 !important;
+  --colorTextSecondary: #94a3b8 !important;
+  --colorTextTertiary: #7d8aa0 !important;
+  --colorTextQuaternary: #64748b !important;
+  --colorFill: rgba(59, 130, 246, 0.12) !important;
+  --colorFillSecondary: rgba(6, 182, 212, 0.1) !important;
+  --colorFillTertiary: rgba(15, 23, 42, 0.6) !important;
+  --colorFillQuaternary: rgba(15, 23, 42, 0.4) !important;
+
+  /* legacy --ant-* family (v1 compatibility) */
+  --ant-color-primary: #3b82f6 !important;
+  --ant-color-primary-hover: #60a5fa !important;
+  --ant-color-primary-active: #2563eb !important;
+  --ant-color-primary-bg: rgba(59, 130, 246, 0.12) !important;
+  --ant-color-bg-base: #030712 !important;
+  --ant-color-bg-layout: #030712 !important;
+  --ant-color-bg-container: rgba(13, 20, 36, 0.65) !important;
+  --ant-color-bg-elevated: rgba(15, 23, 42, 0.88) !important;
+  --ant-color-border: rgba(59, 130, 246, 0.22) !important;
+  --ant-color-text: #f1f5f9 !important;
+  --ant-color-text-secondary: #94a3b8 !important;
+}
+
+/* --------------------------------------------------------------------------
+   2. Deep-space base + CSS aurora wash (JS canvas layers on top)
+   -------------------------------------------------------------------------- */
+html {
+  color-scheme: dark !important;
+}
+
+html, body {
+  background-color: #030712 !important;
+  color: #f8fafc !important;
+}
+
+body {
+  overflow-x: hidden !important;
+  background-image:
+    radial-gradient(circle at 10% 15%, rgba(6, 182, 212, 0.12) 0%, transparent 45%),
+    radial-gradient(circle at 85% 85%, rgba(59, 130, 246, 0.14) 0%, transparent 50%),
+    radial-gradient(circle at 50% 40%, rgba(99, 102, 241, 0.08) 0%, transparent 60%) !important;
+  background-attachment: fixed !important;
+}
+
+/* Aurora canvas injected by the engine script */
+#pivot-aurora-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.62;
+  filter: blur(46px);
+  will-change: transform;
+}
+
+/* Make intermediate wrappers transparent so the aurora shows through */
+html, body, #__next, #root,
+[class*="layout__app"], [class*="AppLayout"], [class*="app-layout"] {
+  background: transparent !important;
+}
+
+/* Loading screen: avoid white flash, tint cyber */
+#loading-screen {
+  background: radial-gradient(circle at 50% 40%, #0a1424 0%, #030712 70%) !important;
+  color: #94a3b8 !important;
+}
+
+::selection {
+  background: rgba(6, 182, 212, 0.35) !important;
+  color: #f8fafc !important;
+}
+
+/* --------------------------------------------------------------------------
+   3. Glassmorphism: sidebars, panels, cards (hover glow & lift)
+   -------------------------------------------------------------------------- */
+nav, aside,
+[class*="sidebar"], [class*="SideBar"], [class*="nav-panel"], [class*="NavPanel"] {
+  background: var(--pivot-glass-surface) !important;
+  backdrop-filter: blur(24px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+  border-right: 1px solid rgba(59, 130, 246, 0.18) !important;
+  box-shadow: 4px 0 32px -4px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Secondary topic / session column */
+[class*="topic-list"], [class*="TopicList"], [class*="session-list"], [class*="SessionList"] {
+  background: rgba(13, 20, 36, 0.55) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+}
+
+[class*="card"], [class*="Card"] {
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.25s ease !important;
+}
+
+[class*="card"]:hover {
+  transform: translateY(-2px) !important;
+  border-color: rgba(6, 182, 212, 0.45) !important;
+  box-shadow: 0 12px 36px -4px rgba(6, 182, 212, 0.2), 0 0 0 1px rgba(59, 130, 246, 0.35) !important;
+}
+
+/* Modals, drawers, popovers, dropdowns */
+.ant-modal-container, .ant-modal-content, .ant-drawer-content, .ant-popover-inner, .ant-dropdown-menu,
+[class*="modal"] [class*="container"], [class*="popover"], [class*="dropdown"] {
+  background: rgba(13, 20, 36, 0.9) !important;
+  backdrop-filter: blur(30px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(200%) !important;
+  border: 1px solid rgba(59, 130, 246, 0.28) !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(6, 182, 212, 0.2) !important;
+}
+
+/* --------------------------------------------------------------------------
+   4. Chat messages: slide-in + AI cyber breathe
+   -------------------------------------------------------------------------- */
+[data-message], [class*="message-wrapper"], [class*="MessageWrapper"] {
+  animation: pivotMsgSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both !important;
+  transform-origin: center bottom !important;
+}
+
+@keyframes pivotMsgSlideIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* User bubbles: blue-cyan tech gradient */
+[data-message][data-role='user'] [class*="bubble"],
+[data-role='user'] [class*="message-body"],
+.message-wrapper[data-role='user'],
+[class*="bubble"][data-role='user'] {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.88) 0%, rgba(2, 132, 199, 0.88) 100%) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border: 1px solid rgba(96, 165, 250, 0.4) !important;
+  box-shadow: 0 4px 24px -2px rgba(37, 99, 235, 0.4) !important;
+  color: #ffffff !important;
+  border-radius: 18px 18px 4px 18px !important;
+}
+
+/* AI bubbles: cyber glass with ambient breathe */
+[data-message][data-role='assistant'] [class*="bubble"],
+[data-role='assistant'] [class*="message-body"],
+[class*="bubble"]:not([data-role='user']) {
+  background: rgba(15, 23, 42, 0.72) !important;
+  backdrop-filter: blur(18px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(180%) !important;
+  border: 1px solid rgba(59, 130, 246, 0.24) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5) !important;
+  animation: pivotAiPulse 5s ease-in-out infinite alternate !important;
+}
+
+@keyframes pivotAiPulse {
+  0%   { border-color: rgba(59, 130, 246, 0.24); box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 16px -4px rgba(6, 182, 212, 0.12); }
+  50%  { border-color: rgba(6, 182, 212, 0.42); box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 28px 2px rgba(59, 130, 246, 0.25); }
+  100% { border-color: rgba(59, 130, 246, 0.28); box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 18px -3px rgba(6, 182, 212, 0.18); }
+}
+
+/* --------------------------------------------------------------------------
+   5. Chat input: neon aura on focus
+   -------------------------------------------------------------------------- */
+[class*="chat-input"], [class*="bottom-input"], [class*="home-input"], [class*="chatInput"],
+[data-lexical-editor] {
+  border-radius: 20px !important;
+}
+
+[class*="chat-input"]:focus-within, [class*="bottom-input"]:focus-within,
+[class*="home-input"]:focus-within, [class*="chatInput"]:focus-within {
+  border-color: #06b6d4 !important;
+  box-shadow:
+    0 0 35px -2px rgba(6, 182, 212, 0.4),
+    0 0 0 1.5px rgba(59, 130, 246, 0.65),
+    0 16px 44px rgba(0, 0, 0, 0.65) !important;
+  transform: translateY(-1px) !important;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+textarea, [contenteditable='true'], [data-lexical-editor] {
+  color: #f8fafc !important;
+}
+
+/* --------------------------------------------------------------------------
+   6. Buttons & controls: scale, glow, tactile feedback
+   -------------------------------------------------------------------------- */
+button, .ant-btn {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  position: relative;
+  cursor: pointer !important;
+}
+
+button:hover, .ant-btn:hover {
+  transform: scale(1.025) translateY(-1px) !important;
+}
+
+button:active, .ant-btn:active {
+  transform: scale(0.97) !important;
+}
+
+/* Primary gradient buttons */
+.ant-btn-primary, button[class*='primary'], button[type='submit'] {
+  background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%) !important;
+  border: none !important;
+  box-shadow: 0 4px 18px rgba(6, 182, 212, 0.38) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+.ant-btn-primary:hover, button[class*='primary']:hover, button[type='submit']:hover {
+  box-shadow: 0 6px 26px rgba(6, 182, 212, 0.65), 0 0 16px rgba(59, 130, 246, 0.5) !important;
+  transform: scale(1.04) translateY(-1.5px) !important;
+}
+
+/* --------------------------------------------------------------------------
+   7. Session / topic list items + menu transitions
+   -------------------------------------------------------------------------- */
+[class*='topic-item'], [class*='topic-row'], [class*='session-row'], [data-session-row], [data-topic-id] {
+  border-radius: 12px !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  border: 1px solid transparent !important;
+}
+
+[class*='topic-item']:hover, [class*='topic-row']:hover, [class*='session-row']:hover, [data-session-row]:hover {
+  background: rgba(59, 130, 246, 0.14) !important;
+  border-color: rgba(6, 182, 212, 0.3) !important;
+  transform: translateX(4px) !important;
+}
+
+[class*='topic-item'][data-active], [class*='topic-item'][class*='active'],
+[class*='topic-row'][data-active], [data-session-row][data-active] {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.25) 0%, rgba(6, 182, 212, 0.14) 100%) !important;
+  border-color: rgba(6, 182, 212, 0.5) !important;
+  box-shadow: inset 3.5px 0 0 #06b6d4, 0 4px 20px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* --------------------------------------------------------------------------
+   8. Cyber scrollbars
+   -------------------------------------------------------------------------- */
+::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
+::-webkit-scrollbar-track { background: transparent !important; }
+::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.28) !important;
+  border-radius: 10px !important;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(6, 182, 212, 0.55) !important;
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.6) !important;
+}
+* { scrollbar-width: thin; scrollbar-color: rgba(59, 130, 246, 0.35) transparent; }
+
+/* --------------------------------------------------------------------------
+   9. PivotAI brand accents (badge widget lives top-right, injected by JS)
+   -------------------------------------------------------------------------- */
+.pivot-brand-badge, .pivot-brand-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(10, 16, 31, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 24px;
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  transition: all 0.25s ease;
+}
+
+.pivot-brand-header {
+  position: fixed;
+  top: 14px;
+  right: 20px;
+  z-index: 999;
+  pointer-events: auto;
+}
+
+.pivot-brand-header:hover {
+  border-color: rgba(6, 182, 212, 0.5);
+  box-shadow: 0 6px 24px rgba(6, 182, 212, 0.25);
+  transform: translateY(-1px);
+}
+
+.pivot-brand-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #06b6d4;
+  box-shadow: 0 0 10px #06b6d4;
+  animation: pivotDotPulse 3s ease-in-out infinite;
+}
+
+@keyframes pivotDotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.82); }
+}
+
+/* --------------------------------------------------------------------------
+   10. Accessibility & small screens
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  [data-message], [class*='message-wrapper'], .pivot-brand-dot { animation: none !important; }
+  button:hover, button:active, .ant-btn:hover, .ant-btn:active { transform: none !important; }
+  [class*='topic-item']:hover, [class*='topic-row']:hover, [data-session-row]:hover { transform: none !important; }
+}
+
+@media (max-width: 768px) {
+  .pivot-brand-header { top: 8px; right: 10px; padding: 4px 10px; font-size: 11px; }
+  [class*='chat-input']:focus-within, [class*='bottom-input']:focus-within { transform: none !important; }
+}
