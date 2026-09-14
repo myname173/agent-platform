@@ -137,8 +137,15 @@ services:
       - KEY_VAULTS_SECRET=${KEY_VAULTS_SECRET}
       - JWKS_KEY=${JWKS_KEY}
       - APP_URL=http://localhost:3210
-      # Image ships empty S3_* defaults; a valid URL passes schema validation (storage unused)
+      # Image ships empty S3_* defaults; complete set with placeholders so page
+      # bootstrap does not 500 (file storage stays unused until real S3/MinIO)
       - S3_ENDPOINT=http://localhost:9000
+      - S3_PUBLIC_DOMAIN=http://localhost:9000
+      - S3_ACCESS_KEY_ID=lobechat-files
+      - S3_SECRET_ACCESS_KEY=lobechat-files-secret
+      - S3_BUCKET=lobechat-files
+      - S3_ENABLE_PATH_STYLE=1
+      - S3_SET_ACL=0
     depends_on:
       n8n:
         condition: service_started
