@@ -138,6 +138,24 @@ node n8n/scripts/deploy.mjs
 
 修改 workflow 的正确姿势：改 `n8n/workflows/*.json` → 跑 deploy → 验证 → 提交。
 
+## PivotAI 前台视觉与动效系统 (Cyber Glassmorphism & Aurora)
+
+前台已升级为年轻、高辨识度的 **PivotAI** 沉浸式赛博流光视觉风格：
+- **品牌与 Slogan**：PivotAI | 从对话到执行 / Chat less. Ship more.
+- **色彩规范**：主色 `#3B82F6` (Electric Blue)，强调色 `#06B6D4` (Cyan)，背景 `#030712` (Cyber Deep Black)
+- **核心动态与交互**：
+  1. **流动 Aurora 渐变光斑**：60fps WebGL/Canvas 极光流转背景，支持鼠标平滑视差（Parallax）
+  2. **磨砂玻璃拟态 (Glassmorphism)**：侧边栏、卡片、输入框高斯模糊与高光描边，hover 微浮起
+  3. **顺滑气泡动效**：用户与 AI 回复消息平滑滑入；AI 消息具备微光呼吸感
+  4. **光感按钮反馈**：按压缩放（Scale）与蓝青流光（Glow）
+  5. **输入区聚焦增强**：输入框聚焦激活蓝青多层光晕与高光轮廓
+  6. **会话切换平滑过渡**：告别生硬闪切，全组件保持 60fps 顺滑物理阻尼
+
+### 重装或重新应用主题
+```powershell
+powershell -ExecutionPolicy Bypass -File apply-theme.ps1
+```
+
 ## 常用命令
 
 ```bash
@@ -163,6 +181,10 @@ docker compose down -v
 agent-platform/
 ├── docker-compose.yml        # 统一服务编排
 ├── README.md                 # 本文档
+├── apply-theme.ps1           # PivotAI 视觉主题一键注入脚本
+├── custom-theme/             # PivotAI 定制主题源文件
+│   ├── pivot-theme.css       #   玻璃拟态与赛博光晕样式表
+│   └── pivot-theme.js        #   60fps 极光视差与品牌动态引擎
 ├── frontent/                 # Kiranism 管理后台 (Next.js 16)
 │   ├── src/app/              #   App Router 路由
 │   ├── src/features/         #   业务功能模块

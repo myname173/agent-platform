@@ -1,0 +1,348 @@
+/* ==========================================================================
+   PivotAI Cyber Glassmorphism & Aurora Fluid Theme
+   Brand: PivotAI
+   Slogan: 从对话到执行 / Chat less. Ship more.
+   Colors: Primary #3B82F6, Accent #06B6D4, Background: #030712 (Cyber Deep Black)
+   Performance: 60fps GPU-accelerated transitions
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Root Tokens & Global Palette Overrides
+   -------------------------------------------------------------------------- */
+:root, html, body {
+  /* Core Colors */
+  --pivot-primary: #3b82f6;
+  --pivot-accent: #06b6d4;
+  --pivot-bg-black: #030712;
+  --pivot-glass-surface: rgba(10, 16, 31, 0.68);
+  --pivot-glass-card: rgba(15, 23, 42, 0.62);
+  --pivot-glass-border: rgba(59, 130, 246, 0.22);
+  --pivot-glow-blue: rgba(59, 130, 246, 0.35);
+  --pivot-glow-cyan: rgba(6, 182, 212, 0.4);
+
+  /* Ant Design Theme Overrides */
+  --ant-color-primary: #3b82f6 !important;
+  --ant-color-primary-hover: #60a5fa !important;
+  --ant-color-primary-active: #2563eb !important;
+  --ant-color-primary-border: rgba(59, 130, 246, 0.35) !important;
+  --ant-color-primary-border-hover: rgba(6, 182, 212, 0.6) !important;
+  --ant-color-primary-bg: rgba(59, 130, 246, 0.12) !important;
+  --ant-color-primary-bg-hover: rgba(6, 182, 212, 0.2) !important;
+
+  --ant-color-bg-base: #030712 !important;
+  --ant-color-bg-layout: transparent !important;
+  --ant-color-bg-container: rgba(13, 20, 36, 0.65) !important;
+  --ant-color-bg-elevated: rgba(15, 23, 42, 0.85) !important;
+  --ant-color-bg-spotlight: rgba(15, 23, 42, 0.92) !important;
+
+  --ant-color-border: rgba(59, 130, 246, 0.2) !important;
+  --ant-color-border-secondary: rgba(6, 182, 212, 0.15) !important;
+
+  --ant-color-text-base: #f8fafc !important;
+  --ant-color-text: #f1f5f9 !important;
+  --ant-color-text-secondary: #94a3b8 !important;
+  --ant-color-text-tertiary: #64748b !important;
+  --ant-color-fill: rgba(59, 130, 246, 0.12) !important;
+  --ant-color-fill-secondary: rgba(6, 182, 212, 0.1) !important;
+  --ant-color-fill-tertiary: rgba(15, 23, 42, 0.6) !important;
+}
+
+/* --------------------------------------------------------------------------
+   2. Canvas Background & Transparent App Wrappers
+   -------------------------------------------------------------------------- */
+body {
+  background-color: #030712 !important;
+  color: #f8fafc !important;
+  overflow-x: hidden !important;
+  background-image: 
+    radial-gradient(circle at 10% 15%, rgba(6, 182, 212, 0.12) 0%, transparent 45%),
+    radial-gradient(circle at 85% 85%, rgba(59, 130, 246, 0.14) 0%, transparent 50%),
+    radial-gradient(circle at 50% 40%, rgba(99, 102, 241, 0.08) 0%, transparent 60%) !important;
+  background-attachment: fixed !important;
+}
+
+/* Ensure background transparency on intermediate wrappers so Aurora shines through */
+html, #__next, #root, .app, [class*="layout__app"], [class*="AppLayout"] {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+#pivot-aurora-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.7;
+  filter: blur(45px);
+  will-change: transform;
+}
+
+/* --------------------------------------------------------------------------
+   3. Glassmorphism: Sidebars, Cards, Panels (Hover Glow & Lift)
+   -------------------------------------------------------------------------- */
+/* Main Navigation Bar & Sidebar */
+nav, aside, [class*="SideBar"], [class*="sidebar"], [class*="NavPanel"] {
+  background: rgba(10, 16, 31, 0.65) !important;
+  backdrop-filter: blur(24px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+  border-right: 1px solid rgba(59, 130, 246, 0.18) !important;
+  box-shadow: 4px 0 32px -4px rgba(0, 0, 0, 0.5) !important;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* Secondary Topic / Session Panel */
+[class*="TopicList"], [class*="SessionList"], [class*="agentSidebar"] {
+  background: rgba(13, 20, 36, 0.55) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-right: 1px solid rgba(6, 182, 212, 0.12) !important;
+}
+
+/* Card & Surface Glassmorphism with Smooth Hover Lift */
+[class*="ant-card"], [class*="Card"], [class*="card"] {
+  background: rgba(15, 23, 42, 0.62) !important;
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4) !important;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease !important;
+}
+
+[class*="ant-card"]:hover, [class*="Card"]:hover {
+  transform: translateY(-2px) !important;
+  border-color: rgba(6, 182, 212, 0.45) !important;
+  box-shadow: 0 12px 36px -4px rgba(6, 182, 212, 0.2), 0 0 0 1px rgba(59, 130, 246, 0.35) !important;
+}
+
+/* --------------------------------------------------------------------------
+   4. Chat Messages: Smooth Slide-In & AI Cyber Breath Pulse
+   -------------------------------------------------------------------------- */
+.message-wrapper, [class*="ChatItem"], [class*="chat-item"] {
+  animation: pivotMsgSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  transform-origin: center bottom !important;
+}
+
+@keyframes pivotMsgSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* User Message Bubbles */
+[class*="message-wrapper"]:has([class*="message-header"][direction*="reverse"]),
+.message-wrapper[data-role="user"],
+[class*="bubble"][data-role="user"] {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.88) 0%, rgba(2, 132, 199, 0.88) 100%) !important;
+  backdrop-filter: blur(14px) !important;
+  border: 1px solid rgba(96, 165, 250, 0.4) !important;
+  box-shadow: 0 4px 24px -2px rgba(37, 99, 235, 0.4) !important;
+  color: #ffffff !important;
+  border-radius: 18px 18px 4px 18px !important;
+}
+
+/* AI Message Bubbles (Cyber Glass + Ambient Glow Breathing) */
+.msg_content_flag, [class*="bubble"]:not([data-role="user"]) {
+  background: rgba(15, 23, 42, 0.72) !important;
+  backdrop-filter: blur(18px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(180%) !important;
+  border: 1px solid rgba(59, 130, 246, 0.24) !important;
+  border-radius: 18px !important;
+  position: relative !important;
+  box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5) !important;
+  animation: pivotAiPulse 5s ease-in-out infinite alternate !important;
+}
+
+@keyframes pivotAiPulse {
+  0% {
+    border-color: rgba(59, 130, 246, 0.24);
+    box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 16px -4px rgba(6, 182, 212, 0.12);
+  }
+  50% {
+    border-color: rgba(6, 182, 212, 0.42);
+    box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 28px 2px rgba(59, 130, 246, 0.25);
+  }
+  100% {
+    border-color: rgba(59, 130, 246, 0.28);
+    box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 18px -3px rgba(6, 182, 212, 0.18);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   5. Chat Input Area: Neon Cyber Aura on Focus
+   -------------------------------------------------------------------------- */
+[class*="ChatInput"], [class*="chat-input"], [class*="InputEditor"] {
+  background: rgba(13, 20, 36, 0.75) !important;
+  backdrop-filter: blur(28px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
+  border: 1px solid rgba(59, 130, 246, 0.26) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 8px 36px 0 rgba(0, 0, 0, 0.45) !important;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* Input Focus Glow */
+[class*="ChatInput"]:focus-within, [class*="chat-input"]:focus-within, [class*="InputEditor"]:focus-within {
+  border-color: #06b6d4 !important;
+  box-shadow: 
+    0 0 35px -2px rgba(6, 182, 212, 0.4),
+    0 0 0 1.5px rgba(59, 130, 246, 0.65),
+    0 16px 44px rgba(0, 0, 0, 0.65) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Textarea text clarity */
+textarea, [contenteditable="true"] {
+  color: #f8fafc !important;
+  font-family: inherit !important;
+}
+
+/* --------------------------------------------------------------------------
+   6. Buttons & Interactive Controls (Scale, Glow & Tactile Response)
+   -------------------------------------------------------------------------- */
+button, .ant-btn {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  position: relative !important;
+  cursor: pointer !important;
+}
+
+button:hover, .ant-btn:hover {
+  transform: scale(1.025) translateY(-1px) !important;
+}
+
+button:active, .ant-btn:active {
+  transform: scale(0.97) !important;
+}
+
+/* Primary Brand Gradient Buttons */
+button[class*="primary"], .ant-btn-primary, button[type="submit"] {
+  background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%) !important;
+  border: none !important;
+  box-shadow: 0 4px 18px rgba(6, 182, 212, 0.38) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+button[class*="primary"]:hover, .ant-btn-primary:hover, button[type="submit"]:hover {
+  box-shadow: 0 6px 26px rgba(6, 182, 212, 0.65), 0 0 16px rgba(59, 130, 246, 0.5) !important;
+  transform: scale(1.04) translateY(-1.5px) !important;
+}
+
+/* Action Icons */
+button[class*="ActionIcon"], [class*="action-icon"] {
+  border-radius: 10px !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+button[class*="ActionIcon"]:hover, [class*="action-icon"]:hover {
+  background: rgba(6, 182, 212, 0.16) !important;
+  color: #38bdf8 !important;
+  box-shadow: 0 0 14px rgba(6, 182, 212, 0.3) !important;
+}
+
+/* --------------------------------------------------------------------------
+   7. Session List, Menu & Topic Items (Smooth Transitions)
+   -------------------------------------------------------------------------- */
+[class*="topic-item"], [class*="TopicItem"], [class*="session-item"] {
+  border-radius: 12px !important;
+  margin: 3px 6px !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  border: 1px solid transparent !important;
+}
+
+[class*="topic-item"]:hover, [class*="TopicItem"]:hover, [class*="session-item"]:hover {
+  background: rgba(59, 130, 246, 0.14) !important;
+  border-color: rgba(6, 182, 212, 0.3) !important;
+  transform: translateX(4px) !important;
+}
+
+/* Active Session Item with Cyber Indicator */
+[class*="topic-item"][class*="active"], [class*="TopicItem"][class*="active"], [class*="session-item"][class*="active"] {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.25) 0%, rgba(6, 182, 212, 0.14) 100%) !important;
+  border-color: rgba(6, 182, 212, 0.5) !important;
+  box-shadow: inset 3.5px 0 0 #06b6d4, 0 4px 20px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Modals, Drawers & Popovers */
+.ant-dropdown, .ant-popover, .ant-modal-content, [class*="Modal"], [class*="Popover"], [class*="Drawer"] {
+  background: rgba(13, 20, 36, 0.9) !important;
+  backdrop-filter: blur(30px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(200%) !important;
+  border: 1px solid rgba(59, 130, 246, 0.28) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(6, 182, 212, 0.2) !important;
+}
+
+/* --------------------------------------------------------------------------
+   8. Cyber Custom Scrollbars
+   -------------------------------------------------------------------------- */
+::-webkit-scrollbar {
+  width: 6px !important;
+  height: 6px !important;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.28) !important;
+  border-radius: 10px !important;
+  transition: background 0.2s !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(6, 182, 212, 0.55) !important;
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.6) !important;
+}
+
+/* --------------------------------------------------------------------------
+   9. PivotAI Brand Accents & Cyber Badges
+   -------------------------------------------------------------------------- */
+.pivot-brand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: rgba(6, 182, 212, 0.12);
+  border: 1px solid rgba(6, 182, 212, 0.35);
+  border-radius: 20px;
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  box-shadow: 0 0 18px rgba(6, 182, 212, 0.25);
+}
+
+.pivot-brand-header {
+  position: fixed;
+  top: 14px;
+  right: 20px;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(10, 16, 31, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+  transition: all 0.25s ease;
+}
+
+.pivot-brand-header:hover {
+  border-color: rgba(6, 182, 212, 0.5);
+  box-shadow: 0 6px 24px rgba(6, 182, 212, 0.25);
+  transform: translateY(-1px);
+}
