@@ -75,7 +75,10 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
 2. LobeChat 以 OpenAI 协议 POST 到 `http://n8n:5678/webhook/v1/chat/completions`
    （鉴权：`Authorization: Bearer sk-n8n-agent`，与 compose 中 LobeChat 的 `OPENAI_API_KEY` 一致）
 3. **Chat Gateway** 工作流（源码在 `n8n/workflows/chat-gateway.json`）：
-   - 校验 Bearer key（读取 n8n env `CHAT_API_KEY`），失败返回 401 + OpenAI 错误格式
+   - 校验 Bearer key，失败返回 401 + OpenAI 错误格式。两级鉴权：
+     主 key（n8n env `CHAT_API_KEY`，与 LobeChat 共用，不限流）+ 托管 key
+     （SHA-256 哈希存于 Data Table `gateway_keys`，按 key 限流与记账，
+     用 `n8n/scripts/keys.mjs` 管理），命中限流返回 429 + OpenAI 错误格式
    - 解析 `messages`，映射模型别名（`deepseek-agent` → `deepseek-chat`），未知模型返回 404
    - session 身份：`X-Session-Id` 头 > OpenAI `user` 字段 > anonymous
    - 请求只带单条消息时，自动从 Data Table `chat_messages` 合并该会话最近 20 轮历史（服务端记忆）；
@@ -95,7 +98,8 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
 GET http://localhost:5678/webhook/v1/stats/executions
 Authorization: Bearer sk-n8n-agent
 ```
-返回总量/成功率/平均延迟/按模型与客户端分布/独立会话数/最近 20 条执行。
+返回总量/成功率/平均延迟/按模型与客户端分布/独立会话数/成本聚合
+（total/24h/7d/按模型/按 key，USD）与最近 20 条执行（含 key_name、cost_usd）。
 Kiranism 需要时在 `frontent/src/app/api/n8n/` 下加一条服务端路由代理即可（已有三条路由不受影响）。
 
 ## 运维
@@ -114,6 +118,21 @@ bash n8n/scripts/backup.sh restore backups/n8n-data-XXXX.tar.gz   # 恢复（会
 ```
 归档含凭据与对话数据，妥善保管。热备（n8n 运行中）对 SQLite 有极小的不一致风险，
 要求严格一致时先 `docker compose stop n8n` 再备份。
+
+### 多 Key 与限流（n8n/scripts/keys.mjs）
+
+除主 key 外可为其他客户端签发托管 key（哈希存储，泄露即废、可随时吊销）：
+
+```bash
+node n8n/scripts/keys.mjs list                  # 列出 key / 限额 / 累计花费
+node n8n/scripts/keys.mjs add phone 10          # 签发新 key，限 10 次/分钟（原始 key 只显示一次）
+node n8n/scripts/keys.mjs set-limit phone 30    # 调整限额（0 = 不限）
+node n8n/scripts/keys.mjs disable phone         # 临时吊销 / enable 恢复 / rm 删除
+```
+
+限流按 key 维护 60 秒滚动窗口（以 chat_executions 落库计数），超限返回 429。
+每次成功请求按 DeepSeek 牌价折算 cost_usd 记入两表，并累计到 key 的 total_cost；
+牌价调整时更新 chat-gateway 工作流里 `Prep Success Log` 节点的 PRICING 表。
 
 ### 数据保留（Chat Retention workflow）
 
@@ -203,6 +222,9 @@ agent-platform/
 ├── custom-theme/             # PivotAI 定制主题源文件
 │   ├── pivot-theme.css       #   玻璃拟态与赛博光晕样式表
 │   └── pivot-theme.js        #   60fps 极光视差与品牌动态引擎
+├── n8n/
+│   ├── workflows/            #   workflow 源码（deploy.mjs 部署）
+│   └── scripts/              #   deploy / keys / smoke-test / validate / backup 运维脚本
 ├── frontent/                 # Kiranism 管理后台 (Next.js 16)
 │   ├── src/app/              #   App Router 路由
 │   ├── src/features/         #   业务功能模块

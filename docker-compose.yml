@@ -35,6 +35,8 @@ services:
       - RETENTION_DAYS_EXECUTIONS=${RETENTION_DAYS_EXECUTIONS}
       # Workflows read env vars via $env — explicitly allow env access
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # Code nodes use node:crypto for managed API key hashing (gateway auth)
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
     volumes:
       - n8n_data:/home/node/.n8n
     networks:

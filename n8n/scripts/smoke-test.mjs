@@ -15,8 +15,14 @@
  *     (note: an authorized call actually runs retention — by design it
  *     only deletes rows past the configured cutoffs)
  *
+ *   - Managed keys & rate limiting (needs N8N_API_KEY; skipped when absent):
+ *     unknown key 401, temp-key roundtrip, per-key 429, disabled key 401
+ *   - Cost accounting: stats cost aggregates + per-row key_name/cost_usd
+ *
  * Exit code 0 = all pass; 1 = at least one failure.
  */
+
+import { createHash, randomBytes } from 'node:crypto';
 
 const BASE = (process.env.N8N_URL || 'http://localhost:5678').replace(/\/$/, '');
 const KEY = process.env.CHAT_API_KEY;
@@ -67,6 +73,19 @@ async function req(method, path, { key, body, raw } = {}) {
 const isOpenAIError = (j) =>
   j && typeof j === 'object' && j.error && typeof j.error.message === 'string' &&
   typeof j.error.type === 'string' && typeof j.error.code === 'string';
+
+const N8N_API_KEY = process.env.N8N_API_KEY || null;
+const sha256 = (s) => createHash('sha256').update(s).digest('hex');
+const filterEq = (col, value) => JSON.stringify({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });
+const n8nApi = async (method, path, body) => {
+  const res = await fetch(`${BASE}/api/v1${path}`, {
+    method,
+    headers: { 'X-N8N-API-KEY': N8N_API_KEY, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return res.json();
+};
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ---------------- tests ---------------- */
 
@@ -182,6 +201,87 @@ group('chat stats API');
       JSON.stringify(row).slice(0, 120)
     );
   }
+}
+
+group('gateway: managed keys & rate limit');
+{
+  if (!N8N_API_KEY) {
+    console.log('  SKIP  N8N_API_KEY not set — managed-key & rate-limit checks skipped');
+  } else {
+    // unknown managed key -> 401
+    let r = await req('POST', '/webhook/v1/chat/completions', {
+      key: 'sk-gw-does-not-exist-' + Date.now(),
+      body: { model: 'deepseek-agent', messages: [{ role: 'user', content: 'hi' }] }
+    });
+    check(r.status === 401 && isOpenAIError(r.json), 'unknown managed key -> 401 + envelope', `${r.status}`);
+
+    // create a temp key (rpm=1) for live checks
+    const keyRaw = 'sk-gw-' + randomBytes(24).toString('hex');
+    const keyHash = sha256(keyRaw);
+    const tables = await n8nApi('GET', '/data-tables?limit=100');
+    const gt = (tables.data || []).find((t) => t.name === 'gateway_keys');
+    if (!gt) {
+      fail('gateway_keys table exists', 'run n8n/scripts/deploy.mjs');
+    } else {
+      const ins = await n8nApi('POST', `/data-tables/${gt.id}/rows`, { data: [{ key_hash: keyHash, name: '_smoke_tmp_' + Date.now(), enabled: 1, rate_limit_rpm: 1, total_cost: 0 }] });
+      check(ins?.success === true || Array.isArray(ins), 'temp managed key inserted (rpm=1)', JSON.stringify(ins).slice(0, 100));
+
+      // valid managed key -> 200 (real LLM call)
+      r = await req('POST', '/webhook/v1/chat/completions', {
+        key: keyRaw,
+        body: { model: 'deepseek-agent', messages: [{ role: 'user', content: 'Reply with OK only.' }] }
+      });
+      check(r.status === 200, 'valid managed key -> 200', `${r.status} ${r.text?.slice(0, 120)}`);
+
+      // wait for the exec row + spend bookkeeping to land before the 429 test
+      let total = 0;
+      for (let i = 0; i < 15; i++) {
+        await sleep(1000);
+        const rows = await n8nApi('GET', `/data-tables/${gt.id}/rows?filter=${encodeURIComponent(filterEq('key_hash', keyHash))}`);
+        total = Number((rows.data || [])[0]?.total_cost) || 0;
+        if (total > 0) break;
+      }
+      check(total > 0, 'gateway_keys.total_cost accumulated after request', `total_cost=${total}`);
+
+      // second request within the rolling window -> 429
+      r = await req('POST', '/webhook/v1/chat/completions', {
+        key: keyRaw,
+        body: { model: 'deepseek-agent', messages: [{ role: 'user', content: 'hi' }] }
+      });
+      check(r.status === 429 && isOpenAIError(r.json) && r.json?.error?.code === 'rate_limit_exceeded', 'second request within window -> 429 rate_limit_exceeded', `${r.status} ${r.text?.slice(0, 120)}`);
+
+      // disabled key -> 401
+      await n8nApi('PATCH', `/data-tables/${gt.id}/rows/update`, { filter: { type: 'and', filters: [{ columnName: 'key_hash', condition: 'eq', value: keyHash }] }, data: { enabled: 0 } });
+      r = await req('POST', '/webhook/v1/chat/completions', {
+        key: keyRaw,
+        body: { model: 'deepseek-agent', messages: [{ role: 'user', content: 'hi' }] }
+      });
+      check(r.status === 401 && isOpenAIError(r.json), 'disabled key -> 401 + envelope', `${r.status}`);
+
+      // cleanup temp key row (filter goes in the query string)
+      const del = await n8nApi('DELETE', `/data-tables/${gt.id}/rows/delete?filter=${encodeURIComponent(filterEq('key_hash', keyHash))}`);
+      check(del === true || Array.isArray(del), 'temp key cleaned up', JSON.stringify(del).slice(0, 80));
+    }
+  }
+}
+
+group('cost accounting (stats)');
+{
+  // poll briefly so the just-finished requests have been logged
+  let j = null;
+  for (let i = 0; i < 12; i++) {
+    const r = await req('GET', '/webhook/v1/stats/executions', { key: 'valid' });
+    j = r.json;
+    if (typeof j?.cost?.total_cost_usd === 'number' && j.cost.total_cost_usd > 0) break;
+    await sleep(1000);
+  }
+  check(j?.cost && typeof j.cost.total_cost_usd === 'number', 'stats.cost.total_cost_usd present', JSON.stringify(j?.cost?.total_cost_usd));
+  check(typeof j?.cost?.cost_24h_usd === 'number' && typeof j?.cost?.cost_7d_usd === 'number', 'cost_24h/7d present');
+  check(j?.cost?.by_model && typeof j.cost.by_model === 'object', 'cost.by_model present');
+  check(j?.cost?.by_key && typeof j.cost.by_key === 'object', 'cost.by_key present');
+  check((j?.cost?.total_cost_usd ?? 0) > 0, 'total_cost_usd > 0 (real spend recorded)', String(j?.cost?.total_cost_usd));
+  const row = Array.isArray(j?.recent) ? j.recent.find((x) => x.cost_usd > 0) : null;
+  check(row && 'key_name' in row, 'recent rows carry key_name & nonzero cost_usd', JSON.stringify(j?.recent?.[0]).slice(0, 140));
 }
 
 group('chat retention (manual trigger — runs retention for real)');

@@ -50,12 +50,18 @@ const DATA_TABLE_COLUMNS = {
     { name: 'content', type: 'string' },
     { name: 'model', type: 'string' },
     { name: 'client', type: 'string' },
+    // priority 3: multi-key attribution + per-turn cost
+    { name: 'key_name', type: 'string' },
+    { name: 'cost_usd', type: 'number' },
   ],
   chat_executions: [
     { name: 'execution_id', type: 'string' },
     { name: 'session_id', type: 'string' },
     { name: 'model', type: 'string' },
     { name: 'client', type: 'string' },
+    // priority 3: multi-key attribution + per-request cost
+    { name: 'key_name', type: 'string' },
+    { name: 'cost_usd', type: 'number' },
     { name: 'status', type: 'string' },
     { name: 'error_code', type: 'string' },
     { name: 'error_message', type: 'string' },
@@ -64,11 +70,37 @@ const DATA_TABLE_COLUMNS = {
     { name: 'completion_tokens', type: 'number' },
     { name: 'total_tokens', type: 'number' },
   ],
+  // priority 3: managed gateway keys (hash-only storage, per-key limits & spend)
+  gateway_keys: [
+    { name: 'key_hash', type: 'string' },
+    { name: 'name', type: 'string' },
+    { name: 'enabled', type: 'number' },
+    { name: 'rate_limit_rpm', type: 'number' },
+    { name: 'total_cost', type: 'number' },
+  ],
 };
+
+async function ensureColumns(tableId, expected) {
+  const existing = new Set((await api('GET', `/data-tables/${tableId}/columns`)).map((c) => c.name));
+  for (const col of expected || []) {
+    if (existing.has(col.name)) continue;
+    try {
+      await api('POST', `/data-tables/${tableId}/columns`, { name: col.name, type: col.type });
+      console.log(`  added column ${col.name} (${col.type})`);
+    } catch (e) {
+      if (String(e).includes('409')) continue; // concurrent create
+      throw e;
+    }
+  }
+}
 
 async function resolveDataTableId(name) {
   const list = await api('GET', `/data-tables?filter=${encodeURIComponent(JSON.stringify({ name }))}`);
-  if (list.data?.length) return list.data[0].id;
+  if (list.data?.length) {
+    const id = list.data[0].id;
+    await ensureColumns(id, DATA_TABLE_COLUMNS[name]);
+    return id;
+  }
   const created = await api('POST', '/data-tables', { name, columns: DATA_TABLE_COLUMNS[name] });
   console.log(`  created data table ${name} -> ${created.id}`);
   return created.id;
@@ -132,6 +164,12 @@ if (!files.length) {
   console.log('no workflow files found');
   process.exit(0);
 }
+// ensure all declared data tables exist (some are only referenced from Code
+// node strings, which the @name scan inside deploy() cannot see)
+for (const name of Object.keys(DATA_TABLE_COLUMNS)) {
+  await resolveDataTableId(name);
+}
+
 for (const f of files) {
   try {
     await deploy(f);
