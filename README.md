@@ -19,8 +19,9 @@
 
 **核心原则**：两端前台不直接互调，所有业务逻辑与 Agent 编排统一收敛到 n8n。
 
-**数据存储**：n8n 主存储为 Postgres（`postgres` 服务，卷 `postgres_data`；2026-09-14 从 SQLite 迁移，
-凭据/工作流/数据表/网关 key 全量保留，迁移导出归档在 `backups/migration/`）。
+**数据存储**：Postgres 17（`paradedb/paradedb` 镜像，同时提供 pgvector 与 pg_search；卷 `postgres_data_pg17`）。
+2026-09-14 两段迁移：SQLite → Postgres 16（n8n 主存储），随后 Postgres 16 → 17（LobeHub 2.x 需要 pg_search）。
+旧卷 `postgres_data`（PG16）保留为回滚件；迁移导出与升级前 dump 归档在 `backups/`。
 
 ## 端口分配
 
@@ -30,7 +31,7 @@
 | LobeChat | 3210 | 终端用户 AI 对话界面 |
 | Kiranism | 3000 | 运营管理后台（Next.js dev server） |
 | SearXNG | 8080 | 搜索引擎（供 n8n 工具链调用） |
-| Postgres | 5432（仅内网） | n8n 主数据库（不在宿主机暴露端口） |
+| Postgres 17 | 5432（仅内网） | n8n + LobeHub 数据库（pgvector / pg_search，不在宿主机暴露端口） |
 
 ## 快速启动
 
@@ -145,6 +146,16 @@ curl -X POST http://localhost:5678/webhook/admin/kb/ingest \
 
 评估：`node --env-file=.env n8n/scripts/kb-eval.mjs`（golden set hit@5 / MRR）。
 设计详见 KB-DESIGN 文档；表结构 `n8n/scripts/kb-schema.sql`（换镜像后重跑一次即可）。
+
+### LobeHub 前台（服务端数据库模式）
+
+前台为 LobeHub 2.x（`lobehub/lobehub` 镜像，容器名 `lobechat`，端口 3210）。2.0 起仅支持服务端数据库模式：
+聊天记录、设置全部存于 Postgres 的 `lobechat` 库，多浏览器/多设备共享。
+
+- **登录**：首次打开注册即可（Better Auth 邮箱密码制；本机使用 `owner@agent-platform.local`）
+- 旧版（v1 客户端模式）的浏览器本地会话数据不在服务端；如需保留，临时移除 DATABASE_URL 重启可切回 v1 导出
+- PivotAI 主题（custom-theme/ + apply-theme.ps1）是 v1 资产，LobeHub 2.x 的样式结构不同，适配待做
+- 文件存储（S3）未配置：图片/文件类消息受限，纯对话不受影响
 
 ### 错误率告警（Chat Alerts workflow）
 

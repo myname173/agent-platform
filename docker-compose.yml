@@ -65,8 +65,10 @@ services:
   # Postgres - n8n primary datastore (production-grade, replaced SQLite)
   # --------------------------------------------------------------------------
   postgres:
-    image: pgvector/pgvector:pg16  # postgres + pgvector extension (kb embeddings)
+    # ParadeDB PG17: postgres + pgvector (kb) + pg_search (LobeHub 2.x full-text)
+    image: paradedb/paradedb:latest-pg17
     container_name: postgres
+    command: postgres -c shared_preload_libraries=pg_search
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
@@ -115,7 +117,8 @@ services:
   # LobeChat - AI Conversation Frontend (User-facing)
   # --------------------------------------------------------------------------
   lobechat:
-    image: lobehub/lobe-chat:latest
+    # LobeHub 2.x — server-DB only (Better Auth, email/password built-in)
+    image: lobehub/lobehub:latest
     container_name: lobechat
     restart: unless-stopped
     ports:
@@ -125,16 +128,22 @@ services:
       - CUSTOM_MODELS=deepseek-agent
       - OPENAI_PROXY_URL=http://n8n:5678/webhook/v1
       # Same key as n8n's CHAT_API_KEY — gateway auth depends on the match
-      - OPENAI_API_KEY=${CHAT_API_KEY}
+      - OPENAI_API_KEY=${LOBECHAT_OPENAI_API_KEY}
       - OPENAI_MODEL_LIST=deepseek-agent
-      # Access control (UI entry password)
-      - ACCESS_CODE=${LOBECHAT_ACCESS_CODE}
-      # NextAuth secret — required, otherwise /api/auth/* 500s and LobeChat
-      # hangs on the loading screen.
+      # Server database (drizzle auto-migrates on start)
+      - DATABASE_URL=${LOBECHAT_DATABASE_URL}
+      # Better Auth (email/password built-in; SSO optional via AUTH_SSO_PROVIDERS)
       - AUTH_SECRET=${AUTH_SECRET}
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - KEY_VAULTS_SECRET=${KEY_VAULTS_SECRET}
+      - JWKS_KEY=${JWKS_KEY}
+      - APP_URL=http://localhost:3210
+      # Image ships empty S3_* defaults; a valid URL passes schema validation (storage unused)
+      - S3_ENDPOINT=http://localhost:9000
     depends_on:
-      - n8n
+      n8n:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     networks:
       - n8n-net
 
@@ -151,4 +160,5 @@ volumes:
     name: n8n_data
     external: true
   postgres_data:
-    name: postgres_data
+    # PG17 era volume; the old postgres_data volume is kept as rollback
+    name: postgres_data_pg17
