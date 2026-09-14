@@ -175,6 +175,27 @@ group('gateway: happy path (hits DeepSeek)');
   }
 }
 
+group('gateway: web search tool (agent loop)');
+{
+  const started = Date.now();
+  const r = await req('POST', '/webhook/v1/chat/completions', {
+    key: 'valid',
+    body: {
+      model: 'deepseek-agent',
+      messages: [
+        { role: 'system', content: 'You have a web_search tool. You MUST call web_search with query "n8n" before answering. After receiving the tool result, answer in one short sentence.' },
+        { role: 'user', content: 'What is n8n?' },
+      ],
+    },
+  });
+  const j = r.json;
+  check(r.status === 200, 'forced-search request -> 200', `${r.status} ${r.text?.slice(0, 100)}`);
+  check(typeof j?.tool_rounds === 'number' && j.tool_rounds >= 1, 'tool loop executed (tool_rounds >= 1)', JSON.stringify(j?.tool_rounds));
+  check(typeof j?.choices?.[0]?.message?.content === 'string' && j.choices[0].message.content.length > 0, 'final content non-empty after tool loop');
+  check(typeof j?.usage?.total_tokens === 'number' && j.usage.total_tokens > 0, 'usage accumulated across tool rounds', JSON.stringify(j?.usage));
+  check(Date.now() - started < 90_000, `tool-loop latency sane (${Date.now() - started}ms)`);
+}
+
 group('chat stats API');
 {
   let r = await req('GET', '/webhook/v1/stats/executions');

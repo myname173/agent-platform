@@ -88,6 +88,9 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
    - 请求只带单条消息时，自动从 Data Table `chat_messages` 合并该会话最近 20 轮历史（服务端记忆）；
      LobeChat 等全量历史的客户端走透传路径
    - 调用 DeepSeek（60s 超时 + 1 次重试），包装为 OpenAI 标准响应（含真实 token usage）
+   - **Agent 工具循环**（优先级 5）：请求携带 web_search 工具（SearXNG），模型自主决定是否
+     搜索；最多 2 轮工具调用，第 2 轮后强制收口；usage 跨轮累计计入成本；SearXNG 故障时
+     降级为无搜索回答；响应新增 `tool_rounds` 字段（0 = 直接回答）
    - 任何失败统一返回 `{error:{message,type,code}}` + 400/401/404/502
 4. 每次执行写入 Data Table `chat_executions`（session/model/client/status/latency/tokens），
    对话轮次写入 `chat_messages`
@@ -170,7 +173,7 @@ node n8n/scripts/deploy.mjs
   字段与连线完整性、webhook path 全局唯一、workflow 与 compose 无硬编码密钥、
   compose 引用的每个 `${VAR}` 必须在 `.env.example` 中声明。
 - **契约冒烟** `n8n/scripts/smoke-test.mjs`（需已部署的实例）：网关鉴权、请求校验、
-  模型路由、真实对话往返 + OpenAI 响应契约、Stats / Retention API 鉴权与响应形状，共 29 项断言。
+  模型路由、真实对话往返 + OpenAI 响应契约、Stats / Retention API 鉴权与响应形状，共 47 项断言。
 - **最小 CI** `.github/workflows/ci.yml`：Kiranism typecheck + workflow 结构校验。
   集成 smoke 需要真实实例与 API key（无法 headless 引导），部署后手动跑：
 
