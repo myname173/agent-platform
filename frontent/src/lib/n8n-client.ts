@@ -191,3 +191,31 @@ export async function testAlert(): Promise<{ status: number; body: any }> {
   try { body = await res.json(); } catch { /* ignore */ }
   return { status: res.status, body };
 }
+
+export interface PlatformSettings {
+  ok: boolean;
+  alerts: {
+    window_min: number;
+    rate_threshold: number;
+    min_total: number;
+    cooldown_min: number;
+    webhook_configured: boolean;
+    webhook_format: string;
+  };
+  embedding: { quota_tokens: number };
+  retention: { messages_days: number; executions_days: number };
+  note: string;
+}
+
+export async function getSettings(): Promise<PlatformSettings> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/settings`, {
+    headers: {
+      Authorization: `Bearer ${CHAT_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    cache: 'no-store'
+  });
+  if (res.status === 401) throw new Error('Admin API 401 - key mismatch');
+  if (!res.ok) throw new Error(`Admin Settings API error: ${res.status}`);
+  return res.json();
+}

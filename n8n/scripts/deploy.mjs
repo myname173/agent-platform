@@ -102,6 +102,13 @@ const DATA_TABLE_COLUMNS = {
     { name: 'enabled', type: 'number' },
     { name: 'rate_limit_rpm', type: 'number' },
     { name: 'total_cost', type: 'number' },
+    // phase 2 finale: per-key budget hard limits (rolling 24h / 30d; 0 = unlimited)
+    { name: 'budget_daily_usd', type: 'number' },
+    { name: 'budget_monthly_usd', type: 'number' },
+    { name: 'spend_24h', type: 'number' },
+    { name: 'spend_24h_at', type: 'string' },
+    { name: 'spend_30d', type: 'number' },
+    { name: 'spend_30d_at', type: 'string' },
   ],
 };
 

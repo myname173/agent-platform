@@ -23,6 +23,10 @@ interface ManagedKey {
   name: string;
   enabled: boolean;
   rate_limit_rpm: number;
+  budget_daily_usd: number;
+  budget_monthly_usd: number;
+  spend_24h: number;
+  spend_30d: number;
   total_cost: number;
   fingerprint: string;
   created_at: string;
@@ -36,6 +40,9 @@ const fmtTime = (iso?: string) => {
     return iso as string;
   }
 };
+
+const fmtUsd = (v: number) => '$' + Number(v || 0).toFixed(4);
+const fmtBudget = (v: number) => (Number(v || 0) === 0 ? '不限' : fmtUsd(v));
 
 const errText = (body: any): string => {
   if (!body) return '请求失败';
@@ -96,7 +103,7 @@ export function KeysPanel() {
     <div className='flex flex-1 flex-col gap-4'>
       <div className='flex items-center justify-between'>
         <div className='text-muted-foreground text-sm'>
-          托管 Key 用于给不同客户端签发独立凭据（限流、计费、可吊销）。主 Key（LobeChat）不在此列。
+          托管 Key 用于给不同客户端签发独立凭据（限流、预算、可吊销）。预算为滚动窗口，超限请求会被网关拒绝（429）。
         </div>
         <CreateKeyDialog onCreated={load} />
       </div>
@@ -136,7 +143,9 @@ export function KeysPanel() {
                 <TableRow>
                   <TableHead>名称</TableHead>
                   <TableHead>状态</TableHead>
-                  <TableHead>限额 (rpm)</TableHead>
+                  <TableHead>限流 (rpm)</TableHead>
+                  <TableHead>预算（日 / 月）</TableHead>
+                  <TableHead>滚动已用</TableHead>
                   <TableHead>累计成本</TableHead>
                   <TableHead>指纹</TableHead>
                   <TableHead>创建时间</TableHead>
@@ -151,7 +160,13 @@ export function KeysPanel() {
                       <Badge variant={k.enabled ? 'default' : 'outline'}>{k.enabled ? '启用' : '已停用'}</Badge>
                     </TableCell>
                     <TableCell className='tabular-nums'>{k.rate_limit_rpm === 0 ? '不限' : k.rate_limit_rpm}</TableCell>
-                    <TableCell className='tabular-nums'>${Number(k.total_cost || 0).toFixed(4)}</TableCell>
+                    <TableCell className='tabular-nums text-xs'>
+                      {fmtBudget(k.budget_daily_usd)} / {fmtBudget(k.budget_monthly_usd)}
+                    </TableCell>
+                    <TableCell className='text-muted-foreground tabular-nums text-xs'>
+                      24h {fmtUsd(k.spend_24h)} · 30d {fmtUsd(k.spend_30d)}
+                    </TableCell>
+                    <TableCell className='tabular-nums'>{fmtUsd(k.total_cost)}</TableCell>
                     <TableCell className='text-muted-foreground font-mono text-xs'>{k.fingerprint}…</TableCell>
                     <TableCell className='text-muted-foreground text-xs'>{fmtTime(k.created_at)}</TableCell>
                     <TableCell className='text-right'>
@@ -165,6 +180,7 @@ export function KeysPanel() {
                           {k.enabled ? '停用' : '启用'}
                         </Button>
                         <SetLimitDialog name={k.name} current={k.rate_limit_rpm} onDone={load} />
+                        <BudgetDialog name={k.name} daily={k.budget_daily_usd} monthly={k.budget_monthly_usd} onDone={load} />
                         <DeleteKeyButton name={k.name} onDone={load} />
                       </div>
                     </TableCell>
@@ -259,7 +275,7 @@ function CreateKeyDialog({ onCreated }: { onCreated: () => void }) {
           <>
             <DialogHeader>
               <DialogTitle>签发新 Key</DialogTitle>
-              <DialogDescription>为客户端创建一个托管 Key（可随时停用/吊销）。</DialogDescription>
+              <DialogDescription>为客户端创建一个托管 Key（可随时停用/吊销/设预算）。</DialogDescription>
             </DialogHeader>
             <div className='flex flex-col gap-3'>
               <div className='flex flex-col gap-1.5'>
@@ -318,6 +334,60 @@ function SetLimitDialog({ name, current, onDone }: { name: string; current: numb
           <DialogDescription>每分钟请求数上限（0 = 不限）。</DialogDescription>
         </DialogHeader>
         <Input type='number' min={0} value={rpm} onChange={(e) => setRpm(e.target.value)} />
+        <DialogFooter>
+          <Button variant='outline' onClick={() => setOpen(false)}>
+            取消
+          </Button>
+          <Button disabled={busy} onClick={submit}>
+            保存
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ---------- budget ---------- */
+
+function BudgetDialog({ name, daily, monthly, onDone }: { name: string; daily: number; monthly: number; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [d, setD] = useState(String(daily));
+  const [m, setM] = useState(String(monthly));
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await fetch('/api/n8n/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_budget', name, budget_daily_usd: Number(d || 0), budget_monthly_usd: Number(m || 0) })
+      });
+      onDone();
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={<Button size='sm' variant='outline' />}>预算</DialogTrigger>
+      <DialogContent className='sm:max-w-xs'>
+        <DialogHeader>
+          <DialogTitle>预算硬限 · {name}</DialogTitle>
+          <DialogDescription>滚动窗口花费上限（USD，0 = 不限）。超限请求将被网关拒绝。</DialogDescription>
+        </DialogHeader>
+        <div className='flex flex-col gap-3'>
+          <div className='flex flex-col gap-1.5'>
+            <Label>日预算（滚动 24 小时）</Label>
+            <Input type='number' min={0} step='0.01' value={d} onChange={(e) => setD(e.target.value)} />
+          </div>
+          <div className='flex flex-col gap-1.5'>
+            <Label>月预算（滚动 30 天）</Label>
+            <Input type='number' min={0} step='0.1' value={m} onChange={(e) => setM(e.target.value)} />
+          </div>
+        </div>
         <DialogFooter>
           <Button variant='outline' onClick={() => setOpen(false)}>
             取消

@@ -298,7 +298,7 @@
     },
     {
       "parameters": {
-        "jsCode": "/* Shape gateway_keys rows for the console (never expose key_hash fully). */\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.name);\nconst keys = rows.map((r) => ({\n  id: r.id,\n  name: r.name,\n  enabled: r.enabled === 1 || r.enabled === true,\n  rate_limit_rpm: Number(r.rate_limit_rpm || 0),\n  total_cost: Number(r.total_cost || 0),\n  fingerprint: String(r.key_hash || '').slice(0, 10),\n  created_at: r.createdAt,\n}));\nreturn [{ json: { ok: true, keys } }];"
+        "jsCode": "/* Shape gateway_keys rows for the console (never expose key_hash fully).\n   Spend counters come straight from the key row (maintained by the gateway). */\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.name);\nconst now = Date.now();\nconst r2 = (x) => Math.round(x * 1e6) / 1e6;\nconst keys = rows.map((r) => ({\n  id: r.id,\n  name: r.name,\n  enabled: r.enabled === 1 || r.enabled === true,\n  rate_limit_rpm: Number(r.rate_limit_rpm || 0),\n  budget_daily_usd: Number(r.budget_daily_usd || 0),\n  budget_monthly_usd: Number(r.budget_monthly_usd || 0),\n  spend_24h: (now - (Date.parse(r.spend_24h_at || '') || 0)) <= 24 * 3600 * 1000 ? r2(Number(r.spend_24h || 0)) : 0,\n  spend_30d: (now - (Date.parse(r.spend_30d_at || '') || 0)) <= 30 * 24 * 3600 * 1000 ? r2(Number(r.spend_30d || 0)) : 0,\n  total_cost: Number(r.total_cost || 0),\n  fingerprint: String(r.key_hash || '').slice(0, 10),\n  created_at: r.createdAt,\n}));\nreturn [{ json: { ok: true, keys } }];"
       },
       "id": "format-keys",
       "name": "Format Keys List",
@@ -389,7 +389,7 @@
     },
     {
       "parameters": {
-        "jsCode": "/* Manage gateway keys — parity with n8n/scripts/keys.mjs.\n   Actions: create | enable | disable | set_limit | delete. All writes audit-logged. */\nconst crypto = require('crypto');\nconst body = ($('Webhook Keys Manage').first().json.body) || {};\nconst action = String(body.action || '');\nconst name = String(body.name || '').trim();\n\nconst base = 'http://localhost:5678/api/v1';\nconst api = (method, path, qs, payload) => this.helpers.httpRequest({\n  method, url: base + path,\n  headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' },\n  qs, body: payload,\n});\nconst filter = (col, value) => JSON.stringify({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });\nconst filterObj = (col, value) => ({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });\nconst tableId = async (tname) => {\n  const list = await api('GET', '/data-tables', { limit: 100 });\n  const t = (list.data || []).find((x) => x.name === tname);\n  if (!t) throw new Error(tname + ' table not found');\n  return t.id;\n};\nconst audit = async (act, detail) => {\n  try {\n    const t = await tableId('admin_audit');\n    await api('POST', `/data-tables/${t}/rows`, null, { data: [{ action: act, target: name || '', detail: String(detail || '').slice(0, 300) }] });\n  } catch (e) { /* audit best-effort */ }\n};\nconst bad = (status, code, message) => [{ json: { __error: true, status, openai_error: { error: { message, type: 'invalid_request_error', code } } } }];\n\nif (!name || !/^[\\w.-]{1,40}$/.test(name)) return bad(400, 'invalid_name', 'name must be 1-40 chars: letters, digits, _ . -');\nif (!['create', 'enable', 'disable', 'set_limit', 'delete'].includes(action)) return bad(400, 'unknown_action', 'unknown action: ' + action);\n\nconst id = await tableId('gateway_keys');\nconst rows = await api('GET', `/data-tables/${id}/rows`, { filter: filter('name', name) });\nconst existing = (rows.data || [])[0] || null;\n\nif (action === 'create') {\n  if (existing) return bad(409, 'already_exists', 'key already exists: ' + name);\n  const rpm = Number(body.rate_limit_rpm || 0);\n  if (!Number.isFinite(rpm) || rpm < 0) return bad(400, 'invalid_rpm', 'rate_limit_rpm must be >= 0');\n  const raw = 'sk-gw-' + crypto.randomBytes(24).toString('hex');\n  const keyHash = crypto.createHash('sha256').update(raw).digest('hex');\n  await api('POST', `/data-tables/${id}/rows`, null, { data: [{ key_hash: keyHash, name, enabled: 1, rate_limit_rpm: rpm, total_cost: 0 }] });\n  await audit('key.create', 'rpm=' + rpm);\n  return [{ json: { ok: true, action, name, raw_key: raw, rate_limit_rpm: rpm, note: 'raw key shown once — store it now' } }];\n}\n\nif (!existing) return bad(404, 'not_found', 'key not found: ' + name);\n\nif (action === 'enable' || action === 'disable') {\n  await api('PATCH', `/data-tables/${id}/rows/update`, null, { filter: filterObj('name', name), data: { enabled: action === 'enable' ? 1 : 0 } });\n  await audit('key.' + action, '');\n  return [{ json: { ok: true, action, name } }];\n}\n\nif (action === 'set_limit') {\n  const rpm = Number(body.rate_limit_rpm);\n  if (!Number.isFinite(rpm) || rpm < 0) return bad(400, 'invalid_rpm', 'rate_limit_rpm must be >= 0');\n  await api('PATCH', `/data-tables/${id}/rows/update`, null, { filter: filterObj('name', name), data: { rate_limit_rpm: rpm } });\n  await audit('key.set_limit', 'rpm=' + rpm);\n  return [{ json: { ok: true, action, name, rate_limit_rpm: rpm } }];\n}\n\nconst deleted = await api('DELETE', `/data-tables/${id}/rows/delete`, { filter: filter('name', name), returnData: true });\nconst n = Array.isArray(deleted) ? deleted.length : (deleted && deleted.data ? deleted.data.length : 0);\nawait audit('key.delete', 'removed=' + n);\nreturn [{ json: { ok: true, action, name, removed: n } }];"
+        "jsCode": "/* Manage gateway keys — parity with n8n/scripts/keys.mjs.\n   Actions: create | enable | disable | set_limit | delete. All writes audit-logged. */\nconst crypto = require('crypto');\nconst body = ($('Webhook Keys Manage').first().json.body) || {};\nconst action = String(body.action || '');\nconst name = String(body.name || '').trim();\n\nconst base = 'http://localhost:5678/api/v1';\nconst api = (method, path, qs, payload) => this.helpers.httpRequest({\n  method, url: base + path,\n  headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' },\n  qs, body: payload,\n});\nconst filter = (col, value) => JSON.stringify({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });\nconst filterObj = (col, value) => ({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });\nconst tableId = async (tname) => {\n  const list = await api('GET', '/data-tables', { limit: 100 });\n  const t = (list.data || []).find((x) => x.name === tname);\n  if (!t) throw new Error(tname + ' table not found');\n  return t.id;\n};\nconst audit = async (act, detail) => {\n  try {\n    const t = await tableId('admin_audit');\n    await api('POST', `/data-tables/${t}/rows`, null, { data: [{ action: act, target: name || '', detail: String(detail || '').slice(0, 300) }] });\n  } catch (e) { /* audit best-effort */ }\n};\nconst bad = (status, code, message) => [{ json: { __error: true, status, openai_error: { error: { message, type: 'invalid_request_error', code } } } }];\n\nif (!name || !/^[\\w.-]{1,40}$/.test(name)) return bad(400, 'invalid_name', 'name must be 1-40 chars: letters, digits, _ . -');\nif (!['create', 'enable', 'disable', 'set_limit', 'delete', 'set_budget'].includes(action)) return bad(400, 'unknown_action', 'unknown action: ' + action);\n\nconst id = await tableId('gateway_keys');\nconst rows = await api('GET', `/data-tables/${id}/rows`, { filter: filter('name', name) });\nconst existing = (rows.data || [])[0] || null;\n\nif (action === 'create') {\n  if (existing) return bad(409, 'already_exists', 'key already exists: ' + name);\n  const rpm = Number(body.rate_limit_rpm || 0);\n  if (!Number.isFinite(rpm) || rpm < 0) return bad(400, 'invalid_rpm', 'rate_limit_rpm must be >= 0');\n  const bd = Number(body.budget_daily_usd || 0);\n  const bm = Number(body.budget_monthly_usd || 0);\n  if (!Number.isFinite(bd) || bd < 0 || !Number.isFinite(bm) || bm < 0) return bad(400, 'invalid_budget', 'budgets must be >= 0');\n  const raw = 'sk-gw-' + crypto.randomBytes(24).toString('hex');\n  const keyHash = crypto.createHash('sha256').update(raw).digest('hex');\n  await api('POST', `/data-tables/${id}/rows`, null, { data: [{ key_hash: keyHash, name, enabled: 1, rate_limit_rpm: rpm, budget_daily_usd: bd, budget_monthly_usd: bm, total_cost: 0 }] });\n  await audit('key.create', 'rpm=' + rpm);\n  return [{ json: { ok: true, action, name, raw_key: raw, rate_limit_rpm: rpm, note: 'raw key shown once — store it now' } }];\n}\n\nif (!existing) return bad(404, 'not_found', 'key not found: ' + name);\n\nif (action === 'enable' || action === 'disable') {\n  await api('PATCH', `/data-tables/${id}/rows/update`, null, { filter: filterObj('name', name), data: { enabled: action === 'enable' ? 1 : 0 } });\n  await audit('key.' + action, '');\n  return [{ json: { ok: true, action, name } }];\n}\n\nif (action === 'set_limit') {\n  const rpm = Number(body.rate_limit_rpm);\n  if (!Number.isFinite(rpm) || rpm < 0) return bad(400, 'invalid_rpm', 'rate_limit_rpm must be >= 0');\n  await api('PATCH', `/data-tables/${id}/rows/update`, null, { filter: filterObj('name', name), data: { rate_limit_rpm: rpm } });\n  await audit('key.set_limit', 'rpm=' + rpm);\n  return [{ json: { ok: true, action, name, rate_limit_rpm: rpm } }];\n}\n\nif (action === 'set_budget') {\n  const bd2 = Number(body.budget_daily_usd);\n  const bm2 = Number(body.budget_monthly_usd);\n  if (!Number.isFinite(bd2) || bd2 < 0 || !Number.isFinite(bm2) || bm2 < 0) return bad(400, 'invalid_budget', 'budget_daily_usd / budget_monthly_usd must be >= 0');\n  await api('PATCH', `/data-tables/${id}/rows/update`, null, { filter: filterObj('name', name), data: { budget_daily_usd: bd2, budget_monthly_usd: bm2 } });\n  await audit('key.set_budget', 'daily=' + bd2 + ' monthly=' + bm2);\n  return [{ json: { ok: true, action, name, budget_daily_usd: bd2, budget_monthly_usd: bm2 } }];\n}\n\nconst deleted = await api('DELETE', `/data-tables/${id}/rows/delete`, { filter: filter('name', name), returnData: true });\nconst n = Array.isArray(deleted) ? deleted.length : (deleted && deleted.data ? deleted.data.length : 0);\nawait audit('key.delete', 'removed=' + n);\nreturn [{ json: { ok: true, action, name, removed: n } }];"
       },
       "id": "handle-key-action",
       "name": "Handle Key Action",
@@ -656,6 +656,97 @@
       "position": [
         880,
         1300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "admin/settings",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-settings",
+      "name": "Webhook Settings",
+      "webhookId": "admin-settings",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Bearer auth, same as the Chat Gateway / Stats API. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key. Provide it via the Authorization header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "auth-settings",
+      "name": "Parse Auth Settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-settings-error",
+      "name": "Has Error Settings",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Read-only platform settings snapshot (values come from n8n env vars). */\nconst n = (v, d) => { const x = Number(v); return Number.isFinite(x) ? x : d; };\nreturn [{ json: {\n  ok: true,\n  alerts: {\n    window_min: n($env.ALERT_WINDOW_MIN, 60),\n    rate_threshold: n($env.ALERT_RATE_THRESHOLD, 0.5),\n    min_total: n($env.ALERT_MIN_TOTAL, 5),\n    cooldown_min: n($env.ALERT_COOLDOWN_MIN, 60),\n    webhook_configured: String($env.ALERT_WEBHOOK_URL || '').length > 0,\n    webhook_format: String($env.ALERT_WEBHOOK_FORMAT || 'generic'),\n  },\n  embedding: { quota_tokens: n($env.EMBED_QUOTA_TOKENS, 1000000) },\n  retention: { messages_days: n($env.RETENTION_DAYS_MESSAGES, 30), executions_days: n($env.RETENTION_DAYS_EXECUTIONS, 90) },\n  note: 'edits require a .env change + docker compose up -d n8n',\n} }];"
+      },
+      "id": "build-settings",
+      "name": "Build Settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "respond-settings-200",
+      "name": "Respond Settings 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        1600
       ]
     }
   ],
@@ -993,6 +1084,57 @@
         [
           {
             "node": "Respond Test 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Settings": {
+      "main": [
+        [
+          {
+            "node": "Parse Auth Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Auth Settings": {
+      "main": [
+        [
+          {
+            "node": "Has Error Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Settings": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Settings": {
+      "main": [
+        [
+          {
+            "node": "Respond Settings 200",
             "type": "main",
             "index": 0
           }
