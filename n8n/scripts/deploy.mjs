@@ -73,6 +73,13 @@ const DATA_TABLE_COLUMNS = {
   ],
   // priority 3: managed gateway keys (hash-only storage, per-key limits & spend)
   // embedding quota meter (single row; total_embed_tokens)
+  // phase 2: console audit trail
+  admin_audit: [
+    { name: 'action', type: 'string' },
+    { name: 'target', type: 'string' },
+    { name: 'detail', type: 'string' }
+  ],
+
   kb_usage: [
     { name: 'total_embed_tokens', type: 'number' },
   ],
@@ -86,6 +93,8 @@ const DATA_TABLE_COLUMNS = {
     { name: 'error_rate', type: 'number' },
     { name: 'threshold', type: 'number' },
     { name: 'message', type: 'string' },
+    // phase 2: alert webhook delivery status
+    { name: 'delivered', type: 'string' },
   ],
   gateway_keys: [
     { name: 'key_hash', type: 'string' },

@@ -52,6 +52,22 @@ export const navGroups: NavGroup[] = [
         isActive: false,
         shortcut: ['p', 'o'],
         items: []
+      },
+      {
+        title: 'Keys',
+        url: '/dashboard/keys',
+        icon: 'lock',
+        isActive: false,
+        shortcut: ['k', 'k'],
+        items: []
+      },
+      {
+        title: 'Alerts',
+        url: '/dashboard/alerts',
+        icon: 'notification',
+        isActive: false,
+        shortcut: ['a', 'l'],
+        items: []
       }
     ]
   },

@@ -106,3 +106,88 @@ export async function getOverview(): Promise<PlatformOverview> {
   if (!res.ok) throw new Error(`Admin Overview API error: ${res.status}`);
   return res.json();
 }
+
+export interface ManagedKey {
+  id: string;
+  name: string;
+  enabled: boolean;
+  rate_limit_rpm: number;
+  total_cost: number;
+  fingerprint: string;
+  created_at: string;
+}
+
+export async function getKeys(): Promise<{ ok: boolean; keys: ManagedKey[] }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/keys`, {
+    headers: {
+      Authorization: `Bearer ${CHAT_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    cache: 'no-store'
+  });
+  if (res.status === 401) throw new Error('Admin API 401 - key mismatch');
+  if (!res.ok) throw new Error(`Admin Keys API error: ${res.status}`);
+  return res.json();
+}
+
+export async function manageKey(payload: {
+  action: string;
+  name: string;
+  rate_limit_rpm?: number;
+}): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/keys/manage`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${CHAT_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload),
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+  return { status: res.status, body };
+}
+
+export interface AlertItem {
+  kind: string;
+  message: string;
+  error_rate: number | null;
+  total: number | null;
+  errors: number | null;
+  threshold: number | null;
+  delivered: string | null;
+  created_at: string;
+}
+
+export async function getAlerts(): Promise<{
+  ok: boolean;
+  delivery: { configured: boolean; format: string };
+  alerts: AlertItem[];
+}> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/alerts`, {
+    headers: {
+      Authorization: `Bearer ${CHAT_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    cache: 'no-store'
+  });
+  if (res.status === 401) throw new Error('Admin API 401 - key mismatch');
+  if (!res.ok) throw new Error(`Admin Alerts API error: ${res.status}`);
+  return res.json();
+}
+
+export async function testAlert(): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/alerts/test`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${CHAT_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: '{}',
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+  return { status: res.status, body };
+}

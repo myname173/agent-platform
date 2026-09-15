@@ -48,6 +48,9 @@ services:
       - ALERT_RATE_THRESHOLD=${ALERT_RATE_THRESHOLD}
       - ALERT_MIN_TOTAL=${ALERT_MIN_TOTAL}
       - ALERT_COOLDOWN_MIN=${ALERT_COOLDOWN_MIN}
+      # Alert delivery webhook (optional; empty = delivery skipped)
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
+      - ALERT_WEBHOOK_FORMAT=${ALERT_WEBHOOK_FORMAT:-generic}
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}

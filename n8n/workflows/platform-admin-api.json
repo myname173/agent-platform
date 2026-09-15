@@ -121,7 +121,8 @@
         -40
       ],
       "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "executeOnce": true
     },
     {
       "parameters": {
@@ -148,7 +149,8 @@
         -40
       ],
       "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "executeOnce": true
     },
     {
       "parameters": {
@@ -172,7 +174,8 @@
         -40
       ],
       "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "executeOnce": true
     },
     {
       "parameters": {
@@ -199,6 +202,460 @@
       "position": [
         1540,
         -40
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "admin/keys",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-keys",
+      "name": "Webhook Keys",
+      "webhookId": "admin-keys",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Bearer auth, same as the Chat Gateway / Stats API. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key. Provide it via the Authorization header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "auth-keys",
+      "name": "Parse Auth Keys",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-keys-error",
+      "name": "Has Error Keys",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@gateway_keys",
+          "mode": "id"
+        },
+        "returnAll": false,
+        "limit": 200,
+        "orderBy": true,
+        "orderByColumn": "createdAt",
+        "orderByDirection": "ASC",
+        "options": {}
+      },
+      "id": "load-keys",
+      "name": "Load Keys",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        320
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Shape gateway_keys rows for the console (never expose key_hash fully). */\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.name);\nconst keys = rows.map((r) => ({\n  id: r.id,\n  name: r.name,\n  enabled: r.enabled === 1 || r.enabled === true,\n  rate_limit_rpm: Number(r.rate_limit_rpm || 0),\n  total_cost: Number(r.total_cost || 0),\n  fingerprint: String(r.key_hash || '').slice(0, 10),\n  created_at: r.createdAt,\n}));\nreturn [{ json: { ok: true, keys } }];"
+      },
+      "id": "format-keys",
+      "name": "Format Keys List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "respond-keys-200",
+      "name": "Respond Keys 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1100,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/keys/manage",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-keys-manage",
+      "name": "Webhook Keys Manage",
+      "webhookId": "admin-keys-manage",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Bearer auth, same as the Chat Gateway / Stats API. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key. Provide it via the Authorization header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "auth-keys-manage",
+      "name": "Parse Auth Keys Manage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-manage-error",
+      "name": "Has Error Keys Manage",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Manage gateway keys — parity with n8n/scripts/keys.mjs.\n   Actions: create | enable | disable | set_limit | delete. All writes audit-logged. */\nconst crypto = require('crypto');\nconst body = ($('Webhook Keys Manage').first().json.body) || {};\nconst action = String(body.action || '');\nconst name = String(body.name || '').trim();\n\nconst base = 'http://localhost:5678/api/v1';\nconst api = (method, path, qs, payload) => this.helpers.httpRequest({\n  method, url: base + path,\n  headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' },\n  qs, body: payload,\n});\nconst filter = (col, value) => JSON.stringify({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });\nconst filterObj = (col, value) => ({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });\nconst tableId = async (tname) => {\n  const list = await api('GET', '/data-tables', { limit: 100 });\n  const t = (list.data || []).find((x) => x.name === tname);\n  if (!t) throw new Error(tname + ' table not found');\n  return t.id;\n};\nconst audit = async (act, detail) => {\n  try {\n    const t = await tableId('admin_audit');\n    await api('POST', `/data-tables/${t}/rows`, null, { data: [{ action: act, target: name || '', detail: String(detail || '').slice(0, 300) }] });\n  } catch (e) { /* audit best-effort */ }\n};\nconst bad = (status, code, message) => [{ json: { __error: true, status, openai_error: { error: { message, type: 'invalid_request_error', code } } } }];\n\nif (!name || !/^[\\w.-]{1,40}$/.test(name)) return bad(400, 'invalid_name', 'name must be 1-40 chars: letters, digits, _ . -');\nif (!['create', 'enable', 'disable', 'set_limit', 'delete'].includes(action)) return bad(400, 'unknown_action', 'unknown action: ' + action);\n\nconst id = await tableId('gateway_keys');\nconst rows = await api('GET', `/data-tables/${id}/rows`, { filter: filter('name', name) });\nconst existing = (rows.data || [])[0] || null;\n\nif (action === 'create') {\n  if (existing) return bad(409, 'already_exists', 'key already exists: ' + name);\n  const rpm = Number(body.rate_limit_rpm || 0);\n  if (!Number.isFinite(rpm) || rpm < 0) return bad(400, 'invalid_rpm', 'rate_limit_rpm must be >= 0');\n  const raw = 'sk-gw-' + crypto.randomBytes(24).toString('hex');\n  const keyHash = crypto.createHash('sha256').update(raw).digest('hex');\n  await api('POST', `/data-tables/${id}/rows`, null, { data: [{ key_hash: keyHash, name, enabled: 1, rate_limit_rpm: rpm, total_cost: 0 }] });\n  await audit('key.create', 'rpm=' + rpm);\n  return [{ json: { ok: true, action, name, raw_key: raw, rate_limit_rpm: rpm, note: 'raw key shown once — store it now' } }];\n}\n\nif (!existing) return bad(404, 'not_found', 'key not found: ' + name);\n\nif (action === 'enable' || action === 'disable') {\n  await api('PATCH', `/data-tables/${id}/rows/update`, null, { filter: filterObj('name', name), data: { enabled: action === 'enable' ? 1 : 0 } });\n  await audit('key.' + action, '');\n  return [{ json: { ok: true, action, name } }];\n}\n\nif (action === 'set_limit') {\n  const rpm = Number(body.rate_limit_rpm);\n  if (!Number.isFinite(rpm) || rpm < 0) return bad(400, 'invalid_rpm', 'rate_limit_rpm must be >= 0');\n  await api('PATCH', `/data-tables/${id}/rows/update`, null, { filter: filterObj('name', name), data: { rate_limit_rpm: rpm } });\n  await audit('key.set_limit', 'rpm=' + rpm);\n  return [{ json: { ok: true, action, name, rate_limit_rpm: rpm } }];\n}\n\nconst deleted = await api('DELETE', `/data-tables/${id}/rows/delete`, { filter: filter('name', name), returnData: true });\nconst n = Array.isArray(deleted) ? deleted.length : (deleted && deleted.data ? deleted.data.length : 0);\nawait audit('key.delete', 'removed=' + n);\nreturn [{ json: { ok: true, action, name, removed: n } }];"
+      },
+      "id": "handle-key-action",
+      "name": "Handle Key Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-keys-result",
+      "name": "Route Keys Result",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "respond-manage-200",
+      "name": "Respond Keys Manage 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1100,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "admin/alerts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-alerts",
+      "name": "Webhook Alerts",
+      "webhookId": "admin-alerts",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Bearer auth, same as the Chat Gateway / Stats API. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key. Provide it via the Authorization header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "auth-alerts",
+      "name": "Parse Auth Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-alerts-error",
+      "name": "Has Error Alerts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@ops_alerts",
+          "mode": "id"
+        },
+        "returnAll": false,
+        "limit": 60,
+        "orderBy": true,
+        "orderByColumn": "createdAt",
+        "orderByDirection": "DESC",
+        "options": {}
+      },
+      "id": "load-alerts-full",
+      "name": "Load Alerts Full",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        1000
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Alert list + delivery channel status for the console. */\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.kind);\nconst alerts = rows.map((r) => ({\n  kind: r.kind,\n  message: r.message || '',\n  error_rate: r.error_rate,\n  total: r.total,\n  errors: r.errors,\n  threshold: r.threshold,\n  delivered: r.delivered || null,\n  created_at: r.createdAt,\n}));\nconst url = String($env.ALERT_WEBHOOK_URL || '');\nreturn [{ json: { ok: true, delivery: { configured: url.length > 0, format: String($env.ALERT_WEBHOOK_FORMAT || 'generic') }, alerts } }];"
+      },
+      "id": "format-alerts",
+      "name": "Format Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "respond-alerts-200",
+      "name": "Respond Alerts 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1100,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/alerts/test",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-alerts-test",
+      "name": "Webhook Alerts Test",
+      "webhookId": "admin-alerts-test",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        1300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Bearer auth, same as the Chat Gateway / Stats API. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key. Provide it via the Authorization header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "auth-alerts-test",
+      "name": "Parse Auth Test",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        1300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-test-error",
+      "name": "Has Error Test",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        1300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Send a test notification through the configured alert webhook. */\nconst url = $env.ALERT_WEBHOOK_URL;\nif (!url) {\n  return [{ json: { ok: false, reason: 'ALERT_WEBHOOK_URL not configured on n8n - set it in .env and run docker compose up -d n8n', delivery: { configured: false } } }];\n}\nconst fmt = String($env.ALERT_WEBHOOK_FORMAT || 'generic').toLowerCase();\nconst text = '[PivotAI 控制台] 测试通知 · ' + new Date().toISOString();\nlet payload;\nif (fmt === 'slack' || fmt === 'discord') payload = { text };\nelse if (fmt === 'feishu') payload = { msg_type: 'text', content: { text } };\nelse payload = { kind: 'console_test', message: text };\ntry {\n  await this.helpers.httpRequest({ method: 'POST', url, headers: { 'Content-Type': 'application/json' }, body: payload, timeout: 10000 });\n  return [{ json: { ok: true, sent: true, format: fmt } }];\n} catch (e) {\n  return [{ json: { ok: false, reason: 'delivery failed: ' + String(e && e.message ? e.message : e).slice(0, 200), delivery: { configured: true, format: fmt } } }];\n}"
+      },
+      "id": "send-test-alert",
+      "name": "Send Test Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        1300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "respond-test-200",
+      "name": "Respond Test 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        1300
       ]
     }
   ],
@@ -292,6 +749,250 @@
         [
           {
             "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Keys": {
+      "main": [
+        [
+          {
+            "node": "Parse Auth Keys",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Auth Keys": {
+      "main": [
+        [
+          {
+            "node": "Has Error Keys",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Keys": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load Keys",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Keys": {
+      "main": [
+        [
+          {
+            "node": "Format Keys List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Keys List": {
+      "main": [
+        [
+          {
+            "node": "Respond Keys 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Keys Manage": {
+      "main": [
+        [
+          {
+            "node": "Parse Auth Keys Manage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Auth Keys Manage": {
+      "main": [
+        [
+          {
+            "node": "Has Error Keys Manage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Keys Manage": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Key Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Key Action": {
+      "main": [
+        [
+          {
+            "node": "Route Keys Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Keys Result": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Keys Manage 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Alerts": {
+      "main": [
+        [
+          {
+            "node": "Parse Auth Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Auth Alerts": {
+      "main": [
+        [
+          {
+            "node": "Has Error Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Alerts": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load Alerts Full",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Alerts Full": {
+      "main": [
+        [
+          {
+            "node": "Format Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Alerts": {
+      "main": [
+        [
+          {
+            "node": "Respond Alerts 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Alerts Test": {
+      "main": [
+        [
+          {
+            "node": "Parse Auth Test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Auth Test": {
+      "main": [
+        [
+          {
+            "node": "Has Error Test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Test": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Test Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Test Alert": {
+      "main": [
+        [
+          {
+            "node": "Respond Test 200",
             "type": "main",
             "index": 0
           }

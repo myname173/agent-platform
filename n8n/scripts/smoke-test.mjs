@@ -246,6 +246,22 @@ group('platform admin overview');
   check(j?.kb && (typeof j.kb.documents === 'number' || typeof j.kb.error === 'string'), 'kb block (counts or graceful error)');
 }
 
+group('platform admin keys & alerts');
+{
+  let r = await req('GET', '/webhook/admin/keys');
+  check(r.status === 401 && isOpenAIError(r.json), 'keys: no key -> 401 + envelope');
+  r = await req('GET', '/webhook/admin/keys', { key: 'valid' });
+  check(r.status === 200 && Array.isArray(r.json?.keys), 'keys: with key -> 200 + keys[]');
+
+  r = await req('GET', '/webhook/admin/alerts');
+  check(r.status === 401 && isOpenAIError(r.json), 'alerts: no key -> 401 + envelope');
+  r = await req('GET', '/webhook/admin/alerts', { key: 'valid' });
+  check(
+    r.status === 200 && Array.isArray(r.json?.alerts) && typeof r.json?.delivery === 'object',
+    'alerts: with key -> 200 + alerts[] + delivery block'
+  );
+}
+
 group('gateway: managed keys & rate limit');
 {
   if (!N8N_API_KEY) {
