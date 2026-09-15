@@ -32,6 +32,7 @@
 | Kiranism (console) | 3000 | 运营管理后台（compose 服务 `platform-console`，亦可 dev 模式） |
 | SearXNG | 8080 | 搜索引擎（供 n8n 工具链调用） |
 | Postgres 17 | 5432（仅内网） | n8n + LobeHub 数据库（pgvector / pg_search，不在宿主机暴露端口） |
+| MinIO | 9000 / 9001 | 对象存储（S3 兼容；9000=API、9001=控制台），LobeHub 文件上传（Phase 4a） |
 
 ## 快速启动
 
@@ -57,6 +58,7 @@ cd frontent && pnpm dev        # → http://localhost:3000
 - **n8n 工作流编辑器**：http://localhost:5678
 - **LobeChat 对话界面**：http://localhost:3210
 - **Kiranism 管理后台**：http://localhost:3000
+- **MinIO 控制台**：http://localhost:9001（对象存储；API 在 9000）
 
 ## 环境变量
 
@@ -80,7 +82,7 @@ CONSOLE_CLERK_PUBLISHABLE_KEY=pk_test_...   # 用于 console 镜像构建（与 
 
 ### LobeChat（通过 docker-compose 环境变量配置）
 
-LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，指向 n8n 的 OpenAI 兼容 Webhook。
+LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，指向 n8n 的 OpenAI 兼容 Webhook。S3 文件存储已接线（`S3_ENDPOINT` → MinIO），详见「文件存储（MinIO）」一节。
 
 ## 数据流说明
 
@@ -168,7 +170,30 @@ curl -X POST http://localhost:5678/webhook/admin/kb/ingest \
 - **登录**：首次打开注册即可（Better Auth 邮箱密码制；本机使用 `owner@agent-platform.local`）
 - 旧版（v1 客户端模式）的浏览器本地会话数据不在服务端；如需保留，临时移除 DATABASE_URL 重启可切回 v1 导出
 - 外观：PivotAI 主题 v2 已注入（见下节）；也可在设置 → 外观调整主题模式/强调色
-- 文件存储（S3）未配置：图片/文件类消息受限，纯对话不受影响
+- 文件存储（S3）：已由 MinIO 承载（Phase 4a，2026-09-15 上线），图片/文件上传可用；浏览器直传需宿主机 hosts 解析 `minio`（见「文件存储（MinIO）」一节）
+
+### 文件存储（MinIO，Phase 4a）
+
+LobeHub 的图片/文件上传由 **MinIO**（S3 兼容对象存储，compose 服务 `minio`）承载；2026-09-15 已端到端联调通过（图片 + 文本真实上传成功）。
+
+- API：http://localhost:9000（健康检查 `/minio/health/live`）；控制台：http://localhost:9001
+- Bucket：`lobechat-files`；凭据与 lobechat 的 `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` 完全一致（见 docker-compose.yml）
+- 镜像源：`quay.io/minio/minio`（Docker Hub 的 `minio/minio` 匿名拉取被拒）
+- 接线：`S3_ENDPOINT=http://minio:9000`（容器网络内可达）；`S3_PUBLIC_DOMAIN=http://localhost:9000` 保留备用；`S3_SET_ACL=0` 维持私桶 + 预签名 URL 读取
+
+**必要前提（宿主机 hosts，一次性，需管理员）**：LobeHub 生成的预签名上传地址直接使用容器名 `minio`（应用代码不做 host 改写），宿主浏览器必须能解析它才能直传文件。在 Windows hosts 文件添加：
+
+```
+127.0.0.1 minio
+```
+
+- 检查：`Resolve-DnsName minio`（应返回 127.0.0.1）；或 `curl.exe -s -o NUL -w "%{http_code}" http://minio:9000/minio/health/live`（应返回 200）
+- 换机 / 重建环境时需重新添加；容器侧不受影响（Docker DNS 直接解析服务名）
+
+```powershell
+# 桶与对象检查
+docker exec minio mc ls --recursive local/lobechat-files
+```
 
 ### PivotAI 主题（LobeHub 2.x 版）
 
