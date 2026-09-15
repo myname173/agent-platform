@@ -82,7 +82,7 @@ CONSOLE_CLERK_PUBLISHABLE_KEY=pk_test_...   # 用于 console 镜像构建（与 
 
 ### LobeChat（通过 docker-compose 环境变量配置）
 
-LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，指向 n8n 的 OpenAI 兼容 Webhook。S3 文件存储已接线（`S3_ENDPOINT` → MinIO），详见「文件存储（MinIO）」一节。
+LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，指向 n8n 的 OpenAI 兼容 Webhook。S3 文件存储已接线（`S3_ENDPOINT` → MinIO），详见「文件存储（MinIO）」一节。多模态与网关模式：`deepseek-v4-flash` 已声明 vision；客户端按网关设计配套（Responses API 关、联网搜索关、流式输出关、记忆暂关），图片由网关内联后转上游。
 
 ## 数据流说明
 
@@ -103,6 +103,7 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
    - **模型路由**：`deepseek-agent`（默认，携工具：web_search + kb_search）、`deepseek-chat`（纯对话）、
      `deepseek-reasoner`（推理，较慢）、`deepseek-v4-flash`（V4 代，快且支持工具）；别名映射在网关
      Parse & Validate 节点（含计价表），新增模型 = 加一条别名 + LobeHub 侧 CUSTOM_MODELS / OPENAI_MODEL_LIST 同步
+   - **多模态（4b）**：`deepseek-v4-flash` 已声明 vision（显示名「DeepSeek V4 Flash（网关）」）→ 网关保留其 `image_url` 内容段，并将本地来源图片（`localhost:3210/f/…` 等）改写容器内地址 + 内联 base64 后转上游；其余模型仍拍平为文本
    - **Agent 工具循环**（优先级 5）：请求携带 web_search（SearXNG 公网）与 kb_search（私域知识库）
      两个工具，模型自主决定是否/用哪个搜索；最多 2 轮工具调用，第 2 轮后强制收口；
      usage 跨轮累计计入成本；工具故障时降级为错误说明回答；响应新增 `tool_rounds` 字段
