@@ -219,3 +219,42 @@ export async function getSettings(): Promise<PlatformSettings> {
   if (!res.ok) throw new Error(`Admin Settings API error: ${res.status}`);
   return res.json();
 }
+
+export interface KbDoc {
+  doc_id: string;
+  title: string;
+  source_type: string;
+  status: string;
+  created_at: string;
+  chunks: number;
+}
+
+export async function getKbDocs(): Promise<{ ok: boolean; docs: KbDoc[] }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/kb/ingest`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${CHAT_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ mode: 'list' }),
+    cache: 'no-store'
+  });
+  if (res.status === 401) throw new Error('Admin API 401 - key mismatch');
+  if (!res.ok) throw new Error(`KB list error: ${res.status}`);
+  return res.json();
+}
+
+export async function kbAction(payload: Record<string, unknown>): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/kb/ingest`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${CHAT_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload),
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+  return { status: res.status, body };
+}
