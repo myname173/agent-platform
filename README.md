@@ -162,8 +162,8 @@ curl -X POST http://localhost:5678/webhook/admin/kb/ingest \
 
 ### PivotAI 主题（LobeHub 2.x 版）
 
-深空黑 + 极光流 + 玻璃拟态皮肤：`custom-theme/pivot-theme-v2.css`（样式）与 `pivot-theme-v2.js`（极光引擎：
-Canvas 光斑 + 鼠标视差 + 品牌徽标 + 人脸垫层）。通过 `apply-theme-v2.ps1` 幂等注入到容器内全部 SPA 样式表与共享运行时模块；`pivot-face.jpg` 为超清 AI 人脸（已去水印），以 screen 混合半透明垫入背景（透明度调 CSS `#pivot-face-mat.pivot-face-on` 的 opacity 一行）。
+深空黑 + 粒子星宇宙 + 玻璃拟态皮肤：`custom-theme/pivot-theme-v2.css`（样式）与 `pivot-theme-v2.js`（星宇宙引擎：
+Canvas 星尘粒子（景深/闪烁/星座连线/流星/鼠标互动）+ 品牌徽标 + 人脸垫层）。通过 `apply-theme-v2.ps1` 幂等注入到容器内全部 SPA 样式表与共享运行时模块；`pivot-face.jpg` 为超清 AI 人脸（已去水印），以 screen 混合半透明垫入背景（透明度调 CSS `#pivot-face-mat.pivot-face-on` 的 opacity 一行）。
 
 ```bash
 # 在 custom-theme/ 目录下执行
@@ -247,13 +247,13 @@ node n8n/scripts/smoke-test.mjs
 ```
 
 
-## PivotAI 前台视觉与动效系统 (Cyber Glassmorphism & Aurora)
+## PivotAI 前台视觉与动效系统 (Cyber Glassmorphism & Star Cosmos)
 
 前台已升级为年轻、高辨识度的 **PivotAI** 沉浸式赛博流光视觉风格：
 - **品牌与 Slogan**：PivotAI | 从对话到执行 / Chat less. Ship more.
 - **色彩规范**：主色 `#3B82F6` (Electric Blue)，强调色 `#06B6D4` (Cyan)，背景 `#030712` (Cyber Deep Black)
 - **核心动态与交互**：
-  1. **流动 Aurora 渐变光斑**：60fps WebGL/Canvas 极光流转背景，支持鼠标平滑视差（Parallax）
+  1. **动态粒子星宇宙**：60fps Canvas 星尘漂移（近大远小景深、闪烁、星座连线、偶发流星）+ 鼠标互动（粒子避让+连线）+ 极淡银河带底纹
   2. **磨砂玻璃拟态 (Glassmorphism)**：侧边栏、卡片、输入框高斯模糊与高光描边，hover 微浮起
   3. **顺滑气泡动效**：用户与 AI 回复消息平滑滑入；AI 消息具备微光呼吸感
   4. **光感按钮反馈**：按压缩放（Scale）与蓝青流光（Glow）
@@ -294,7 +294,7 @@ agent-platform/
 ├── apply-theme.ps1           # PivotAI 视觉主题一键注入脚本
 ├── custom-theme/             # PivotAI 定制主题源文件
 │   ├── pivot-theme.css       #   玻璃拟态与赛博光晕样式表
-│   └── pivot-theme.js        #   60fps 极光视差与品牌动态引擎
+│   └── pivot-theme.js        #   60fps 星宇宙粒子与品牌动态引擎
 ├── n8n/
 │   ├── workflows/            #   workflow 源码（deploy.mjs 部署）
 │   └── scripts/              #   deploy / keys / smoke-test / validate / backup 运维脚本

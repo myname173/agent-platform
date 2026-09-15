@@ -83,8 +83,8 @@ body {
   background-attachment: fixed !important;
 }
 
-/* Aurora canvas injected by the engine script */
-#pivot-aurora-canvas {
+/* Star-cosmos particle canvas injected by the engine script */
+#pivot-particle-canvas {
   position: fixed;
   top: 0;
   left: 0;
@@ -92,12 +92,9 @@ body {
   height: 100vh;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.88;
-  filter: blur(30px);
-  will-change: transform;
 }
 
-/* Make intermediate wrappers transparent so the aurora shows through */
+/* Make intermediate wrappers transparent so the cosmos shows through */
 html, body, #__next, #root,
 [class*="layout__app"], [class*="AppLayout"], [class*="app-layout"] {
   background: transparent !important;
