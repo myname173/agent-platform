@@ -72,6 +72,11 @@ const DATA_TABLE_COLUMNS = {
     { name: 'total_tokens', type: 'number' },
   ],
   // priority 3: managed gateway keys (hash-only storage, per-key limits & spend)
+  // embedding quota meter (single row; total_embed_tokens)
+  kb_usage: [
+    { name: 'total_embed_tokens', type: 'number' },
+  ],
+
   // priority 6: error-rate alerting (data table, API-accessible)
   ops_alerts: [
     { name: 'kind', type: 'string' },

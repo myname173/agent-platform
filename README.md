@@ -89,9 +89,9 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
    - 请求只带单条消息时，自动从 Data Table `chat_messages` 合并该会话最近 20 轮历史（服务端记忆）；
      LobeChat 等全量历史的客户端走透传路径
    - 调用 DeepSeek（60s 超时 + 1 次重试），包装为 OpenAI 标准响应（含真实 token usage）
-   - **模型路由**（2026-09-14 扩展）：`deepseek-agent`（默认，携工具：web_search + kb_search）、
-     `deepseek-chat`（纯对话）、`deepseek-reasoner`（推理，较慢）；别名映射在网关 Parse & Validate 节点，
-     新增模型 = 加一条别名 + LobeHub 侧 CUSTOM_MODELS / OPENAI_MODEL_LIST 同步
+   - **模型路由**：`deepseek-agent`（默认，携工具：web_search + kb_search）、`deepseek-chat`（纯对话）、
+     `deepseek-reasoner`（推理，较慢）、`deepseek-v4-flash`（V4 代，快且支持工具）；别名映射在网关
+     Parse & Validate 节点（含计价表），新增模型 = 加一条别名 + LobeHub 侧 CUSTOM_MODELS / OPENAI_MODEL_LIST 同步
    - **Agent 工具循环**（优先级 5）：请求携带 web_search（SearXNG 公网）与 kb_search（私域知识库）
      两个工具，模型自主决定是否/用哪个搜索；最多 2 轮工具调用，第 2 轮后强制收口；
      usage 跨轮累计计入成本；工具故障时降级为错误说明回答；响应新增 `tool_rounds` 字段
@@ -173,6 +173,13 @@ powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Remove  # 卸载（
 改文案/颜色：编辑仓库 `custom-theme/pivot-theme-v2.*`（颜色集中在 :root 的 --pivot-* 变量）→ 重跑脚本 → 浏览器强刷（Ctrl+Shift+R）。
 注意：LobeHub 容器每次重建/升级会重置文件系统，升级后需重新运行一次脚本；注入器自动为每个文件保留 `.pivot-backup` 原始备份。
 - 市场（模板/发现 Agent）需要 LobeHub 云端账号授权（market.lobehub.com 全端点要求登录）；不影响核心对话，注册 lobehub.com 账号后可在应用内连接
+
+### 嵌入额度计量（1M tokens/模型）
+
+阿里百炼的 embedding 模型各带 100 万 tokens 额度。`kb_usage` 数据表记录累计用量（摄取时自动累加，
+查询侧调用量小未计）；Chat Alerts 每 15 分钟检查，**用量 ≥ 80% 时自动写入告警**（ops_alerts，`embedding_quota` 类）。
+查看当前用量：`POST /webhook/admin/alerts/run`（Bearer）会在响应里带 `embedding_quota`；
+或查 `kb_usage` 数据表。额度不足时的选项：购买加油包 / 换成 flash 变体（需全量重嵌，两模型向量空间不通用）。
 
 ### 错误率告警（Chat Alerts workflow）
 

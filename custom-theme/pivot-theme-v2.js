@@ -113,10 +113,10 @@
 
     // 4 organic blobs: blue / cyan / indigo / violet family
     var blobs = [
-      { hue: 'rgba(59,130,246,', base: 0.55, r: 0.42, x: 0.22, y: 0.28, sx: 0.9, sy: 0.7, px: 26, py: 18, dx: 0.0, dy: 0.0 },
-      { hue: 'rgba(6,182,212,',  base: 0.5,  r: 0.36, x: 0.78, y: 0.24, sx: 0.7, sy: 0.9, px: -30, py: 22, dx: 0.0, dy: 0.0 },
-      { hue: 'rgba(99,102,241,', base: 0.4,  r: 0.44, x: 0.68, y: 0.78, sx: 1.1, sy: 0.8, px: 18, py: -26, dx: 0.0, dy: 0.0 },
-      { hue: 'rgba(34,211,238,', base: 0.38, r: 0.3,  x: 0.28, y: 0.76, sx: 0.8, sy: 1.0, px: -22, py: -18, dx: 0.0, dy: 0.0 }
+      { hue: 'rgba(59,130,246,', base: 0.90, r: 0.42, x: 0.22, y: 0.28, sx: 0.9, sy: 0.7, px: 26, py: 18, dx: 0.0, dy: 0.0 },
+      { hue: 'rgba(6,182,212,',  base: 0.80,  r: 0.36, x: 0.78, y: 0.24, sx: 0.7, sy: 0.9, px: -30, py: 22, dx: 0.0, dy: 0.0 },
+      { hue: 'rgba(99,102,241,', base: 0.70,  r: 0.44, x: 0.68, y: 0.78, sx: 1.1, sy: 0.8, px: 18, py: -26, dx: 0.0, dy: 0.0 },
+      { hue: 'rgba(34,211,238,', base: 0.65, r: 0.3,  x: 0.28, y: 0.76, sx: 0.8, sy: 1.0, px: -22, py: -18, dx: 0.0, dy: 0.0 }
     ];
 
     var mouse = { x: 0, y: 0 }, target = { x: 0, y: 0 };
@@ -135,15 +135,15 @@
       ctx.clearRect(0, 0, W, H);
       for (var i = 0; i < blobs.length; i++) {
         var b = blobs[i];
-        var bx = (b.x + Math.sin(t * b.sx * 0.12 + i * 1.7) * 0.08) * W;
-        var by = (b.y + Math.cos(t * b.sy * 0.1 + i * 2.3) * 0.07) * H;
+        var bx = (b.x + Math.sin(t * b.sx * 0.16 + i * 1.7) * 0.10) * W;
+        var by = (b.y + Math.cos(t * b.sy * 0.13 + i * 2.3) * 0.09) * H;
         // parallax offset (deeper blobs move more)
         var depth = 0.4 + (i % 3) * 0.3;
         bx += mouse.x * b.px * depth;
         by += mouse.y * b.py * depth;
         var rr = b.r * Math.min(W, H) * (1 + Math.sin(t * 0.18 + i) * 0.06);
         var g = ctx.createRadialGradient(bx, by, 0, bx, by, rr);
-        var a = b.base * (0.85 + Math.sin(t * 0.25 + i * 1.1) * 0.15);
+        var a = b.base * (0.78 + Math.sin(t * 0.30 + i * 1.1) * 0.22);
         g.addColorStop(0, b.hue + a.toFixed(3) + ')');
         g.addColorStop(1, b.hue + '0)');
         ctx.fillStyle = g;
