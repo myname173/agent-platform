@@ -286,3 +286,40 @@ export async function getModels(): Promise<{
   if (!res.ok) throw new Error(`Admin Models API error: ${res.status}`);
   return res.json();
 }
+
+export interface BriefItem {
+  id: number | string;
+  title: string;
+  content_md: string;
+  brief_date: string;
+  meta: string | null;
+  created_at: string;
+}
+
+export async function getBriefs(): Promise<{ ok: boolean; count: number; briefs: BriefItem[] }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/briefs`, {
+    headers: {
+      Authorization: `Bearer ${CHAT_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    cache: 'no-store'
+  });
+  if (res.status === 401) throw new Error('Admin API 401 - key mismatch');
+  if (!res.ok) throw new Error(`Admin Briefs API error: ${res.status}`);
+  return res.json();
+}
+
+export async function runBrief(): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/briefs/run`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${CHAT_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: '{}',
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+  return { status: res.status, body };
+}

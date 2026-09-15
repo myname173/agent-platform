@@ -84,6 +84,14 @@ const DATA_TABLE_COLUMNS = {
     { name: 'total_embed_tokens', type: 'number' },
   ],
 
+  // proactive briefs: daily digest rows (Schedule Daily 8:30 + manual run)
+  daily_briefs: [
+    { name: 'title', type: 'string' },
+    { name: 'content_md', type: 'string' },
+    { name: 'brief_date', type: 'string' },
+    { name: 'meta', type: 'string' }
+  ],
+
   // priority 6: error-rate alerting (data table, API-accessible)
   ops_alerts: [
     { name: 'kind', type: 'string' },

@@ -1,0 +1,310 @@
+{
+  "name": "Daily Brief",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 8,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "id": "schedule-daily-830",
+      "name": "Schedule Daily 8:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/briefs/run",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-manual-run",
+      "name": "Manual Run",
+      "webhookId": "admin-briefs-run",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Auth gate — only meaningful for the manual webhook input\n   (schedule-triggered items carry no headers). */\nconst input = $input.first().json;\nif (input.headers) {\n  const provided = String(input.headers.authorization || '').replace(/^Bearer\\s+/i, '');\n  if (provided !== $env.CHAT_API_KEY) {\n    return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key. Provide it via the Authorization: Bearer header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n  }\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "auth-check",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-error",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      },
+      "id": "respond-error",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        680,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Collect sources: SearXNG searches per topic + platform status snapshot, then build the LLM request. */\nconst first = $input.first().json || {};\nconst body = first.body || {};\nconst topics = Array.isArray(body.topics) && body.topics.length > 0\n  ? body.topics.slice(0, 5).map((t) => String(t).slice(0, 80))\n  : ['AI 大模型 最新进展', '工作流自动化与 Agent 平台', '科技互联网要闻'];\n\nconst searches = [];\nfor (const topic of topics) {\n  try {\n    const res = await this.helpers.httpRequest({\n      method: 'GET',\n      url: 'http://searxng:8080/search',\n      qs: { q: topic, format: 'json', time_range: 'week' },\n      headers: { Accept: 'application/json' },\n      timeout: 20000,\n    });\n    searches.push({\n      topic,\n      results: (res.results || []).slice(0, 4).map((r) => ({\n        title: r.title,\n        url: r.url,\n        snippet: String(r.content || '').slice(0, 220),\n      })),\n    });\n  } catch (e) {\n    searches.push({ topic, error: String(e && e.message ? e.message : e).slice(0, 150) });\n  }\n}\n\nlet platform = null;\ntry {\n  platform = await this.helpers.httpRequest({\n    method: 'GET',\n    url: 'http://localhost:5678/webhook/admin/overview',\n    headers: { Authorization: 'Bearer ' + $env.CHAT_API_KEY },\n    timeout: 15000,\n  });\n} catch (e) {\n  platform = null;\n}\n\nconst briefDate = new Date().toISOString().slice(0, 10);\nconst sourcesText = JSON.stringify({\n  topics: searches,\n  platform: platform ? { chat_24h: platform.chat_24h, alerts_recent: (platform.alerts && platform.alerts.recent_count) || 0, kb: platform.kb } : null,\n}, null, 1);\n\nconst system = '你是一份个人 AI 平台的晨报编辑。只使用给定的检索结果撰写中文晨报，禁止编造事实或链接。';\nconst user = [\n  '请输出一份中文晨报（Markdown，不要用代码块包裹），结构：',\n  '1) 第一行：晨报 · ' + briefDate + '；',\n  '2) 按主题分节：每节 2–3 条要点，每条一句话概括 + 来源链接（[标题](链接) 格式，仅限给定结果）；',\n  '3) 末尾「平台状态」一节：用给定 platform 数据写 1–2 句（无数据则写“数据暂缺”）；',\n  '4) 全文不超过 500 字，语气克制专业。',\n  '',\n  '检索结果（JSON）：',\n  sourcesText,\n].join('\\n');\n\nconst llm_body = {\n  model: 'deepseek-chat',\n  temperature: 0.4,\n  max_tokens: 1200,\n  messages: [\n    { role: 'system', content: system },\n    { role: 'user', content: user },\n  ],\n};\n\nreturn [{ json: { brief_date: briefDate, llm_body } }];"
+      },
+      "id": "collect-sources",
+      "name": "Collect Sources",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.deepseek.com/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "deepSeekApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.llm_body) }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "summarize-llm",
+      "name": "Summarize",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        -100
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "deepSeekApi": {
+          "id": "vdF0C5ulfD4B9mup",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Parse the summary into a row ready for the daily_briefs table (autoMapInputData). */\nconst resp = $input.first().json;\nconst content = String((resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) || '').trim();\nif (!content) throw new Error('empty summary from upstream');\nconst briefDate = new Date().toISOString().slice(0, 10);\nconst title = '晨报 · ' + briefDate;\nconst meta = JSON.stringify({ model: resp.model, usage: resp.usage });\nreturn [{ json: { title, content_md: content, brief_date: briefDate, meta } }];"
+      },
+      "id": "parse-summary",
+      "name": "Parse Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@daily_briefs",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "save-brief",
+      "name": "Save Brief",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "respond-result",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1560,
+        -100
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Daily 8:30": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Run": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Collect Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Sources": {
+      "main": [
+        [
+          {
+            "node": "Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize": {
+      "main": [
+        [
+          {
+            "node": "Parse Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Summary": {
+      "main": [
+        [
+          {
+            "node": "Save Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Brief": {
+      "main": [
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Shanghai"
+  },
+  "id": "3qJHUgstWxg6ljqz"
+}
