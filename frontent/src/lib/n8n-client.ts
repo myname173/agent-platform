@@ -258,3 +258,31 @@ export async function kbAction(payload: Record<string, unknown>): Promise<{ stat
   try { body = await res.json(); } catch { /* ignore */ }
   return { status: res.status, body };
 }
+
+export interface ModelEntry {
+  alias: string;
+  upstream: string;
+  tools: boolean;
+  pricing: { input: number; cache_hit: number; output: number } | null;
+  calls_30d: number;
+  cost_30d: number;
+  is_default: boolean;
+}
+
+export async function getModels(): Promise<{
+  ok: boolean;
+  default_model: string | null;
+  models: ModelEntry[];
+  note: string;
+}> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/models`, {
+    headers: {
+      Authorization: `Bearer ${CHAT_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    cache: 'no-store'
+  });
+  if (res.status === 401) throw new Error('Admin API 401 - key mismatch');
+  if (!res.ok) throw new Error(`Admin Models API error: ${res.status}`);
+  return res.json();
+}
