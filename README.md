@@ -163,15 +163,17 @@ curl -X POST http://localhost:5678/webhook/admin/kb/ingest \
 ### PivotAI 主题（LobeHub 2.x 版）
 
 深空黑 + 极光流 + 玻璃拟态皮肤：`custom-theme/pivot-theme-v2.css`（样式）与 `pivot-theme-v2.js`（极光引擎：
-Canvas 光斑 + 鼠标视差 + 品牌徽标）。通过 `apply-theme-v2.ps1` 幂等注入到容器内全部 SPA 样式表与共享运行时模块。
+Canvas 光斑 + 鼠标视差 + 品牌徽标 + 人脸垫层）。通过 `apply-theme-v2.ps1` 幂等注入到容器内全部 SPA 样式表与共享运行时模块；`pivot-face.jpg` 为超清 AI 人脸（已去水印），以 screen 混合半透明垫入背景（透明度调 CSS `#pivot-face-mat.pivot-face-on` 的 opacity 一行）。
 
 ```bash
-powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1          # 应用 / 更新（容器重建后需重跑）
-powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Remove  # 卸载（去除注入块，保留原文件）
+# 在 custom-theme/ 目录下执行
+powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Restart   # 应用/更新（容器重建后必须带 -Restart）
+powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Check     # 探针：主题在不在（exit 0/1）
+powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Remove    # 卸载（去除注入块，保留原文件）
 ```
 
 改文案/颜色：编辑仓库 `custom-theme/pivot-theme-v2.*`（颜色集中在 :root 的 --pivot-* 变量）→ 重跑脚本 → 浏览器强刷（Ctrl+Shift+R）。
-注意：LobeHub 容器每次重建/升级会重置文件系统，升级后需重新运行一次脚本；注入器自动为每个文件保留 `.pivot-backup` 原始备份。
+注意：① 容器重建/升级会重置文件系统，需重跑脚本恢复；② 静态文件列表在容器启动时拍快照，新文件（人脸图）必须重启容器后才可被服务，故推荐直接 `-Restart`；③ 已部署 Windows 计划任务「PivotAI Theme Keeper」每 5 分钟自动巡检，主题被抹掉时自动"重注入+重启"修复（日志 `custom-theme/theme-keeper.log`）；④ 注入器自动为每个文件保留 `.pivot-backup` 原始备份。
 - 市场（模板/发现 Agent）需要 LobeHub 云端账号授权（market.lobehub.com 全端点要求登录）；不影响核心对话，注册 lobehub.com 账号后可在应用内连接
 
 ### 嵌入额度计量（1M tokens/模型）
@@ -260,7 +262,8 @@ node n8n/scripts/smoke-test.mjs
 
 ### 重装或重新应用主题
 ```powershell
-powershell -ExecutionPolicy Bypass -File apply-theme.ps1
+# 在 custom-theme/ 目录下执行（容器重建后必须重跑；详见上文主题节）
+powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Restart
 ```
 
 ## 常用命令

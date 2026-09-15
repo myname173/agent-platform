@@ -87,6 +87,17 @@
     startObserve();
   } catch (e) { /* ignore */ }
 
+  /* ---- 1.5 AI face mat layer (deepest visual layer, under the aurora) ---- */
+  function initFaceMat() {
+    if (!document.body || document.getElementById('pivot-face-mat')) return;
+    var mat = document.createElement('div');
+    mat.id = 'pivot-face-mat';
+    var canvas = document.getElementById('pivot-aurora-canvas');
+    if (canvas && canvas.parentNode) canvas.parentNode.insertBefore(mat, canvas);
+    else document.body.appendChild(mat);
+    requestAnimationFrame(function () { mat.classList.add('pivot-face-on'); });
+  }
+
   /* ---- 2. Aurora canvas with Lerp mouse parallax ---- */
   function initAurora() {
     if (REDUCED) return; // respect reduced motion (static CSS wash remains)
@@ -157,8 +168,9 @@
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initAurora);
+    document.addEventListener('DOMContentLoaded', function () { initFaceMat(); initAurora(); });
   } else {
+    initFaceMat();
     initAurora();
   }
 

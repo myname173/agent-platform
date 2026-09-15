@@ -344,10 +344,42 @@ button:active, .ant-btn:active {
 }
 
 /* --------------------------------------------------------------------------
+   11. AI face mat — semi-transparent ultrahd face layer under the aurora
+   (image shipped at /_spa/pivot-face.jpg; blend keeps pure-black areas invisible)
+   -------------------------------------------------------------------------- */
+#pivot-face-mat {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url('/_spa/pivot-face.jpg');
+  background-size: cover;
+  background-position: 58% 34%;
+  background-repeat: no-repeat;
+  opacity: 0;
+  mix-blend-mode: screen;
+  filter: saturate(0.58) contrast(1.0) brightness(0.94) blur(2.2px);
+  -webkit-mask-image: linear-gradient(96deg, rgba(0, 0, 0, 0.04) 0%, rgba(0, 0, 0, 0.22) 38%, rgba(0, 0, 0, 0.72) 60%, #000 82%);
+  mask-image: linear-gradient(96deg, rgba(0, 0, 0, 0.04) 0%, rgba(0, 0, 0, 0.22) 38%, rgba(0, 0, 0, 0.72) 60%, #000 82%);
+  transition: opacity 1.6s ease;
+  will-change: opacity;
+}
+
+#pivot-face-mat.pivot-face-on {
+  opacity: 0.28;
+}
+
+@media (max-width: 768px) {
+  #pivot-face-mat { background-position: center 28%; }
+  #pivot-face-mat.pivot-face-on { opacity: 0.22; }
+}
+
+/* --------------------------------------------------------------------------
    10. Accessibility & small screens
    -------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   [data-message], [class*='message-wrapper'], .pivot-brand-dot { animation: none !important; }
+  #pivot-face-mat { transition: none !important; }
   button:hover, button:active, .ant-btn:hover, .ant-btn:active { transform: none !important; }
   [class*='topic-item']:hover, [class*='topic-row']:hover, [data-session-row]:hover { transform: none !important; }
 }
