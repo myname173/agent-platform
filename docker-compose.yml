@@ -156,7 +156,7 @@ services:
       - OPENAI_PROXY_URL=http://n8n:5678/webhook/v1
       # Same key as n8n's CHAT_API_KEY — gateway auth depends on the match
       - OPENAI_API_KEY=${LOBECHAT_OPENAI_API_KEY}
-      - OPENAI_MODEL_LIST=deepseek-agent,deepseek-chat,deepseek-reasoner,deepseek-v4-flash
+      - OPENAI_MODEL_LIST=deepseek-agent,deepseek-chat,deepseek-reasoner,deepseek-v4-flash=DeepSeek V4 Flash（网关）<1048576:vision>
       # Server database (drizzle auto-migrates on start)
       - DATABASE_URL=${LOBECHAT_DATABASE_URL}
       # Better Auth (email/password built-in; SSO optional via AUTH_SSO_PROVIDERS)
