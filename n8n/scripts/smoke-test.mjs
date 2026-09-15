@@ -224,6 +224,28 @@ group('chat stats API');
   }
 }
 
+group('platform admin overview');
+{
+  let r = await req('GET', '/webhook/admin/overview');
+  check(r.status === 401 && isOpenAIError(r.json), 'no key -> 401 + envelope');
+
+  r = await req('GET', '/webhook/admin/overview', { key: 'valid' });
+  check(r.status === 200, 'with key -> 200', `got ${r.status} ${r.text?.slice(0, 120)}`);
+  const j = r.json;
+  check(j?.ok === true, 'ok flag');
+  check(
+    j?.chat_24h && typeof j.chat_24h.total === 'number' && typeof j.chat_24h.error_rate === 'number',
+    'chat_24h block complete',
+    JSON.stringify(j?.chat_24h)
+  );
+  check(
+    typeof j?.chat_24h?.avg_latency_ms === 'number' && typeof j?.chat_24h?.cost_usd === 'number',
+    'chat_24h latency/cost present'
+  );
+  check(j?.alerts && Array.isArray(j.alerts.recent), 'alerts.recent is an array');
+  check(j?.kb && (typeof j.kb.documents === 'number' || typeof j.kb.error === 'string'), 'kb block (counts or graceful error)');
+}
+
 group('gateway: managed keys & rate limit');
 {
   if (!N8N_API_KEY) {

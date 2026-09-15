@@ -29,7 +29,7 @@
 | --- | --- | --- |
 | n8n | 5678 | 核心工作流引擎（Webhook + REST API） |
 | LobeChat | 3210 | 终端用户 AI 对话界面 |
-| Kiranism | 3000 | 运营管理后台（Next.js dev server） |
+| Kiranism (console) | 3000 | 运营管理后台（compose 服务 `platform-console`，亦可 dev 模式） |
 | SearXNG | 8080 | 搜索引擎（供 n8n 工具链调用） |
 | Postgres 17 | 5432（仅内网） | n8n + LobeHub 数据库（pgvector / pg_search，不在宿主机暴露端口） |
 
@@ -45,9 +45,11 @@ docker compose up -d
 ### 2. 启动管理后台（开发模式）
 
 ```bash
-cd frontent
-pnpm install    # 首次需要
-pnpm dev        # 启动 Next.js dev server → http://localhost:3000
+# 方式 A（推荐）：容器化运行（前端源码见 frontent/）
+docker compose up -d console   # 需在根 .env 配置 CONSOLE_CLERK_PUBLISHABLE_KEY
+
+# 方式 B：dev 模式（首次需要 pnpm install）
+cd frontent && pnpm dev        # → http://localhost:3000
 ```
 
 ### 3. 访问各服务
@@ -62,11 +64,18 @@ pnpm dev        # 启动 Next.js dev server → http://localhost:3000
 
 ```bash
 NEXT_PUBLIC_N8N_URL=http://localhost:5678   # n8n 地址
+N8N_URL=http://n8n:5678                     # 容器内运行时地址（compose console 服务注入）
 N8N_API_KEY=<your-n8n-api-key>              # n8n Public API Key
 
 # Clerk 身份认证
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
 CLERK_SECRET_KEY=sk_test_...
+```
+
+### 根 .env 补充项（控制台容器化）
+
+```bash
+CONSOLE_CLERK_PUBLISHABLE_KEY=pk_test_...   # 用于 console 镜像构建（与 frontent/.env.local 保持一致）
 ```
 
 ### LobeChat（通过 docker-compose 环境变量配置）
@@ -102,6 +111,7 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
    对话轮次写入 `chat_messages`
 
 ### 管理链路（Kiranism → n8n API）
+0. 平台总览聚合接口：`GET /webhook/admin/overview`（Bearer CHAT_API_KEY；返回 24h 对话量/错误率/延迟/成本、告警摘要、知识库与嵌入额度）—— 对应控制台 “Overview” 页
 1. Kiranism 后台通过服务端 API 路由代理访问 n8n
 2. `N8N_API_KEY` 仅存在于 Next.js 服务端，不暴露给浏览器
 3. 可查看工作流状态、执行记录、健康检查等

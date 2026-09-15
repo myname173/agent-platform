@@ -62,6 +62,30 @@ services:
       - n8n-net
 
   # --------------------------------------------------------------------------
+  # --------------------------------------------------------------------------
+  # Console - Kiranism operations dashboard (Next.js standalone, Phase 1)
+  # --------------------------------------------------------------------------
+  console:
+    build:
+      context: ./frontent
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${CONSOLE_CLERK_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_CLERK_SIGN_IN_URL: /auth/sign-in
+        NEXT_PUBLIC_CLERK_SIGN_UP_URL: /auth/sign-up
+        NEXT_PUBLIC_SENTRY_DISABLED: "true"
+    container_name: platform-console
+    restart: unless-stopped
+    env_file:
+      - ./frontent/.env.local
+    environment:
+      - N8N_URL=http://n8n:5678
+    ports:
+      - "3000:3000"
+    depends_on:
+      - n8n
+    networks:
+      - n8n-net
+
   # Postgres - n8n primary datastore (production-grade, replaced SQLite)
   # --------------------------------------------------------------------------
   postgres:

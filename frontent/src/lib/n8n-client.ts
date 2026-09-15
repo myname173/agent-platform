@@ -1,4 +1,4 @@
-const N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || 'http://localhost:5678';
+const N8N_URL = process.env.N8N_URL || process.env.NEXT_PUBLIC_N8N_URL || 'http://localhost:5678';
 const N8N_API_KEY = process.env.N8N_API_KEY || '';
 // Chat Gateway 的 Bearer key（n8n env CHAT_API_KEY），与公共 API 的 X-N8N-API-KEY 是两回事
 const CHAT_API_KEY = process.env.CHAT_API_KEY || '';
@@ -64,5 +64,45 @@ export async function getChatStats(): Promise<ChatStats> {
   });
   if (res.status === 401) throw new Error('统计接口 401：CHAT_API_KEY 未配置或不正确');
   if (!res.ok) throw new Error(`Chat Stats API error: ${res.status}`);
+  return res.json();
+}
+
+export interface PlatformOverview {
+  ok: boolean;
+  generated_at: string;
+  chat_24h: {
+    total: number;
+    success: number;
+    error: number;
+    error_rate: number;
+    avg_latency_ms: number;
+    cost_usd: number;
+    unique_sessions: number;
+  };
+  chat_window: { scanned: number };
+  alerts: {
+    recent: Array<{ kind: string; message: string; error_rate: number | null; created_at: string }>;
+    recent_count: number;
+  };
+  kb: {
+    documents?: number;
+    chunks?: number;
+    embed_tokens_used?: number;
+    embed_quota_tokens?: number;
+    embed_pct?: number | null;
+    error?: string;
+  } | null;
+}
+
+export async function getOverview(): Promise<PlatformOverview> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/overview`, {
+    headers: {
+      Authorization: `Bearer ${CHAT_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    cache: 'no-store'
+  });
+  if (res.status === 401) throw new Error('Admin API 401 - key mismatch');
+  if (!res.ok) throw new Error(`Admin Overview API error: ${res.status}`);
   return res.json();
 }
