@@ -7,6 +7,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { PushMobileCard } from './push-mobile-card';
 import { SelfcheckCard } from './selfcheck-card';
 import { TodosCard } from './todos-card';
+import { WeeklyCard } from './weekly-card';
+import { MemoryCard } from './memory-card';
 
 interface OverviewPayload {
   ok: boolean;
@@ -149,6 +151,10 @@ export function PlatformOverview() {
       </div>
 
       <TodosCard />
+
+      <WeeklyCard />
+
+      <MemoryCard />
 
       <SelfcheckCard />
 

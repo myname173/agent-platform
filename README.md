@@ -223,7 +223,7 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 - 原理：LobeHub 自动提取（偏好 / 身份 / 经历 / 活动）→ 经 `stream-bridge` 转发嵌入（DashScope `text-embedding-v4`，OpenAI 风格模型名自动映射）→ 存本机 lobechat 库（pgvector）；回答时自动检索相关记忆注入上下文。
 - 覆盖范围：LobeHub 全端（自动提取，DashScope 嵌入）。
 - Telegram 侧：桥接回复前调 `POST /webhook/internal/memory {action: 'retrieve'}` 注入上下文（并一并参考 LobeHub 记忆），回复后 `{action: 'extract'}` 保守提取入库（`agent_memories`，pgvector + qwen3.7 嵌入）。
-- 双库说明：TG 可读 LobeHub 记忆，LobeHub 暂不读本机库（单向互通，v2 计划同步）。
+- 双库说明：TG 可读 LobeHub 记忆，LobeHub 暂不读本机库（单向互通，v2 计划同步）；控制台「记忆」卡可查看两边记忆（只读）。
 ### 语音（Telegram 双向语音，2026-09-16）
 
 - 规则：**来语音 → 回语音**（镜像模式）；回复超过 900 字自动降级文字；识别或合成失败均降级文字，不丢消息。
@@ -234,7 +234,7 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 
 - 触发：每周日 20:00（Asia/Shanghai，工作流级时区）；手动 `POST /webhook/admin/weekly-review/run`（`{"force":true}` 可非周日试跑；`{"dry":true}` 只算不发，供自检）。
 - 内容：本周待办（完成 / 开放 / 逾期）· 提醒（触发 / 待触发）· 对话轮次（SQL 口径，去重真实会话、排除后台噪声）· 新记忆 · 晨报数 + 模型一句话小结。
-- 落库：`weekly_reviews` 表（week_start / week_end / content_md / stats_json）并推送 Telegram（每周一条）。
+- 落库：`weekly_reviews` 表（week_start / week_end / content_md / stats_json）并推送 Telegram（每周一条）；控制台「周报」卡可查看历史与手动试跑（会推送）。
 
 ### 时区与调度（2026-09-16 修正）
 

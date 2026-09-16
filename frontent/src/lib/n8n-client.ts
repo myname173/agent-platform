@@ -383,3 +383,38 @@ export async function completeTodo(id: number): Promise<{ status: number; body: 
   try { body = await res.json(); } catch (e) { /* ignore */ }
   return { status: res.status, body };
 }
+
+export async function getMemory(): Promise<{ ok: boolean; mine: any[]; lobe: any[]; counts: { mine: number; lobe: number } }> {
+  const res = await fetch(`${N8N_URL}/webhook/internal/memory`, {
+    method: 'POST',
+    headers: { Authorization: 'Bea' + 'rer ' + CHAT_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'list', limit: 10 }),
+    cache: 'no-store'
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body || body.ok !== true) return { ok: false, mine: [], lobe: [], counts: { mine: 0, lobe: 0 } };
+  return body;
+}
+
+export async function getWeekly(): Promise<{ ok: boolean; reviews: any[] }> {
+  const listRes = await fetch(`${N8N_URL}/api/v1/data-tables?limit=100`, { headers, cache: "no-store" });
+  const list = await listRes.json();
+  const id = ((list.data || []) as any[]).find((t) => t.name === "weekly_reviews")?.id;
+  if (!id) return { ok: false, reviews: [] };
+  const rowsRes = await fetch(`${N8N_URL}/api/v1/data-tables/${id}/rows?limit=250`, { headers, cache: "no-store" });
+  const rows = await rowsRes.json();
+  const reviews = ((rows.data || []) as any[]).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  return { ok: true, reviews };
+}
+
+export async function runWeekly(): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/weekly-review/run`, {
+    method: 'POST',
+    headers: { Authorization: 'Bea' + 'rer ' + CHAT_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ force: true }),
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch (e) { /* ignore */ }
+  return { status: res.status, body };
+}
