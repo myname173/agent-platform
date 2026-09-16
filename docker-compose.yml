@@ -226,6 +226,7 @@ services:
       - UPSTREAM_API_KEY=${UPSTREAM_API_KEY}
       - CHAT_API_KEY=${CHAT_API_KEY}
       - LOG_URL=http://n8n:5678/webhook/internal/log-turn
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
     ports:
       - "127.0.0.1:3211:3211"

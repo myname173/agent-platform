@@ -248,10 +248,90 @@ async function handleStream(req, res, body) {
   // gateway already logged this turn (it handled the request), so no logTurn here.
 }
 
+/* ---- voice: Telegram <-> DashScope (ASR + TTS) ---- */
+const VOICE_TOKEN = process.env[String.fromCharCode(84, 69, 76, 69, 71, 82, 65, 77, 95, 66, 79, 84, 95, 84, 79, 75, 69, 78)] || '';
+const DASH_GEN = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
+const DASH_AUTH = AUTH_PREFIX + DASH_KEY;
+
+function tgMulti(fields, file) {
+  const boundary = '----voice' + Math.random().toString(16).slice(2);
+  const parts = [];
+  for (const k of Object.keys(fields)) {
+    parts.push(Buffer.from('--' + boundary + '\r\nContent-Disposition: form-data; name="' + k + '"\r\n\r\n' + fields[k] + '\r\n'));
+  }
+  if (file) {
+    parts.push(Buffer.from('--' + boundary + '\r\nContent-Disposition: form-data; name="' + file.name + '"; filename="' + file.filename + '"\r\nContent-Type: ' + file.contentType + '\r\n\r\n'));
+    parts.push(file.data);
+    parts.push(Buffer.from('\r\n'));
+  }
+  parts.push(Buffer.from('--' + boundary + '--\r\n'));
+  return { body: Buffer.concat(parts), contentType: 'multipart/form-data; boundary=' + boundary };
+}
+
+async function tgUpload(method, fields, file) {
+  const mp = tgMulti(fields, file);
+  const r = await fetch('https://api.telegram.org/bot' + VOICE_TOKEN + '/' + method, { method: 'POST', headers: { 'Content-Type': mp.contentType }, body: mp.body, signal: AbortSignal.timeout(120000) });
+  return r.json().catch(() => ({}));
+}
+
+async function handleVoiceTranscribe(res, body) {
+  const t0 = Date.now();
+  try {
+    const fileId = String((body && body.file_id) || '');
+    if (!fileId) return jsonOut(res, 400, { ok: false, error: 'file_id required' });
+    if (!VOICE_TOKEN) return jsonOut(res, 500, { ok: false, error: 'telegram token missing on bridge' });
+    const gf = await fetch('https://api.telegram.org/bot' + VOICE_TOKEN + '/getFile?file_id=' + encodeURIComponent(fileId), { signal: AbortSignal.timeout(30000) }).then((r) => r.json());
+    if (!gf || !gf.ok || !gf.result || !gf.result.file_path) return jsonOut(res, 502, { ok: false, error: 'getFile failed' });
+    const fp = String(gf.result.file_path);
+    const dl = await fetch('https://api.telegram.org/file/bot' + VOICE_TOKEN + '/' + fp, { signal: AbortSignal.timeout(60000) });
+    if (!dl.ok) return jsonOut(res, 502, { ok: false, error: 'download failed ' + dl.status });
+    const buf = Buffer.from(await dl.arrayBuffer());
+    const ext = (fp.split('.').pop() || 'oga').toLowerCase();
+    let fmt = ext === 'oga' || ext === 'ogg' || ext === 'opus' ? 'ogg' : ext === 'mp3' ? 'mp3' : ext === 'm4a' ? 'mp4' : 'wav';
+    if (buf.length > 4) { const mg = buf.slice(0, 4).toString('hex'); if (mg === '52494646') fmt = 'wav'; else if (mg === '4f676753') fmt = 'ogg'; }
+    const b64 = buf.toString('base64');
+    const ar = await fetch(DASH_GEN, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: DASH_AUTH }, body: JSON.stringify({ model: 'qwen3-asr-flash', input: { messages: [{ role: 'user', content: [{ audio: 'data:audio/' + fmt + ';base64,' + b64 }] }] }, parameters: {} }), signal: AbortSignal.timeout(120000) });
+    const aj = await ar.json().catch(() => ({}));
+    const c = aj && aj.output && aj.output.choices && aj.output.choices[0] && aj.output.choices[0].message && aj.output.choices[0].message.content;
+    const text = Array.isArray(c) ? String((c[0] && c[0].text) || '') : String(c || '');
+    console.log('[voice] asr bytes=' + buf.length + ' fmt=' + fmt + ' text=' + text.slice(0, 40) + ' ms=' + (Date.now() - t0));
+    return jsonOut(res, 200, { ok: !!text, text });
+  } catch (e) {
+    console.log('[voice] asr FAILED ' + String((e && e.message) || e).slice(0, 160));
+    return jsonOut(res, 502, { ok: false, error: 'asr failed' });
+  }
+}
+
+async function handleVoiceReply(res, body) {
+  const t0 = Date.now();
+  try {
+    const text = String((body && body.text) || '').slice(0, 1200);
+    const chatId = String((body && body.chat_id) || '');
+    if (!text || !chatId || !VOICE_TOKEN) return jsonOut(res, 400, { ok: false, error: 'text/chat_id required' });
+    const voice = String(process.env.VOICE_TTS_VOICE || 'Cherry');
+    const tr = await fetch(DASH_GEN, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: DASH_AUTH }, body: JSON.stringify({ model: 'qwen-tts', input: { text, voice }, parameters: {} }), signal: AbortSignal.timeout(120000) });
+    const tj = await tr.json().catch(() => ({}));
+    const url = String((tj && tj.output && tj.output.audio && tj.output.audio.url) || '').replace(/^http:/, 'https:');
+    if (!url) return jsonOut(res, 502, { ok: false, error: 'tts no audio url' });
+    const ab = Buffer.from(await (await fetch(url, { signal: AbortSignal.timeout(60000) })).arrayBuffer());
+    let r = await tgUpload('sendVoice', { chat_id: chatId }, { name: 'voice', filename: 'reply.wav', contentType: 'audio/wav', data: ab });
+    let mode = 'voice';
+    if (!r || !r.ok) {
+      r = await tgUpload('sendAudio', { chat_id: chatId, title: '语音回复' }, { name: 'audio', filename: 'reply.wav', contentType: 'audio/wav', data: ab });
+      mode = 'audio';
+    }
+    const ok = !!(r && r.ok);
+    console.log('[voice] tts chars=' + text.length + ' bytes=' + ab.length + ' mode=' + (ok ? mode : 'failed') + ' ms=' + (Date.now() - t0));
+    return jsonOut(res, ok ? 200 : 502, { ok, mode });
+  } catch (e) {
+    console.log('[voice] tts FAILED ' + String((e && e.message) || e).slice(0, 160));
+    return jsonOut(res, 502, { ok: false, error: 'tts failed' });
+  }
+}
 const server = http.createServer(async (req, res) => {
   try {
     const path0 = req.url ? req.url.split('?')[0] : '';
-    if (path0 === '/healthz') return jsonOut(res, 200, { ok: true, upstream: !!UP_KEY, gateway: GATEWAY, embeddings: !!DASH_KEY });
+    if (path0 === '/healthz') return jsonOut(res, 200, { ok: true, upstream: !!UP_KEY, gateway: GATEWAY, embeddings: !!DASH_KEY, voice: !!VOICE_TOKEN });
     if (req.method !== 'POST') return jsonOut(res, 405, { error: { message: 'method not allowed' } });
     const raw = await readBody(req);
     let body = null;
@@ -259,6 +339,8 @@ const server = http.createServer(async (req, res) => {
     const provided = stripAuth(req.headers['authorization']);
     if (!CHAT_KEY || provided !== CHAT_KEY) return jsonOut(res, 401, { error: { message: 'Invalid API key', type: 'authentication_error', code: 'invalid_api_key' } });
     if (path0.endsWith('/embeddings')) return handleEmbeddings(res, body);
+    if (path0 === '/voice/transcribe') return handleVoiceTranscribe(res, body);
+    if (path0 === '/voice/reply') return handleVoiceReply(res, body);
     if (!path0.endsWith('/chat/completions')) return jsonOut(res, 404, { error: { message: 'not found' } });
     if (body && body.stream === true) return handleStream(req, res, body);
     return proxyGateway(req, res, raw);

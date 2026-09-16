@@ -224,6 +224,12 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 - 覆盖范围：LobeHub 全端（自动提取，DashScope 嵌入）。
 - Telegram 侧：桥接回复前调 `POST /webhook/internal/memory {action: 'retrieve'}` 注入上下文（并一并参考 LobeHub 记忆），回复后 `{action: 'extract'}` 保守提取入库（`agent_memories`，pgvector + qwen3.7 嵌入）。
 - 双库说明：TG 可读 LobeHub 记忆，LobeHub 暂不读本机库（单向互通，v2 计划同步）。
+### 语音（Telegram 双向语音，2026-09-16）
+
+- 规则：**来语音 → 回语音**（镜像模式）；回复超过 900 字自动降级文字；识别或合成失败均降级文字，不丢消息。
+- 语音进：TG 语音 → `stream-bridge` `POST /voice/transcribe`（getFile + 下载 + 格式嗅探 + `qwen3-asr-flash` 识别）→ 文本进入全链路（记忆 / 工具照常生效）。
+- 语音出：回复文本 → `POST /voice/reply`（`qwen-tts` 合成，音色 Cherry）→ `sendVoice` 发回（WAV 直发，无需转码；失败降级 `sendAudio`）。
+- 工程注意：DashScope TTS 结果 URL 在容器网络下必须改用 https 拉取（http 会 502）；音频格式按文件头（RIFF / OggS）嗅探而非扩展名。
 - 关闭方式：`user_settings.memory` 与 agents `chat_config.memory.enabled` 置 false（即时生效）。
 - 开启时修复的上游兼容问题（记录备用）：工具消息需保留 `tool_call_id`；思考模式消息需回传 `reasoning_content`（空串亦可）。
 
