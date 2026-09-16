@@ -176,6 +176,20 @@ MinIO：停 minio 后把归档解回 `minio_data` 卷。每日 03:30 计划任�
 
 统计口径：平台错误率 / 告警已排除未认证探针流量（session `unknown`，来自冒烟测试的负向用例）。
 
+### 提醒（Reminders）
+
+对话里说一句就能建提醒，到点经推送通道送达（未配置渠道时记录为 `skipped:no-channel`，见上节）：
+
+| 说一句 | 工具 | 动作 |
+| --- | --- | --- |
+| 「1 分钟后提醒我喝杯水」 | `create_reminder` | 建提醒（支持 `due_at` 或 `delay_minutes`；「明天 9 点」这类口语由模型换算） |
+| 「我有哪些提醒？」 | `list_reminders` | 待推送 + 最近记录（含投递状态） |
+| 「把那条 XX 取消掉」 | `cancel_reminder` | 按 ID 取消（仅 pending 可取消） |
+
+- 巡检：Reminders 工作流每分钟扫描到期提醒（机器休眠时顺延，唤醒后补投）；投递经 Notify 统一出口；失败自动重试一次。
+- API（Bearer 同 CHAT key）：`GET /webhook/admin/reminders`、`POST /webhook/admin/reminders/create`、`/cancel`、`/run`（手动触发巡检）。
+- 数据表：`reminders`（text / due_at / status / delivered / attempts / meta）。
+
 ### 知识库（KB-DESIGN v1.1）
 
 私域知识库：Postgres + pgvector（`kb_documents` / `kb_chunks` 表，HNSW 索引），
