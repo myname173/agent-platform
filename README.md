@@ -150,6 +150,17 @@ bash n8n/scripts/backup.sh restore backups/n8n-data-XXXX.tar.gz   # 恢复 n8n �
 MinIO：停 minio 后把归档解回 `minio_data` 卷。每日 03:30 计划任务自动执行（含四项完整性检查）。
 归档含凭据与对话数据，妥善保管。
 
+### 推送渠道（消息触达）
+
+统一出口：`Notify` 工作流（`POST /webhook/internal/notify`，Bearer 同 CHAT key）。晨报、告警与后续的提醒都从这里送出。
+
+配置（约 2 分钟）：
+1. 在飞书 / 企业微信建一个**群机器人**，复制其 Webhook URL（飞书：群设置 → 群机器人 → 自定义机器人；企微：群设置 → 群机器人）；
+2. 写入根目录 `.env`：`ALERT_WEBHOOK_URL=<你的 URL>`（可选 `ALERT_WEBHOOK_FORMAT=feishu|wecom|slack|discord|generic`，留空按域名自动识别）；
+3. `docker compose up -d n8n` 生效；自测：控制台「Briefs」页 →「推送到 IM」。
+
+未配置时一切推送优雅跳过（返回 `skipped:no-channel`），不会报错。`.env` 编辑红线：无 BOM + LF。
+
 ### 知识库（KB-DESIGN v1.1）
 
 私域知识库：Postgres + pgvector（`kb_documents` / `kb_chunks` 表，HNSW 索引），

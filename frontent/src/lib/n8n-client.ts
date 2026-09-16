@@ -323,3 +323,21 @@ export async function runBrief(): Promise<{ status: number; body: any }> {
   try { body = await res.json(); } catch { /* ignore */ }
   return { status: res.status, body };
 }
+
+export async function pushLatestBrief(): Promise<{ status: number; body: any }> {
+  const list = await getBriefs();
+  const latest = list.briefs && list.briefs[0];
+  if (!latest) return { status: 404, body: { error: 'no briefs yet' } };
+  const res = await fetch(`${N8N_URL}/webhook/internal/notify`, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + CHAT_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ kind: '晨报', message: latest.title + String.fromCharCode(10, 10) + String(latest.content_md || '').slice(0, 1500) }),
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+  return { status: res.status, body };
+}

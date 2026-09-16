@@ -35,6 +35,8 @@ export function BriefsPanel() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [genResult, setGenResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -71,6 +73,26 @@ export function BriefsPanel() {
     }
   }, [load]);
 
+  const pushToIm = useCallback(async () => {
+    setPushing(true);
+    setPushResult(null);
+    try {
+      const res = await fetch('/api/n8n/briefs/push', { method: 'POST' });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body && body.ok && body.delivered) {
+        setPushResult({ ok: true, text: '已推送最新晨报' });
+      } else if (body && body.reason === 'skipped:no-channel') {
+        setPushResult({ ok: false, text: '尚未配置推送渠道（见 README「推送渠道」）' });
+      } else {
+        setPushResult({ ok: false, text: (body && (body.detail || (body.error && body.error.message) || body.reason)) || `推送失败（HTTP ${res.status}）` });
+      }
+    } catch (e: any) {
+      setPushResult({ ok: false, text: String(e?.message || e) });
+    } finally {
+      setPushing(false);
+    }
+  }, []);
+
   return (
     <div className='space-y-4'>
       <div className='flex flex-wrap items-center gap-3'>
@@ -80,6 +102,17 @@ export function BriefsPanel() {
         <Button variant='outline' onClick={load}>
           刷新
         </Button>
+        <Button variant='outline' onClick={pushToIm} disabled={pushing}>
+          {pushing ? '推送中…' : '推送到 IM'}
+        </Button>
+        {pushResult && (
+          <Badge
+            variant={pushResult.ok ? 'default' : 'destructive'}
+            className={pushResult.ok ? 'bg-emerald-600 text-white hover:bg-emerald-600' : ''}
+          >
+            {pushResult.text}
+          </Badge>
+        )}
         {genResult && (
           <Badge
             variant={genResult.ok ? 'default' : 'destructive'}

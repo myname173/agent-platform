@@ -203,6 +203,40 @@
         1560,
         -100
       ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/internal/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bea' + 'rer ' + $env.CHAT_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ kind: '推送', message: String($json.content_md || '').slice(0, 1500) }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "push-brief",
+      "name": "Push Brief",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        60
+      ],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -295,6 +329,11 @@
         [
           {
             "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Push Brief",
             "type": "main",
             "index": 0
           }
