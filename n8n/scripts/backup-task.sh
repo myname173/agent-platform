@@ -25,6 +25,18 @@ STAMP="$(date '+%Y-%m-%d %H:%M:%S')"
     else
       echo "integrity: volume archive FAILED"
     fi
+    newest_lobe="$(ls -t "${REPO_DIR}"/backups/pg-lobechat-*.sql.gz 2>/dev/null | head -1)"
+    newest_minio="$(ls -t "${REPO_DIR}"/backups/minio-data-*.tar.gz 2>/dev/null | head -1)"
+    if [ -n "${newest_lobe}" ] && gunzip -t "${newest_lobe}"; then
+      echo "integrity: lobechat dump OK  ($(basename "${newest_lobe}"))"
+    else
+      echo "integrity: lobechat dump FAILED"
+    fi
+    if [ -n "${newest_minio}" ] && tar -tzf "${newest_minio}" >/dev/null; then
+      echo "integrity: minio archive OK ($(basename "${newest_minio}"))"
+    else
+      echo "integrity: minio archive FAILED"
+    fi
     echo "==== $(date '+%Y-%m-%d %H:%M:%S') backup task done ===="
   else
     echo "backup.sh exited non-zero - see output above"

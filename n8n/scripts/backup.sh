@@ -77,18 +77,36 @@ case "${1:-}" in
         alpine sh -c "tar czf /backup/config-${NAME} -C /repo docker-compose.yml .env"
       echo "config bundle: $BACKUP_DIR/config-${NAME}"
     fi
+    # MinIO data volume (LobeHub file/image objects)
+    MINIONAME="minio-data-${STAMP}.tar.gz"
+    if docker volume inspect minio_data >/dev/null 2>&1; then
+      docker run --rm \
+        -v minio_data:/data:ro \
+        -v "$BACKUP_DIR_WIN":/backup \
+        alpine sh -c "tar czf /backup/${MINIONAME} -C /data . && echo minio archived"
+      echo "minio volume: ${BACKUP_DIR}/${MINIONAME} ($(du -h "${BACKUP_DIR}/${MINIONAME}" | cut -f1))"
+    else
+      echo "WARNING: volume minio_data not found — skipped MinIO backup" >&2
+    fi
     # Postgres logical dump (n8n primary datastore)
     if docker ps --format '{{.Names}}' | grep -qx "$PG_CONTAINER"; then
       PGNAME="pg-n8n-${STAMP}.sql.gz"
       docker exec "$PG_CONTAINER" pg_dump -U "$PG_USER" -d "$PG_DB" | gzip > "${BACKUP_DIR}/${PGNAME}"
       echo "postgres dump: ${BACKUP_DIR}/${PGNAME} ($(du -h "${BACKUP_DIR}/${PGNAME}" | cut -f1))"
+      LOBENAME="pg-lobechat-${STAMP}.sql.gz"
+      if docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d lobechat -c "SELECT 1" >/dev/null 2>&1; then
+        docker exec "$PG_CONTAINER" pg_dump -U "$PG_USER" -d lobechat | gzip > "${BACKUP_DIR}/${LOBENAME}"
+        echo "postgres dump (lobechat): ${BACKUP_DIR}/${LOBENAME} ($(du -h "${BACKUP_DIR}/${LOBENAME}" | cut -f1))"
+      else
+        echo "WARNING: database lobechat not reachable — skipped lobechat dump" >&2
+      fi
     else
       echo "WARNING: ${PG_CONTAINER} not running — skipped the Postgres dump" >&2
     fi
     SIZE=$(du -h "$TARGET" | cut -f1)
     echo "backup complete: $TARGET ($SIZE)"
     # prune old archives
-    PRUNED=$(find "$BACKUP_DIR" \( -name 'n8n-data-*.tar.gz*' -o -name 'pg-n8n-*.sql.gz' \) -mtime "+${KEEP_DAYS}" -print -delete || true)
+    PRUNED=$(find "$BACKUP_DIR" \( -name 'n8n-data-*.tar.gz*' -o -name 'pg-n8n-*.sql.gz' -o -name 'pg-lobechat-*.sql.gz' -o -name 'minio-data-*.tar.gz' -o -name 'config-n8n-data-*.tar.gz' \) -mtime "+${KEEP_DAYS}" -print -delete || true)
     if [ -n "$PRUNED" ]; then
       echo "pruned archives older than ${KEEP_DAYS} days:"
       echo "$PRUNED"

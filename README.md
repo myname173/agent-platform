@@ -138,13 +138,16 @@ Kiranism 需要时在 `frontent/src/app/api/n8n/` 下加一条服务端路由代
 ### 备份与恢复（n8n/scripts/backup.sh）
 
 ```bash
-bash n8n/scripts/backup.sh            # 备份 n8n_data 卷 + Postgres 逻辑导出 + compose/.env
+bash n8n/scripts/backup.sh            # 备份 n8n 卷/库 + lobechat 库 + MinIO 数据卷 + compose/.env
 bash n8n/scripts/backup.sh 30         # 保留最近 30 份
-bash n8n/scripts/backup.sh restore backups/n8n-data-XXXX.tar.gz   # 恢复卷（会停 n8n 并清空卷）
+bash n8n/scripts/backup.sh restore backups/n8n-data-XXXX.tar.gz   # 恢复 n8n 卷（会停 n8n 并清空卷）
 ```
-每次备份生成三件：`n8n-data-*.tar.gz`（卷：n8n 配置与旧 SQLite 回滚件）、
-`pg-n8n-*.sql.gz`（数据库主存储逻辑导出）、`config-*.tar.gz`（compose + .env）。
-Postgres 恢复：`gunzip -c backups/pg-n8n-*.sql.gz | docker exec -i postgres psql -U n8n -d n8n`。
+每次备份生成五件：`n8n-data-*.tar.gz`（卷：n8n 配置与旧 SQLite 回滚件）、
+`pg-n8n-*.sql.gz`（n8n 库逻辑导出）、`pg-lobechat-*.sql.gz`（LobeHub 库：对话/用户数据）、
+`minio-data-*.tar.gz`（对象存储：文件/图片）、`config-*.tar.gz`（compose + .env）。
+恢复参考：`gunzip -c backups/pg-n8n-*.sql.gz | docker exec -i postgres psql -U n8n -d n8n`；
+`gunzip -c backups/pg-lobechat-*.sql.gz | docker exec -i postgres psql -U n8n -d lobechat`；
+MinIO：停 minio 后把归档解回 `minio_data` 卷。每日 03:30 计划任务自动执行（含四项完整性检查）。
 归档含凭据与对话数据，妥善保管。
 
 ### 知识库（KB-DESIGN v1.1）
