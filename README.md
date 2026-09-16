@@ -192,6 +192,41 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 - 统计一致性：流式轮次回写 `chat_messages` + `chat_executions`（client 为 `stream-bridge`），控制台与晨报统计不受影响。
 - 运维：侧车代码 `stream-bridge/server.js`（其中工具定义需与 chat-gateway 同步维护）；回退 = 把 `OPENAI_PROXY_URL` 指回 `http://n8n:5678/webhook/v1` 并将 agents `chat_config.enableStreaming` 置 false，重建 lobechat。
 
+### 平台自检（Selfcheck）
+
+一条命令给平台做全链路体检（20 项检查，约 12–20 秒）：
+
+- 入口：控制台首页「平台自检」卡（一键运行）或 `POST /webhook/admin/selfcheck/run`；每日 04:15 自动跑一次。
+- 覆盖：基础设施（7 端点）· 网关 golden（闲聊 / 工具轮 / 401 负例）· 流式链路（SSE 直通 / 工具降级 / 非流式代理）· 通道（Notify / TG 桥 / 提醒）· 数据（备份心跳 / 总览 / 统计 / 消息库）。
+- 报告：落 `selfcheck_runs` 表（控制台可看）；**失败自动推送 Telegram**。
+- 备份心跳：每日备份完成后向 `POST /webhook/admin/heartbeat` 上报（`heartbeats` 表），自检据此判断备份新鲜度（>30h 警告；>40h 或失败 = 不通过）。
+
+### 待办（Todos）
+
+开放循环登记（对话 / 晨报 / 控制台三处接入）：
+
+| 说一句 | 工具 | 动作 |
+| --- | --- | --- |
+| 「记一下：周五交房租」 | `todo_add` | 登记待办（可带截止日 YYYY-MM-DD） |
+| 「我还有什么待办？」 | `todo_list` | 未完成清单（标注逾期 / 今日到期） |
+| 「交房租办完了」 | `todo_done` | 按 ID 收口（列表回复里带序号） |
+
+- 晨报联动：每天 08:30 晨报尾部自动附「待办速览」（逾期 / 今日到期 / 其他）。
+- 控制台：首页「待办」卡可直接勾掉。
+- 设计红线：待办不自动变提醒、提醒不自动变待办（边界清晰）。
+- API（Bearer 同 CHAT key）：`GET /webhook/admin/todos`、`POST /webhook/admin/todos/add`、`/complete`；数据表 `todos`。
+
+### 记忆（Memory）
+
+记忆系统已开启：LobeHub + Telegram 双入口，跨话题记住稳定偏好与身份事实。
+
+- 原理：LobeHub 自动提取（偏好 / 身份 / 经历 / 活动）→ 经 `stream-bridge` 转发嵌入（DashScope `text-embedding-v4`，OpenAI 风格模型名自动映射）→ 存本机 lobechat 库（pgvector）；回答时自动检索相关记忆注入上下文。
+- 覆盖范围：LobeHub 全端（自动提取，DashScope 嵌入）。
+- Telegram 侧：桥接回复前调 `POST /webhook/internal/memory {action: 'retrieve'}` 注入上下文（并一并参考 LobeHub 记忆），回复后 `{action: 'extract'}` 保守提取入库（`agent_memories`，pgvector + qwen3.7 嵌入）。
+- 双库说明：TG 可读 LobeHub 记忆，LobeHub 暂不读本机库（单向互通，v2 计划同步）。
+- 关闭方式：`user_settings.memory` 与 agents `chat_config.memory.enabled` 置 false（即时生效）。
+- 开启时修复的上游兼容问题（记录备用）：工具消息需保留 `tool_call_id`；思考模式消息需回传 `reasoning_content`（空串亦可）。
+
 ### 聊天遥控（平台工具）
 
 对话里直接使唤平台（网关内置工具，LobeHub / API 均可；模型按需自动调用，最多 2 轮工具循环）：

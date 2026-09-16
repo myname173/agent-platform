@@ -42,6 +42,7 @@ services:
       # Knowledge base: pg module for SQL in Code nodes + DashScope embeddings
       - NODE_FUNCTION_ALLOW_EXTERNAL=pg
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - UPSTREAM_API_KEY=${UPSTREAM_API_KEY}
       - EMBEDDING_PROVIDER=dashscope/qwen3.7-text-embedding
       - EMBEDDING_DIM=1024      # Error-rate alerting (Chat Alerts workflow)
       - ALERT_WINDOW_MIN=${ALERT_WINDOW_MIN}
