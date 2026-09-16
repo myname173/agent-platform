@@ -230,6 +230,10 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 - 语音进：TG 语音 → `stream-bridge` `POST /voice/transcribe`（getFile + 下载 + 格式嗅探 + `qwen3-asr-flash` 识别）→ 文本进入全链路（记忆 / 工具照常生效）。
 - 语音出：回复文本 → `POST /voice/reply`（`qwen-tts` 合成，音色 Cherry）→ `sendVoice` 发回（WAV 直发，无需转码；失败降级 `sendAudio`）。
 - 工程注意：DashScope TTS 结果 URL 在容器网络下必须改用 https 拉取（http 会 502）；音频格式按文件头（RIFF / OggS）嗅探而非扩展名。
+### 图片消息（视觉，2026-09-16 修复）
+
+- LobeHub 发图 → 网关 / 桥接自动把平台本地的图片 URL（任意 `host:3210` 与 `host:9000` 形式，含 LAN IP）内联为 base64 data URL，再送上游——本地地址上游无法直接下载。
+- 修复记录：此前转换只匹配 `localhost` / `127.0.0.1` 形式，从局域网（`192.168.1.114:3210`）访问时生成的图片地址会漏转、导致上游报 `Failed to download image`；现已覆盖任意主机形式，且桥接侧同步内联（图片轮次可走真流式，不再降级）。
 ### 周报（Weekly Review，2026-09-16）
 
 - 触发：每周日 20:00（Asia/Shanghai，工作流级时区）；手动 `POST /webhook/admin/weekly-review/run`（`{"force":true}` 可非周日试跑；`{"dry":true}` 只算不发，供自检）。

@@ -107,6 +107,33 @@ async function handleStream(req, res, body) {
   const sid = String(req.headers['x-session-id'] || body.user || 'lobehub');
   const client = String(req.headers['x-client'] || 'stream-bridge');
   const messages = Array.isArray(body.messages) ? body.messages : [];
+  // Inline locally-hosted image URLs as data URLs (upstream providers cannot reach this host).
+  try {
+    const hasImg = messages.some((m) => Array.isArray(m && m.content) && m.content.some((p) => p && p.type === "image_url" && p.image_url && typeof p.image_url.url === "string"));
+    if (hasImg) {
+      let inlined = 0;
+      for (const msg of messages) {
+        if (!Array.isArray(msg && msg.content)) continue;
+        for (const part of msg.content) {
+          if (!part || part.type !== "image_url" || !part.image_url || typeof part.image_url.url !== "string") continue;
+          const mm = part.image_url.url.match(/^https?:\/\/[^\/]+:(3210|9000)(\/.*)$/i);
+          if (!mm) continue;
+          const base = mm[1] === "3210" ? "http://lobechat:3210" : "http://minio:9000";
+          try {
+            const rr = await fetch(base + mm[2], { signal: AbortSignal.timeout(30000) });
+            if (!rr.ok) continue;
+            const buf = Buffer.from(await rr.arrayBuffer());
+            if (!buf.length) continue;
+            const mime = (buf[0] === 0x89 && buf[1] === 0x50) ? "image/png" : (buf[0] === 0xff && buf[1] === 0xd8) ? "image/jpeg" : (buf[0] === 0x47 && buf[1] === 0x49) ? "image/gif" : ((buf[0] === 0x52 && buf[1] === 0x49) ? "image/webp" : "image/png");
+            part.image_url.url = "data:" + mime + ";base64," + buf.toString("base64");
+            inlined += 1;
+          } catch (e2) {}
+        }
+      }
+      if (inlined) console.log("[vision] inlined local images=" + inlined);
+    }
+  } catch (e) {}
+
   const userMsg = [...messages].reverse().find((m) => m.role === 'user');
   const userText = textOf(userMsg && userMsg.content).slice(0, 8000);
   const started = Date.now();
