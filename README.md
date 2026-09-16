@@ -161,6 +161,13 @@ MinIO：停 minio 后把归档解回 `minio_data` 卷。每日 03:30 计划任�
 
 未配置时一切推送优雅跳过（返回 `skipped:no-channel`），不会报错。`.env` 编辑红线：无 BOM + LF。
 
+（补充）Telegram 通道（已接通，2026-09-16）：
+1. BotFather 新建 bot → 复制 token；先在 Telegram 里给 bot 发一条消息（bot 不能先开口）；
+2. `.env` 设置 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`（可从 `https://api.telegram.org/bot<token>/getUpdates` 取 `chat.id`）、`ALERT_WEBHOOK_FORMAT=telegram`；
+3. `docker compose up -d n8n` 生效；自测：控制台「发送测试」或 `POST /webhook/admin/alerts/test`。
+
+说明：晨报**自动推送**当前关闭（daily-brief 的 Push Brief 节点 `disabled`；控制台手动「推送到 IM」不受影响）；告警与提醒正常推送。
+
 ### 聊天遥控（平台工具）
 
 对话里直接使唤平台（网关内置工具，LobeHub / API 均可；模型按需自动调用，最多 2 轮工具循环）：

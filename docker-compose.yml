@@ -50,6 +50,8 @@ services:
       - ALERT_COOLDOWN_MIN=${ALERT_COOLDOWN_MIN}
       # Alert delivery webhook (optional; empty = delivery skipped)
       - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
       - ALERT_WEBHOOK_FORMAT=${ALERT_WEBHOOK_FORMAT:-generic}
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
