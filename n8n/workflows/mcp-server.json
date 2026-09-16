@@ -1,0 +1,175 @@
+{
+  "id": "h1kdFZLdnlI0QDk8",
+  "name": "MCP Server",
+  "active": true,
+  "nodes": [
+    {
+      "id": "mcp-w",
+      "name": "Webhook MCP",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -620,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mcp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "mcp-server"
+    },
+    {
+      "id": "mcp-auth",
+      "name": "Auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        0
+      ],
+      "parameters": {
+        "jsCode": "/* MCP auth: primary CHAT_API_KEY or managed keys (SHA-256 lookup in gateway_keys). */\nconst crypto = require(\"crypto\");\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '').trim();\nconst err = (msg) => [{ json: { __error: true, status: 401, body: { jsonrpc: '2.0', id: null, error: { code: -32001, message: msg } } } }];\nif (!provided) return err('Missing API key');\nif ($env.CHAT_API_KEY && provided === $env.CHAT_API_KEY) return [{ json: { ok: true, key_name: 'primary', rpm: 0 } }];\nconst sha = crypto.createHash('sha256').update(provided).digest('hex');\nconst base = 'http://localhost:5678/api/v1';\ntry {\n  const t = await this.helpers.httpRequest({ method: 'GET', url: base + '/data-tables', qs: { limit: 100 }, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY }, timeout: 15000 });\n  const tb = ((t.data) || []).find((x) => x.name === 'gateway_keys');\n  if (!tb) return err('Key store unavailable');\n  const rows = await this.helpers.httpRequest({ method: 'GET', url: base + '/data-tables/' + tb.id + '/rows', qs: { limit: 250 }, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY }, timeout: 15000 });\n  const row = ((rows.data) || []).find((r) => r.key_hash === sha && Number(r.enabled) === 1);\n  if (!row) return err('Invalid API key');\n  return [{ json: { ok: true, key_name: String(row.name || 'managed'), rpm: Number(row.rate_limit_rpm) || 0 } }];\n} catch (e) {\n  return err('Auth backend error');\n}"
+      }
+    },
+    {
+      "id": "mcp-if",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -200,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-mcp",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "mcp-resperr",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        -120
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "mcp-do",
+      "name": "Do MCP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        120
+      ],
+      "parameters": {
+        "jsCode": "/* MCP Server — stateless JSON-RPC (2026-07-28) over the platform's 12 tools. */\n/* Compat: legacy initialize shim. Audit: admin_audit (mcp.call). Rate: per-key fixed window. */\nconst webhookJson = $('Webhook MCP').first().json;\nconst headers = webhookJson.headers || {};\nconst authInfo = (() => { try { return $('Auth').first().json || {}; } catch (e) { return {}; } })();\nconst keyName = String(authInfo.key_name || 'unknown');\nconst rpm = Number(authInfo.rpm || 0);\nconst N8N = 'http://localhost:5678/api/v1';\nconst AUTH_HEAD = ['Bea', 'rer '].join('') + ($env.CHAT_API_KEY || '');\nconst SERVER_INFO = { name: 'agent-platform-mcp', version: '1.0.0' };\n\n/* ---- rate limit (fixed 1-min window per key; staticData; resets on restart) ---- */\nconst sd = $getWorkflowStaticData('node');\nconst win = Math.floor(Date.now() / 60000);\nsd.rl = sd.rl || {};\nconst limit = rpm > 0 ? rpm : 60;\nconst rec = sd.rl[keyName] && sd.rl[keyName].w === win ? sd.rl[keyName] : { w: win, n: 0 };\nrec.n += 1;\nsd.rl[keyName] = rec;\n\n/* ---- parse ---- */\nlet rpc = null;\nlet parseFailed = false;\ntry {\n  const raw = webhookJson.body;\n  if (typeof raw === 'string') rpc = JSON.parse(raw);\n  else if (raw && typeof raw === 'object' && raw.type === 'Buffer' && Array.isArray(raw.data)) rpc = JSON.parse(Buffer.from(raw.data).toString('utf8'));\n  else rpc = raw;\n  if (!rpc || typeof rpc !== 'object' || Array.isArray(rpc) || typeof rpc.method !== 'string') throw new Error('bad');\n} catch (e) { parseFailed = true; }\nconst rid = !parseFailed && rpc.id !== undefined ? rpc.id : null;\nconst method = parseFailed ? '' : String(rpc.method);\nconst clientInfo = (() => { try { const m = rpc.params && rpc.params._meta; const ci = m && m['io.modelcontextprotocol/clientInfo']; return ci ? String(ci.name || '') + '/' + String(ci.version || '') : ''; } catch (e) { return ''; } })();\nconst proto = String(headers['mcp-protocol-version'] || '');\nconst fail = (code, msg, httpCode) => [{ json: { __code: httpCode || 200, rpcResponse: { jsonrpc: '2.0', id: rid, error: { code, message: msg } } } }];\nconst done = (result, httpCode) => [{ json: { __code: httpCode || 200, rpcResponse: { jsonrpc: '2.0', id: rid, result } } }];\n\nif (rec.n > limit) return fail(-32029, 'Rate limit exceeded (' + limit + '/min). Retry within a minute.', 429);\nif (parseFailed) return fail(-32700, 'Parse error: invalid JSON');\nif (!method) return fail(-32600, 'Invalid Request: missing method');\nif (rpc.id === undefined) return [{ json: { __code: 202, rpcResponse: {} } }]; /* notification */\n\n/* ---- tool catalog (mirrors chat-gateway; single source of truth for dispatch) ---- */\nconst TOOLS = [\n  { name: 'web_search', description: 'Search the public web for current information, facts, news or documentation. Returns ranked results with title, url and snippet.', inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'The search query' } }, required: ['query'] }, annotations: { readOnlyHint: true, openWorldHint: true } },\n  { name: 'kb_search', description: 'Search the private knowledge base (ingested internal documents, notes and references). Returns passages with title, excerpt and relevance.', inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'The search query' }, top_k: { type: 'integer', description: 'How many passages (1-10, default 6)' } }, required: ['query'] }, annotations: { readOnlyHint: true } },\n  { name: 'platform_status', description: 'Get live status of the personal AI platform: chat traffic, error rate, latency, alerts and knowledge base usage.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },\n  { name: 'run_brief', description: 'Generate the daily brief right now (fetches fresh sources and saves it). Takes about 30-60 seconds. Returns the brief.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: false, openWorldHint: true } },\n  { name: 'list_alerts', description: 'List recent platform alerts (errors, threshold breaches) with severity and time.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', description: 'How many alerts (1-20, default 8)' } } }, annotations: { readOnlyHint: true } },\n  { name: 'kb_save', description: 'Save a note, passage or excerpt into the private knowledge base so it can be searched later. Args: title (short label), text (full content).', inputSchema: { type: 'object', properties: { title: { type: 'string', description: 'Short descriptive title' }, text: { type: 'string', description: 'The full text content to store' } }, required: ['title', 'text'] }, annotations: { readOnlyHint: false } },\n  { name: 'create_reminder', description: 'Create a reminder that is pushed to the user (via Telegram) at the due time. Provide text plus either due_at (ISO 8601 with timezone) or delay_minutes. Current user timezone: Asia/Shanghai (UTC+8).', inputSchema: { type: 'object', properties: { text: { type: 'string', description: 'What to remind about' }, due_at: { type: 'string', description: 'ISO 8601 time with timezone' }, delay_minutes: { type: 'integer', description: 'Alternative: remind after N minutes' } }, required: ['text'] }, annotations: { readOnlyHint: false } },\n  { name: 'list_reminders', description: 'List upcoming (pending) and recent reminders with their status.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },\n  { name: 'cancel_reminder', description: 'Cancel a pending reminder by id.', inputSchema: { type: 'object', properties: { id: { type: 'integer', description: 'Reminder id (from list_reminders)' } }, required: ['id'] }, annotations: { readOnlyHint: false, destructiveHint: true } },\n  { name: 'todo_add', description: 'Save an open-loop item (todo) for the user. Optional due_date as YYYY-MM-DD.', inputSchema: { type: 'object', properties: { text: { type: 'string', description: 'What to remember to do' }, due_date: { type: 'string', description: 'Optional due date, YYYY-MM-DD' } }, required: ['text'] }, annotations: { readOnlyHint: false } },\n  { name: 'todo_list', description: 'List open todos with overdue and due-today flags, plus recently completed ones.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },\n  { name: 'todo_done', description: 'Complete (check off) a todo by id.', inputSchema: { type: 'object', properties: { id: { type: 'integer', description: 'Todo id (from todo_list)' } }, required: ['id'] }, annotations: { readOnlyHint: false } },\n];\nconst TOOL_MAP = {};\nTOOLS.forEach((t) => { TOOL_MAP[t.name] = t; });\n\nconst iso8 = (t) => { const ms = Date.parse(t); return isNaN(ms) ? String(t || '') : new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' +08'; };\nconst apiGet = (url, timeout) => this.helpers.httpRequest({ method: 'GET', url, headers: { Authorization: AUTH_HEAD }, timeout: timeout || 30000 });\nconst apiPost = (url, body, timeout) => this.helpers.httpRequest({ method: 'POST', url, headers: { Authorization: AUTH_HEAD, 'Content-Type': 'application/json' }, body, timeout: timeout || 30000 });\n\nasync function audit(name, args, okFlag, ms) {\n  try {\n    if (!sd.auditId) {\n      const t = await this.helpers.httpRequest({ method: 'GET', url: N8N + '/data-tables', qs: { limit: 100 }, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY }, timeout: 15000 });\n      const tb = ((t.data) || []).find((x) => x.name === 'admin_audit');\n      if (tb) sd.auditId = tb.id;\n    }\n    if (!sd.auditId) return;\n    const detail = JSON.stringify({ args: JSON.stringify(args || {}).slice(0, 300), ok: okFlag, ms, client: clientInfo, proto }).slice(0, 900);\n    await this.helpers.httpRequest({ method: 'POST', url: N8N + '/data-tables/' + sd.auditId + '/rows', headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' }, body: { data: [{ action: 'mcp.call', target: name, detail }] }, timeout: 15000 });\n  } catch (e) {}\n}\n\nasync function runTool(name, args) {\n  try {\n    if (name === 'web_search') {\n      const q = String((args && args.query) || '').trim();\n      if (!q) return { text: 'web_search requires a query', isError: true };\n      const res = await this.helpers.httpRequest({ method: 'GET', url: 'http://searxng:8080/search', qs: { q, format: 'json' }, headers: { Accept: 'application/json' }, timeout: 20000 });\n      const rs = (res.results || []).slice(0, 5);\n      return { text: rs.length ? rs.map((r, i) => (i + 1) + '. ' + r.title + '\\n   ' + r.url + '\\n   ' + String(r.content || '').slice(0, 220)).join('\\n\\n') : 'No web results for: ' + q };\n    }\n    if (name === 'kb_search') {\n      const q = String((args && args.query) || '').trim();\n      if (!q) return { text: 'kb_search requires a query', isError: true };\n      const emb = await this.helpers.httpRequest({ method: 'POST', url: 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding', headers: { Authorization: ['Bea', 'rer '].join('') + ($env.DASHSCOPE_API_KEY || ''), 'Content-Type': 'application/json' }, body: { model: 'qwen3.7-text-embedding', input: { texts: [q] }, parameters: { dimension: 1024, text_type: 'query', output_type: 'dense' } }, timeout: 30000 });\n      const vec = emb.output.embeddings[0].embedding;\n      const { Client } = require('pg');\n      const pg = new Client({ host: $env.DB_POSTGRESDB_HOST || 'postgres', port: Number($env.DB_POSTGRESDB_PORT || 5432), database: $env.DB_POSTGRESDB_DATABASE || 'n8n', user: $env.DB_POSTGRESDB_USER || 'n8n', password: $env.DB_POSTGRESDB_PASSWORD });\n      await pg.connect();\n      try {\n        const k = Math.min(Math.max(Number(args && args.top_k) || 6, 1), 10);\n        const r = await pg.query('SELECT c.content, c.seq, d.title, 1 - (c.embedding <=> $1::vector) AS score FROM kb_chunks c JOIN kb_documents d ON d.doc_id = c.doc_id WHERE d.status = ' + String.fromCharCode(39) + 'active' + String.fromCharCode(39) + ' ORDER BY c.embedding <=> $1::vector LIMIT $2', ['[' + vec.join(',') + ']', k]);\n        const rows = r.rows.filter((x) => Number(x.score) > 0.2);\n        return { text: rows.length ? rows.map((x, i) => (i + 1) + '. [' + x.title + ' #' + x.seq + ' · score ' + (Math.round(Number(x.score) * 1000) / 1000) + ']\\n   ' + String(x.content).slice(0, 500)).join('\\n\\n') : 'No relevant passages found in the knowledge base.' };\n      } finally { await pg.end().catch(() => {}); }\n    }\n    if (name === 'platform_status') {\n      const r = await apiGet('http://localhost:5678/webhook/admin/overview', 20000);\n      const c = r.chat_24h || {};\n      const a = (r.alerts && r.alerts.recent) || [];\n      const kb = r.kb || {};\n      const lines = [];\n      lines.push('Platform status at ' + String(r.generated_at || '') + ':');\n      lines.push('- Chat 24h: ' + (c.total || 0) + ' calls (ok ' + (c.success || 0) + ' / err ' + (c.error || 0) + '), error rate ' + (Math.round((c.error_rate || 0) * 1000) / 10) + '%, avg latency ' + Math.round((c.avg_latency_ms || 0) / 100) / 10 + 's, cost $' + (Math.round((c.cost_usd || 0) * 1000) / 1000) + ', sessions ' + (c.unique_sessions || 0));\n      lines.push('- Alerts: ' + ((r.alerts && r.alerts.recent_count) || 0) + ' recent' + (a[0] ? ' (latest: ' + String(a[0].message).slice(0, 80) + ' at ' + iso8(a[0].created_at) + ')' : ''));\n      lines.push('- KB: ' + (kb.documents || 0) + ' docs / ' + (kb.chunks || 0) + ' chunks, embed usage ' + (kb.embed_pct || 0) + '%');\n      return { text: lines.join('\\n') };\n    }\n    if (name === 'run_brief') {\n      const r = await apiPost('http://localhost:5678/webhook/admin/briefs/run', {}, 90000);\n      const content = String((r && r.content_md) || '');\n      return { text: 'Brief 「' + String((r && r.title) || '') + '」 generated and saved.\\n\\n' + content.slice(0, 2400) };\n    }\n    if (name === 'list_alerts') {\n      const r = await apiGet('http://localhost:5678/webhook/admin/alerts', 20000);\n      const list = (r.alerts || []).slice(0, Number((args && args.limit) || 8));\n      return { text: list.length ? list.map((x, i) => (i + 1) + '. [' + iso8(x.created_at) + '] ' + x.kind + ' — ' + String(x.message).slice(0, 140)).join('\\n') : 'No recent alerts.' };\n    }\n    if (name === 'kb_save') {\n      const title = String((args && args.title) || '').trim().slice(0, 120) || 'MCP note';\n      const text = String((args && args.text) || '').trim().slice(0, 8000);\n      if (!text) return { text: 'kb_save requires text', isError: true };\n      const r = await apiPost('http://localhost:5678/webhook/admin/kb/ingest', { mode: 'ingest', title, text, source_type: 'mcp' }, 120000);\n      return { text: 'Saved to knowledge base: \"' + title + '\" (doc_id ' + String((r && r.doc_id) || '?') + ', chunks ' + String((r && r.chunks) || '?') + ')' };\n    }\n    if (name === 'create_reminder') {\n      const r = await apiPost('http://localhost:5678/webhook/admin/reminders/create', { text: String((args && args.text) || '').slice(0, 500), due_at: (args && args.due_at) || undefined, delay_minutes: (args && args.delay_minutes) || undefined, via: 'mcp' }, 20000);\n      if (r && r.ok === false) return { text: 'Reminder not created: ' + String(r.error || 'unknown'), isError: true };\n      return { text: 'Reminder #' + String((r && r.id) || '?') + ' created: ' + String((args && args.text) || '') + (r && r.due_local ? ' (due ' + r.due_local + ')' : '') + '. It will be pushed at the due time.' };\n    }\n    if (name === 'list_reminders') {\n      const r = await apiGet('http://localhost:5678/webhook/admin/reminders', 20000);\n      const p = r.pending || [];\n      const rec = r.recent || [];\n      const lines = ['Pending: ' + (r.pending_count || p.length) + (p.length ? '\\n' + p.map((x) => '• #' + x.id + ' ' + x.text + (x.due_local ? ' (' + x.due_local + ')' : '')).join('\\n') : '')];\n      if (rec.length) lines.push('Recent:\\n' + rec.slice(0, 5).map((x) => '• #' + x.id + ' [' + x.status + '] ' + x.text).join('\\n'));\n      return { text: lines.join('\\n') };\n    }\n    if (name === 'cancel_reminder') {\n      const id = Number((args && args.id) || 0);\n      if (!id) return { text: 'cancel_reminder requires id', isError: true };\n      const r = await apiPost('http://localhost:5678/webhook/admin/reminders/cancel', { id }, 15000);\n      if (r && r.ok === false) return { text: 'Cancel failed: ' + String(r.error || 'unknown'), isError: true };\n      return { text: 'Reminder #' + id + ' cancelled.' };\n    }\n    if (name === 'todo_add') {\n      const r = await apiPost('http://localhost:5678/webhook/admin/todos/add', { text: String((args && args.text) || '').slice(0, 300), due_date: (args && args.due_date) || undefined, via: 'mcp' }, 15000);\n      if (r && r.ok === false) return { text: 'Todo not added: ' + String(r.error || 'unknown'), isError: true };\n      const t = (r && (r.todo || r.item)) || {};\n      return { text: 'Todo #' + String(t.id || (r && r.id) || '?') + ' added: ' + String((args && args.text) || '') + ((args && args.due_date) ? ' (due ' + args.due_date + ')' : '') + '.' };\n    }\n    if (name === 'todo_list') {\n      const r = await apiGet('http://localhost:5678/webhook/admin/todos', 15000);\n      const open = r.open || [];\n      const lines = ['Open todos: ' + (r.open_count || open.length) + ' (overdue ' + (r.overdue_count || 0) + ', due today ' + (r.due_today_count || 0) + ')'];\n      open.forEach((x) => lines.push('• #' + x.id + ' ' + x.text + (x.due_date ? ' (due ' + x.due_date + (x.overdue ? ' · OVERDUE' : '') + ')' : '')));\n      const done = r.done_recent || [];\n      if (done.length) lines.push('Recently done: ' + done.slice(0, 5).map((x) => '#' + x.id + ' ' + x.text).join(' · '));\n      return { text: lines.join('\\n') };\n    }\n    if (name === 'todo_done') {\n      const id = Number((args && args.id) || 0);\n      if (!id) return { text: 'todo_done requires id', isError: true };\n      const r = await apiPost('http://localhost:5678/webhook/admin/todos/complete', { id }, 15000);\n      if (r && r.ok === false) return { text: 'Complete failed: ' + String(r.error || 'unknown'), isError: true };\n      return { text: 'Todo #' + id + ' completed.' };\n    }\n    return { text: 'Unknown tool: ' + name, isError: true };\n  } catch (e) {\n    return { text: 'Tool failed: ' + String((e && e.message) || e).slice(0, 300), isError: true };\n  }\n}\n\n/* ---- dispatch ---- */\nif (method === 'initialize') {\n  const r = { protocolVersion: String((rpc.params && rpc.params.protocolVersion) || '2025-06-18'), capabilities: { tools: { listChanged: false } }, serverInfo: SERVER_INFO, instructions: 'Agent Platform tools: todos, reminders, knowledge base, briefs, web search, platform status.' };\n  return done(r);\n}\nif (method === 'server/discover') return done({ capabilities: { tools: {} }, serverInfo: SERVER_INFO });\nif (method === 'ping') return done({});\nif (method === 'tools/list') return done({ tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: t.annotations })) });\nif (method === 'tools/call') {\n  const name = String((rpc.params && rpc.params.name) || '');\n  const args = (rpc.params && rpc.params.arguments) || {};\n  if (!TOOL_MAP[name]) return fail(-32602, 'Unknown tool: ' + name);\n  const t0 = Date.now();\n  const out = await runTool(name, args);\n  await audit(name, args, !out.isError, Date.now() - t0);\n  return done({ content: [{ type: 'text', text: String(out.text).slice(0, 6000) }], isError: !!out.isError });\n}\nreturn fail(-32601, 'Method not found: ' + method);"
+      }
+    },
+    {
+      "id": "mcp-resp",
+      "name": "Respond MCP",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        240,
+        120
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.rpcResponse }}",
+        "options": {
+          "responseCode": "={{ $json.__code || 200 }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook MCP": {
+      "main": [
+        [
+          {
+            "node": "Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Do MCP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Do MCP": {
+      "main": [
+        [
+          {
+            "node": "Respond MCP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null
+}

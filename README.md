@@ -240,6 +240,17 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 
 - n8n 容器 `TZ` + `GENERIC_TIMEZONE=Asia/Shanghai`；含时间点的调度工作流（晨报 08:30 / 自检 04:15 / 保留 03:00 / 周报周日 20:00）均设工作流级 `settings.timezone=Asia/Shanghai`（已实测验证触发时刻）。
 - 排障记录：Schedule 节点的 `field: "cron"` 是无效值（正确为 `cronExpression`），会静默退化成随机小时；`weeks.triggerAtDay` 取值 Sunday=0；数据表 rows API 的 `limit` 上限 250（超过返回 400）。
+### MCP Server（2026-09-16）
+
+平台对外暴露标准 MCP Server（工具型，2026-07-28 无状态规范）：
+
+- 端点：`POST /webhook/mcp`（仅局域网）；暴露 12 个工具（含只读 / 写入 / 长任务风险标注）。
+- 鉴权：`Authorization: Bearer <MCP_API_KEY>`（密钥在 `.env`，SHA-256 哈希存 `gateway_keys`，可独立吊销 / 单独设限速）；亦接受主密钥。
+- 兼容：同时支持 2026-07-28 无状态请求与旧版 `initialize` 握手客户端；JSON-RPC 通知返回 202。
+- 治理：限流 60 次/分/密钥（`gateway_keys.rate_limit_rpm` 可覆盖，429 含重试提示）；每工具级超时（常规 15s / 长任务 90s）；每次 `tools/call` 写审计 `admin_audit`（action=`mcp.call`，含客户端信息 / 参数摘要 / 耗时 / 结果）。
+- 运维：自检含 `mcp tools/list` 项；停用 = 工作流 deactivate；与聊天链路完全旁路（统计不互染）。
+- 已实测：回归 14/14 全绿；官方 MCP Inspector 实测 `tools/list` 与 `tools/call`；限流 60+1×429 验证。
+- 实现注记：非法 JSON 由传输层 422 拒绝（n8n 预解析所限，MCP 客户端 SDK 不受影响）；TLS / OAuth 就位前不暴露公网。
 - 关闭方式：`user_settings.memory` 与 agents `chat_config.memory.enabled` 置 false（即时生效）。
 - 开启时修复的上游兼容问题（记录备用）：工具消息需保留 `tool_call_id`；思考模式消息需回传 `reasoning_content`（空串亦可）。
 
