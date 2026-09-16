@@ -230,6 +230,16 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 - 语音进：TG 语音 → `stream-bridge` `POST /voice/transcribe`（getFile + 下载 + 格式嗅探 + `qwen3-asr-flash` 识别）→ 文本进入全链路（记忆 / 工具照常生效）。
 - 语音出：回复文本 → `POST /voice/reply`（`qwen-tts` 合成，音色 Cherry）→ `sendVoice` 发回（WAV 直发，无需转码；失败降级 `sendAudio`）。
 - 工程注意：DashScope TTS 结果 URL 在容器网络下必须改用 https 拉取（http 会 502）；音频格式按文件头（RIFF / OggS）嗅探而非扩展名。
+### 周报（Weekly Review，2026-09-16）
+
+- 触发：每周日 20:00（Asia/Shanghai，工作流级时区）；手动 `POST /webhook/admin/weekly-review/run`（`{"force":true}` 可非周日试跑；`{"dry":true}` 只算不发，供自检）。
+- 内容：本周待办（完成 / 开放 / 逾期）· 提醒（触发 / 待触发）· 对话轮次（SQL 口径，去重真实会话、排除后台噪声）· 新记忆 · 晨报数 + 模型一句话小结。
+- 落库：`weekly_reviews` 表（week_start / week_end / content_md / stats_json）并推送 Telegram（每周一条）。
+
+### 时区与调度（2026-09-16 修正）
+
+- n8n 容器 `TZ` + `GENERIC_TIMEZONE=Asia/Shanghai`；含时间点的调度工作流（晨报 08:30 / 自检 04:15 / 保留 03:00 / 周报周日 20:00）均设工作流级 `settings.timezone=Asia/Shanghai`（已实测验证触发时刻）。
+- 排障记录：Schedule 节点的 `field: "cron"` 是无效值（正确为 `cronExpression`），会静默退化成随机小时；`weeks.triggerAtDay` 取值 Sunday=0；数据表 rows API 的 `limit` 上限 250（超过返回 400）。
 - 关闭方式：`user_settings.memory` 与 agents `chat_config.memory.enabled` 置 false（即时生效）。
 - 开启时修复的上游兼容问题（记录备用）：工具消息需保留 `tool_call_id`；思考模式消息需回传 `reasoning_content`（空串亦可）。
 
