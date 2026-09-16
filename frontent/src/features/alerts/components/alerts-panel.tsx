@@ -97,8 +97,8 @@ export function AlertsPanel() {
           <CardDescription>
             {delivery
               ? delivery.configured
-                ? `已配置（format: ${delivery.format}）—— 告警将推送到 ALERT_WEBHOOK_URL`
-                : '未配置：在根 .env 设置 ALERT_WEBHOOK_URL 并执行 docker compose up -d n8n（支持 Slack / Discord / 飞书 / 通用 JSON）'
+                ? `已配置（format: ${delivery.format}）—— 告警将推送到已配置渠道`
+                : '未配置：在根 .env 设置推送渠道并执行 docker compose up -d n8n（支持 Telegram / Slack / Discord / 飞书 / 企微，见 README「推送渠道」）'
               : '加载中…'}
           </CardDescription>
         </CardHeader>

@@ -168,6 +168,19 @@ MinIO：停 minio 后把归档解回 `minio_data` 卷。每日 03:30 计划任�
 
 说明：晨报**自动推送**当前关闭（daily-brief 的 Push Brief 节点 `disabled`；控制台手动「推送到 IM」不受影响）；告警与提醒正常推送。
 
+### 手机访问（局域网）
+
+同一 Wi-Fi 下直接用手机浏览器打开（防火墙与可信来源已配置）：
+
+- 对话（LobeHub）：`http://192.168.1.114:3210`
+- 控制台：`http://192.168.1.114:3000`
+
+要点：
+- Windows 防火墙含三条入站规则（TCP 3210 / 3000 / 9000，仅限本地子网，命名 `agent-platform LAN: *`）；重装或换机后以管理员运行 `add-lan-rules.cmd` 可重建。
+- `APP_URL` / `S3_ENDPOINT` / `S3_PUBLIC_DOMAIN` 均使用局域网地址（由 `.env` 的 `PLATFORM_LAN_IP` 控制；换网络时改这一处并重建 lobechat / console）。
+- 手机可把两个页面「添加到主屏幕」，体验接近 App。
+- 已知限制：桌面休眠时手机不可达；出门在外访问属可选进阶（Tailscale）。
+
 ### 聊天遥控（平台工具）
 
 对话里直接使唤平台（网关内置工具，LobeHub / API 均可；模型按需自动调用，最多 2 轮工具循环）：

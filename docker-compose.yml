@@ -165,11 +165,14 @@ services:
       - AUTH_SECRET=${AUTH_SECRET}
       - KEY_VAULTS_SECRET=${KEY_VAULTS_SECRET}
       - JWKS_KEY=${JWKS_KEY}
-      - APP_URL=http://localhost:3210
+      - APP_URL=http://${PLATFORM_LAN_IP:-192.168.1.114}:3210
+      - INTERNAL_APP_URL=http://localhost:3210
+      # LAN / phone access: extra trusted auth origins (comma-separated)
+      - AUTH_ADDITIONAL_TRUSTED_ORIGINS=http://localhost:3210,http://127.0.0.1:3210
       # File storage: MinIO service below (Phase 4a). S3_ENDPOINT is the internal
       # container name; browsers resolve `minio` via the host hosts file (127.0.0.1).
-      - S3_ENDPOINT=http://minio:9000
-      - S3_PUBLIC_DOMAIN=http://localhost:9000
+      - S3_ENDPOINT=http://${PLATFORM_LAN_IP:-192.168.1.114}:9000 # LAN-reachable host so browser/phone presigned uploads work
+      - S3_PUBLIC_DOMAIN=http://${PLATFORM_LAN_IP:-192.168.1.114}:9000
       - S3_ACCESS_KEY_ID=lobechat-files
       - S3_SECRET_ACCESS_KEY=lobechat-files-secret
       - S3_BUCKET=lobechat-files
