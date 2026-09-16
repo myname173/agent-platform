@@ -341,3 +341,26 @@ export async function pushLatestBrief(): Promise<{ status: number; body: any }> 
   try { body = await res.json(); } catch { /* ignore */ }
   return { status: res.status, body };
 }
+
+export async function getSelfcheckRuns(): Promise<{ ok: boolean; runs: any[] }> {
+  const listRes = await fetch(`${N8N_URL}/api/v1/data-tables?limit=100`, { headers, cache: 'no-store' });
+  const list = await listRes.json();
+  const id = ((list.data || []) as any[]).find((t) => t.name === 'selfcheck_runs')?.id;
+  if (!id) return { ok: false, runs: [] };
+  const rowsRes = await fetch(`${N8N_URL}/api/v1/data-tables/${id}/rows?limit=8`, { headers, cache: 'no-store' });
+  const rows = await rowsRes.json();
+  const runs = ((rows.data || []) as any[]).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  return { ok: true, runs };
+}
+
+export async function runSelfcheck(): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/selfcheck/run`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + CHAT_API_KEY, 'Content-Type': 'application/json' },
+    body: '{}',
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch (e) { /* ignore */ }
+  return { status: res.status, body };
+}

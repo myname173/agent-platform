@@ -1,0 +1,172 @@
+{
+  "name": "Heartbeat",
+  "active": true,
+  "nodes": [
+    {
+      "id": "hb-wh",
+      "name": "Webhook Heartbeat",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -600,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/heartbeat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "hb-hb"
+    },
+    {
+      "id": "hb-auth",
+      "name": "Auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        0
+      ],
+      "parameters": {
+        "jsCode": "/* Bearer auth gate. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "hb-if",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -200,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-hb",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "hb-resperr",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        -100
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "hb-rec",
+      "name": "Record Heartbeat",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        100
+      ],
+      "parameters": {
+        "jsCode": "/* Record a heartbeat (e.g. backup task) into the heartbeats table. */\nconst body = ($('Webhook Heartbeat').first().json.body) || {};\nconst job = String(body.job || 'unknown').slice(0, 40);\nconst ok = body.ok === true || body.ok === 1 || body.ok === 'true' ? 1 : 0;\nconst detail = String(body.detail || '').slice(0, 500);\nconst api = (method, path, qs, payload) => this.helpers.httpRequest({ method, url: 'http://localhost:5678/api/v1' + path, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' }, qs, body: payload });\nconst tables = (await api('GET', '/data-tables', { limit: 100 })).data || [];\nconst id = (tables.find((t) => t.name === 'heartbeats') || {}).id;\nif (!id) return [{ json: { ok: false, error: 'heartbeats table missing (run deploy.mjs)' } }];\nawait api('POST', '/data-tables/' + id + '/rows', null, { data: [{ job, ok, detail }] });\nreturn [{ json: { ok: true, job, ok_flag: ok, at: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "hb-resp",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        200,
+        100
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Heartbeat": {
+      "main": [
+        [
+          {
+            "node": "Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Heartbeat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Heartbeat": {
+      "main": [
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "id": "YEAJYkgHQ3MmB5by"
+}

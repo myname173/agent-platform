@@ -92,6 +92,25 @@ const DATA_TABLE_COLUMNS = {
     { name: 'meta', type: 'string' }
   ],
 
+  // selfcheck: platform self-test runs
+  selfcheck_runs: [
+    { name: 'source', type: 'string' },
+    { name: 'total', type: 'number' },
+    { name: 'passed', type: 'number' },
+    { name: 'failed', type: 'number' },
+    { name: 'warned', type: 'number' },
+    { name: 'duration_ms', type: 'number' },
+    { name: 'checked_at', type: 'string' },
+    { name: 'report', type: 'string' },
+  ],
+
+  // heartbeats: scheduled-job liveness (e.g. backup)
+  heartbeats: [
+    { name: 'job', type: 'string' },
+    { name: 'ok', type: 'number' },
+    { name: 'detail', type: 'string' },
+  ],
+
   // telegram bridge: polling offset state
   telegram_state: [
     { name: 'key', type: 'string' },

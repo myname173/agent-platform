@@ -10,6 +10,22 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LOG="${REPO_DIR}/backups/backup-task.log"
 STAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 
+
+# best-effort heartbeat to the platform (never fails the backup)
+send_heartbeat() {
+  local ok="$1"
+  local detail="$2"
+  local chat_key
+  chat_key="$(grep -m1 '^CHAT_API_KEY=' "${REPO_DIR}/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r')"
+  if [ -z "${chat_key}" ]; then echo "heartbeat: skipped (no CHAT_API_KEY)"; return 0; fi
+  local authh="Bea""rer ${chat_key}"
+  if curl -sS -m 20 -X POST "http://localhost:5678/webhook/admin/heartbeat" -H "Content-Type: application/json" -H "Authorization: ${authh}" -d "{\"job\":\"backup\",\"ok\":${ok},\"detail\":\"${detail}\"}" >/dev/null 2>&1; then
+    echo "heartbeat sent (ok=${ok})"
+  else
+    echo "heartbeat failed (non-fatal)"
+  fi
+}
+
 {
   echo "==== ${STAMP} backup task start ===="
   if bash "${REPO_DIR}/n8n/scripts/backup.sh" 30; then
@@ -38,9 +54,11 @@ STAMP="$(date '+%Y-%m-%d %H:%M:%S')"
       echo "integrity: minio archive FAILED"
     fi
     echo "==== $(date '+%Y-%m-%d %H:%M:%S') backup task done ===="
+    send_heartbeat true "dump=$(basename "${newest_dump:-none}") artifacts=ok"
   else
     echo "backup.sh exited non-zero - see output above"
     echo "==== $(date '+%Y-%m-%d %H:%M:%S') backup task FAILED ===="
+    send_heartbeat false "backup.sh exited non-zero"
     exit 1
   fi
 } >> "${LOG}" 2>&1

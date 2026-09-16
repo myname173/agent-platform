@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PushMobileCard } from './push-mobile-card';
+import { SelfcheckCard } from './selfcheck-card';
 
 interface OverviewPayload {
   ok: boolean;
@@ -145,6 +146,8 @@ export function PlatformOverview() {
           </CardContent>
         </Card>
       </div>
+
+      <SelfcheckCard />
 
       <PushMobileCard />
 
