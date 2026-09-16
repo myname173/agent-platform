@@ -183,6 +183,15 @@ MinIO：停 minio 后把归档解回 `minio_data` 卷。每日 03:30 计划任�
 - 手机可把两个页面「添加到主屏幕」，体验接近 App。
 - 已知限制：桌面休眠时手机不可达；出门在外访问属可选进阶（Tailscale）。
 
+### 流式输出（打字机）
+
+LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
+
+- 链路：LobeHub → `stream-bridge` 侧车（`http://stream-bridge:3211/v1`）→ 直连上游 SSE；纯聊天即到即显，含「深度思考」实时展示。
+- 工具轮：侧车检测到工具调用后自动降级到网关完成完整工具循环，再以打字机方式把结果流回（工具能力不丢）。
+- 统计一致性：流式轮次回写 `chat_messages` + `chat_executions`（client 为 `stream-bridge`），控制台与晨报统计不受影响。
+- 运维：侧车代码 `stream-bridge/server.js`（其中工具定义需与 chat-gateway 同步维护）；回退 = 把 `OPENAI_PROXY_URL` 指回 `http://n8n:5678/webhook/v1` 并将 agents `chat_config.enableStreaming` 置 false，重建 lobechat。
+
 ### 聊天遥控（平台工具）
 
 对话里直接使唤平台（网关内置工具，LobeHub / API 均可；模型按需自动调用，最多 2 轮工具循环）：

@@ -155,7 +155,7 @@ services:
     environment:
       # Custom model provider pointing to n8n's OpenAI-compatible webhook
       - CUSTOM_MODELS=deepseek-agent,deepseek-chat,deepseek-reasoner,deepseek-v4-flash
-      - OPENAI_PROXY_URL=http://n8n:5678/webhook/v1
+      - OPENAI_PROXY_URL=http://stream-bridge:3211/v1
       # Same key as n8n's CHAT_API_KEY — gateway auth depends on the match
       - OPENAI_API_KEY=${LOBECHAT_OPENAI_API_KEY}
       - OPENAI_MODEL_LIST=deepseek-agent,deepseek-chat,deepseek-reasoner,deepseek-v4-flash=DeepSeek V4 Flash（网关）<1048576:vision>
@@ -211,6 +211,28 @@ services:
 # ============================================================================
 # Shared network & persistent volumes
 # ============================================================================
+  stream-bridge:
+    image: n8nio/runners:latest
+    container_name: stream-bridge
+    entrypoint: ["node", "/app/server.js"]
+    working_dir: /app
+    volumes:
+      - ./stream-bridge:/app:ro
+    environment:
+      - PORT=3211
+      - GATEWAY_URL=http://n8n:5678/webhook/v1
+      - UPSTREAM_BASE_URL=https://api.deepseek.com
+      - UPSTREAM_API_KEY=${UPSTREAM_API_KEY}
+      - CHAT_API_KEY=${CHAT_API_KEY}
+      - LOG_URL=http://n8n:5678/webhook/internal/log-turn
+    ports:
+      - "127.0.0.1:3211:3211"
+    restart: unless-stopped
+    networks:
+      - n8n-net
+    depends_on:
+      - n8n
+
 networks:
   n8n-net:
     name: n8n-net

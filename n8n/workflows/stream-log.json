@@ -1,0 +1,172 @@
+{
+  "name": "Stream Log",
+  "active": true,
+  "nodes": [
+    {
+      "id": "sl-wh",
+      "name": "Webhook Log",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -600,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "internal/log-turn",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "sl-log"
+    },
+    {
+      "id": "sl-auth",
+      "name": "Auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        0
+      ],
+      "parameters": {
+        "jsCode": "/* Bearer auth gate. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "sl-if",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -200,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-sl",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "sl-resperr",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        -100
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "sl-log",
+      "name": "Log Turn",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        100
+      ],
+      "parameters": {
+        "jsCode": "/* Log a streamed turn: 2 message rows + 1 execution row (stats parity). */\nconst body = ($('Webhook Log').first().json.body) || {};\nconst api = (method, path, qs, payload) => this.helpers.httpRequest({ method, url: 'http://localhost:5678/api/v1' + path, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' }, qs, body: payload });\nconst tables = (await api('GET', '/data-tables', { limit: 100 })).data || [];\nconst msgsId = (tables.find((t) => t.name === 'chat_messages') || {}).id;\nconst execId = (tables.find((t) => t.name === 'chat_executions') || {}).id;\nif (!msgsId || !execId) return [{ json: { ok: false, error: 'chat tables missing (run deploy.mjs)' } }];\nconst session_id = String(body.session_id || 'lobehub');\nconst model = String(body.model || '');\nconst client = String(body.client || 'stream');\nconst usage = body.usage || {};\nconst rows = [\n  { session_id, role: 'user', content: String(body.user_text || '').slice(0, 20000), model, client, key_name: '', cost_usd: 0 },\n  { session_id, role: 'assistant', content: String(body.assistant_text || '').slice(0, 20000), model, client, key_name: '', cost_usd: 0 },\n];\nawait api('POST', '/data-tables/' + msgsId + '/rows', null, { data: rows });\nawait api('POST', '/data-tables/' + execId + '/rows', null, { data: [{\n  execution_id: 'stream-' + Date.now(), session_id, model, client, key_name: '', cost_usd: 0,\n  status: 'success', error_code: '', error_message: '',\n  latency_ms: Number(body.latency_ms) || 0,\n  prompt_tokens: Number(usage.prompt_tokens) || 0,\n  completion_tokens: Number(usage.completion_tokens) || 0,\n  total_tokens: Number(usage.total_tokens) || 0,\n}] });\nreturn [{ json: { ok: true, logged: rows.length + 1, session_id } }];"
+      }
+    },
+    {
+      "id": "sl-resp",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        200,
+        100
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Log": {
+      "main": [
+        [
+          {
+            "node": "Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Turn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Turn": {
+      "main": [
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "id": "G4qpnpR4Q6yjsZBQ"
+}
