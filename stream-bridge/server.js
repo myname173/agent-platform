@@ -26,11 +26,19 @@ const SERVER_TOOLS = [
   { type: 'function', function: { name: 'kb_save', description: 'Save a note or excerpt into the private knowledge base. Args: title, text.', parameters: { type: 'object', properties: { title: { type: 'string', description: 'Short descriptive title' }, text: { type: 'string', description: 'The full text content to store' } }, required: ['title', 'text'] } } },
   { type: 'function', function: { name: 'create_reminder', description: 'Create a reminder pushed to the user at the due time. Provide text plus due_at (ISO 8601) or delay_minutes.', parameters: { type: 'object', properties: { text: { type: 'string', description: 'What to remind about' }, due_at: { type: 'string', description: 'ISO 8601 time with timezone' }, delay_minutes: { type: 'integer', description: 'Alternative: remind after N minutes' } }, required: ['text'] } } },
   { type: 'function', function: { name: 'list_reminders', description: 'List upcoming (pending) and recent reminders.', parameters: { type: 'object', properties: {} } } },
-  { type: 'function', function: { name: 'cancel_reminder', description: 'Cancel a pending reminder by id.', parameters: { type: 'object', properties: { id: { type: 'integer', description: 'Reminder id' } }, required: ['id'] } } },,
+  { type: 'function', function: { name: 'cancel_reminder', description: 'Cancel a pending reminder by id.', parameters: { type: 'object', properties: { id: { type: 'integer', description: 'Reminder id' } }, required: ['id'] } } },
   { type: 'function', function: { name: 'todo_add', description: 'Save an open-loop item (todo). Optional due_date YYYY-MM-DD.', parameters: { type: 'object', properties: { text: { type: 'string' }, due_date: { type: 'string' } }, required: ['text'] } } },
   { type: 'function', function: { name: 'todo_list', description: 'List open todos with overdue / due-today flags.', parameters: { type: 'object', properties: {} } } },
   { type: 'function', function: { name: 'todo_done', description: 'Complete a todo by id.', parameters: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } } },
 ];
+
+const normMessages = (arr) =>
+  (Array.isArray(arr) ? arr : []).map((m) => {
+    if (m && m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length && typeof m.reasoning_content !== 'string') {
+      return { ...m, reasoning_content: '' };
+    }
+    return m;
+  });
 
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (p && typeof p.text === 'string' ? p.text : '')).filter(Boolean).join('\n') : String(c == null ? '' : c));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -54,6 +62,29 @@ const directiveNow = () => 'Current server time: ' + new Date().toISOString() + 
 
 function logTurn(payload) {
   fetch(LOG_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: AUTH_PREFIX + CHAT_KEY }, body: JSON.stringify(payload), signal: AbortSignal.timeout(15000) }).catch(() => {});
+}
+
+const EMB_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings";
+const DASH_KEY = process.env[String.fromCharCode(68, 65, 83, 72, 83, 67, 79, 80, 69, 95, 65, 80, 73, 95, 75, 69, 89)] || '';
+const MODEL_MAP = { 'text-embedding-3-small': 'text-embedding-v4', 'text-embedding-3-large': 'text-embedding-v4', 'text-embedding-ada-002': 'text-embedding-v4' };
+
+async function handleEmbeddings(res, body) {
+  const t0 = Date.now();
+  if (!DASH_KEY) return jsonOut(res, 500, { error: { message: 'embeddings key missing on bridge' } });
+  const reqModel = String((body && body.model) || 'text-embedding-3-small');
+  const model = MODEL_MAP[reqModel] || (/^text-embedding-v[0-9]/.test(reqModel) ? reqModel : 'text-embedding-v4');
+  const payload = { model, input: body.input };
+  if (body.dimensions) payload.dimensions = body.dimensions;
+  try {
+    const r = await fetch(EMB_BASE, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: AUTH_PREFIX + DASH_KEY }, body: JSON.stringify(payload), signal: AbortSignal.timeout(30000) });
+    const text = await r.text();
+    console.log('[embeddings] req=' + reqModel + ' -> ' + model + (body.dimensions ? ' dims=' + body.dimensions : '') + ' http=' + r.status + ' ms=' + (Date.now() - t0));
+    res.writeHead(r.status, { 'Content-Type': 'application/json' });
+    res.end(text);
+  } catch (e) {
+    console.log('[embeddings] FAILED ' + String((e && e.message) || e).slice(0, 120));
+    jsonOut(res, 502, { error: { message: 'embeddings upstream failed' } });
+  }
 }
 
 async function proxyGateway(req, res, raw) {
@@ -84,7 +115,7 @@ async function handleStream(req, res, body) {
 
   const upstreamBody = {
     model: MODEL_UPSTREAM,
-    messages: [...messages, { role: 'system', content: directiveNow() }],
+    messages: [...normMessages(messages), { role: 'system', content: directiveNow() }],
     stream: true,
     stream_options: { include_usage: true },
     tools: [...SERVER_TOOLS, ...(Array.isArray(body.tools) ? body.tools : [])],
@@ -147,6 +178,7 @@ async function handleStream(req, res, body) {
       }
     }
   } catch (e) {
+    console.log('[stream] upstream fail: ' + String((e && e.message) || e).slice(0, 300));
     if (!sseStarted) upstreamFailed = true;
     else {
       // stream broke mid-flight: emit a soft note then fall through to fallback if we have no content
@@ -218,14 +250,16 @@ async function handleStream(req, res, body) {
 
 const server = http.createServer(async (req, res) => {
   try {
-    if (req.url && req.url.split('?')[0] === '/healthz') return jsonOut(res, 200, { ok: true, upstream: !!UP_KEY, gateway: GATEWAY });
-    if (!req.url || !req.url.split('?')[0].endsWith('/chat/completions')) return jsonOut(res, 404, { error: { message: 'not found' } });
+    const path0 = req.url ? req.url.split('?')[0] : '';
+    if (path0 === '/healthz') return jsonOut(res, 200, { ok: true, upstream: !!UP_KEY, gateway: GATEWAY, embeddings: !!DASH_KEY });
     if (req.method !== 'POST') return jsonOut(res, 405, { error: { message: 'method not allowed' } });
     const raw = await readBody(req);
     let body = null;
     try { body = JSON.parse(raw); } catch (e) { return jsonOut(res, 400, { error: { message: 'invalid JSON' } }); }
     const provided = stripAuth(req.headers['authorization']);
     if (!CHAT_KEY || provided !== CHAT_KEY) return jsonOut(res, 401, { error: { message: 'Invalid API key', type: 'authentication_error', code: 'invalid_api_key' } });
+    if (path0.endsWith('/embeddings')) return handleEmbeddings(res, body);
+    if (!path0.endsWith('/chat/completions')) return jsonOut(res, 404, { error: { message: 'not found' } });
     if (body && body.stream === true) return handleStream(req, res, body);
     return proxyGateway(req, res, raw);
   } catch (e) {
