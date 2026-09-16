@@ -364,3 +364,22 @@ export async function runSelfcheck(): Promise<{ status: number; body: any }> {
   try { body = await res.json(); } catch (e) { /* ignore */ }
   return { status: res.status, body };
 }
+
+export async function getTodos(): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/todos`, { headers: { Authorization: 'Bearer ' + CHAT_API_KEY }, cache: 'no-store' });
+  let body: any = null;
+  try { body = await res.json(); } catch (e) { /* ignore */ }
+  return { status: res.status, body };
+}
+
+export async function completeTodo(id: number): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/todos/complete`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + CHAT_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch (e) { /* ignore */ }
+  return { status: res.status, body };
+}

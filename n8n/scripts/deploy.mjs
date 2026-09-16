@@ -92,6 +92,15 @@ const DATA_TABLE_COLUMNS = {
     { name: 'meta', type: 'string' }
   ],
 
+  // admin line: todos (open-loop register, chat + brief + console)
+  todos: [
+    { name: 'text', type: 'string' },
+    { name: 'status', type: 'string' },
+    { name: 'due_date', type: 'string' },
+    { name: 'completed_at', type: 'string' },
+    { name: 'meta', type: 'string' },
+  ],
+
   // selfcheck: platform self-test runs
   selfcheck_runs: [
     { name: 'source', type: 'string' },

@@ -1,0 +1,715 @@
+{
+  "name": "Todos",
+  "active": true,
+  "nodes": [
+    {
+      "id": "td-wh-add",
+      "name": "Webhook Add",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1400,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/todos/add",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "td-add"
+    },
+    {
+      "id": "td-auth-add",
+      "name": "Auth Add",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        0
+      ],
+      "parameters": {
+        "jsCode": "/* Bearer auth gate. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "td-err-add",
+      "name": "Has Error Add",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1000,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-td-add",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "td-resperr-add",
+      "name": "Respond Error Add",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -800,
+        -100
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "td-parse-add",
+      "name": "Parse Add",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        100
+      ],
+      "parameters": {
+        "jsCode": "/* Validate a todo_add request. */\nconst body = ($('Webhook Add').first().json.body) || {};\nconst text = String(body.text || '').trim().slice(0, 300);\nconst bad = (m, c) => [{ json: { __error: true, status: 400, body: { error: { message: m, type: 'invalid_request_error', code: c } } } }];\nif (!text) return bad('text is required', 'missing_text');\nlet due = '';\nif (body.due_date) {\n  const t = Date.parse(String(body.due_date));\n  if (!Number.isFinite(t)) return bad('due_date must be a date like 2026-09-18', 'bad_due_date');\n  due = new Date(t).toISOString().slice(0, 10);\n}\nreturn [{ json: { text, status: 'open', due_date: due, completed_at: '', meta: JSON.stringify({ created_at: new Date().toISOString(), via: String(body.via || 'api').slice(0, 24) }) } }];"
+      }
+    },
+    {
+      "id": "td-valid-add",
+      "name": "Add Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -600,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-td-valid",
+              "leftValue": "={{ !$json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "td-insert",
+      "name": "Insert Todo",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -400,
+        100
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@todos",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "td-resp-add",
+      "name": "Respond Add",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -200,
+        100
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    },
+    {
+      "id": "td-wh-list",
+      "name": "Webhook List",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1400,
+        350
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "admin/todos",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "td-list"
+    },
+    {
+      "id": "td-auth-list",
+      "name": "Auth List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        350
+      ],
+      "parameters": {
+        "jsCode": "/* Bearer auth gate. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "td-err-list",
+      "name": "Has Error List",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1000,
+        350
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-td-list",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "td-resperr-list",
+      "name": "Respond Error List",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -800,
+        250
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "td-load",
+      "name": "Load Todos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        450
+      ],
+      "parameters": {
+        "jsCode": "/* List todos: open (with overdue/due-today flags) + recent done. */\nconst api = (method, path, qs, payload) => this.helpers.httpRequest({ method, url: 'http://localhost:5678/api/v1' + path, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' }, qs, body: payload });\nconst tables = (await api('GET', '/data-tables', { limit: 100 })).data || [];\nconst id = (tables.find((t) => t.name === 'todos') || {}).id;\nif (!id) return [{ json: { ok: false, error: 'todos table missing (run deploy.mjs)' } }];\nconst rows = (await api('GET', '/data-tables/' + id + '/rows', { limit: 200 })).data || [];\nconst today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);\nconst slim = (r) => ({ id: r.id, text: r.text, due_date: r.due_date || '', overdue: !!(r.due_date && r.due_date < today), due_today: !!(r.due_date && r.due_date === today) });\nconst open = rows.filter((r) => r.status === 'open').map(slim).sort((a, b) => {\n  if (a.due_date && b.due_date) return a.due_date < b.due_date ? -1 : 1;\n  if (a.due_date) return -1;\n  if (b.due_date) return 1;\n  return 0;\n});\nconst done = rows.filter((r) => r.status === 'done').slice(-10).map((r) => ({ id: r.id, text: r.text, completed_at: r.completed_at || '' }));\nreturn [{ json: { ok: true, today, open_count: open.length, overdue_count: open.filter((x) => x.overdue).length, due_today_count: open.filter((x) => x.due_today).length, open, done_recent: done } }];"
+      }
+    },
+    {
+      "id": "td-resp-list",
+      "name": "Respond List",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -600,
+        450
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    },
+    {
+      "id": "td-wh-cpl",
+      "name": "Webhook Complete",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1400,
+        700
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/todos/complete",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "td-complete"
+    },
+    {
+      "id": "td-auth-cpl",
+      "name": "Auth Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        700
+      ],
+      "parameters": {
+        "jsCode": "/* Bearer auth gate. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "td-err-cpl",
+      "name": "Has Error Complete",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1000,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-td-cpl",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "td-resperr-cpl",
+      "name": "Respond Error Complete",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -800,
+        600
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "td-parse-cpl",
+      "name": "Parse Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        800
+      ],
+      "parameters": {
+        "jsCode": "/* Validate a todo_done request. */\nconst body = ($('Webhook Complete').first().json.body) || {};\nconst id = Number(body.id);\nconst bad = (m, c) => [{ json: { __error: true, status: 400, body: { error: { message: m, type: 'invalid_request_error', code: c } } } }];\nif (!Number.isFinite(id) || id <= 0) return bad('id (number) is required', 'bad_id');\nreturn [{ json: { id } }];"
+      }
+    },
+    {
+      "id": "td-valid-cpl",
+      "name": "Complete Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -600,
+        800
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-td-cplv",
+              "leftValue": "={{ !$json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "td-upd",
+      "name": "Complete Todo",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -400,
+        800
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@todos",
+          "mode": "id"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "open"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "done",
+            "completed_at": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "td-guard-cpl",
+      "name": "Guard Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        800
+      ],
+      "parameters": {
+        "jsCode": "/* Summarize the complete result. */\nconst rows = $input.all().map((i) => i.json).filter((x) => x && x.id);\nif (!rows.length) return [{ json: { ok: false, error: 'todo not found or already done', tip: 'list with GET /webhook/admin/todos' } }];\nreturn [{ json: { ok: true, done: rows.length, todos: rows.map((r) => ({ id: r.id, text: r.text, status: r.status, completed_at: r.completed_at || '' })) } }];"
+      }
+    },
+    {
+      "id": "td-resp-cpl",
+      "name": "Respond Complete",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        800
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Add": {
+      "main": [
+        [
+          {
+            "node": "Auth Add",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Add": {
+      "main": [
+        [
+          {
+            "node": "Has Error Add",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Add": {
+      "main": [
+        [
+          {
+            "node": "Respond Error Add",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Add",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Add": {
+      "main": [
+        [
+          {
+            "node": "Add Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Valid": {
+      "main": [
+        [
+          {
+            "node": "Insert Todo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Error Add",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Todo": {
+      "main": [
+        [
+          {
+            "node": "Respond Add",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook List": {
+      "main": [
+        [
+          {
+            "node": "Auth List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth List": {
+      "main": [
+        [
+          {
+            "node": "Has Error List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error List": {
+      "main": [
+        [
+          {
+            "node": "Respond Error List",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load Todos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Todos": {
+      "main": [
+        [
+          {
+            "node": "Respond List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Complete": {
+      "main": [
+        [
+          {
+            "node": "Auth Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Complete": {
+      "main": [
+        [
+          {
+            "node": "Has Error Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Complete": {
+      "main": [
+        [
+          {
+            "node": "Respond Error Complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Complete": {
+      "main": [
+        [
+          {
+            "node": "Complete Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Complete Valid": {
+      "main": [
+        [
+          {
+            "node": "Complete Todo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Error Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Complete Todo": {
+      "main": [
+        [
+          {
+            "node": "Guard Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard Complete": {
+      "main": [
+        [
+          {
+            "node": "Respond Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "id": "MHHCv9k1Lrxw64Gf"
+}
