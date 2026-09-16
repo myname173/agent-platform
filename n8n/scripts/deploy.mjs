@@ -92,6 +92,17 @@ const DATA_TABLE_COLUMNS = {
     { name: 'meta', type: 'string' }
   ],
 
+  // wishlist #3: reminders created from chat (delivered via the notify channel)
+  reminders: [
+    { name: 'text', type: 'string' },
+    { name: 'due_at', type: 'string' },
+    { name: 'status', type: 'string' },
+    { name: 'delivered', type: 'string' },
+    { name: 'created_via', type: 'string' },
+    { name: 'attempts', type: 'number' },
+    { name: 'meta', type: 'string' },
+  ],
+
   // priority 6: error-rate alerting (data table, API-accessible)
   ops_alerts: [
     { name: 'kind', type: 'string' },

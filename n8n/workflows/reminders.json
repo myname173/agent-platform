@@ -1,0 +1,1034 @@
+{
+  "name": "Reminders",
+  "active": true,
+  "nodes": [
+    {
+      "id": "rmd-wh-create",
+      "name": "Webhook Create",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1200,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/reminders/create",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "rmd-create"
+    },
+    {
+      "id": "rmd-auth-create",
+      "name": "Auth Create",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1000,
+        0
+      ],
+      "parameters": {
+        "jsCode": "/* Bearer auth gate. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "rmd-err-create",
+      "name": "Has Error Create",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -800,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-create",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "rmd-resperr-create",
+      "name": "Respond Error Create",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -600,
+        -100
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "rmd-parse-create",
+      "name": "Parse Create",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        100
+      ],
+      "parameters": {
+        "jsCode": "/* Validate a create request and compute the due timestamp (stored as UTC ISO). */\nconst body = ($('Webhook Create').first().json.body) || {};\nconst text = String(body.text || '').trim().slice(0, 500);\nconst bad = (status, message, code) => [{ json: { __error: true, status, body: { error: { message, type: 'invalid_request_error', code } } } }];\nif (!text) return bad(400, 'text is required', 'missing_text');\nlet due;\nif (body.delay_minutes !== undefined && body.delay_minutes !== null) {\n  const m = Number(body.delay_minutes);\n  if (!Number.isFinite(m) || m <= 0 || m > 43200) return bad(400, 'delay_minutes must be a number between 1 and 43200', 'bad_delay');\n  due = new Date(Date.now() + m * 60000);\n} else if (body.due_at) {\n  const t = Date.parse(String(body.due_at));\n  if (!Number.isFinite(t)) return bad(400, 'due_at must be ISO 8601 (e.g. 2026-09-17T09:00:00+08:00)', 'bad_due_at');\n  due = new Date(t);\n} else {\n  return bad(400, 'provide due_at or delay_minutes', 'missing_due');\n}\nconst now = Date.now();\nlet adjusted = '';\nif (due.getTime() < now) {\n  if (now - due.getTime() > 300000) return bad(400, 'due time is more than 5 minutes in the past - compute a future time', 'due_in_past');\n  due = new Date(now + 60000);\n  adjusted = 'past-adjusted';\n}\nreturn [{ json: {\n  text,\n  due_at: due.toISOString(),\n  status: 'pending',\n  delivered: '',\n  created_via: String(body.via || 'api').slice(0, 24),\n  attempts: 0,\n  meta: JSON.stringify({ created_at: new Date().toISOString(), adjusted }),\n} }];"
+      }
+    },
+    {
+      "id": "rmd-insert",
+      "name": "Insert Reminder",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -400,
+        100
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@reminders",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "rmd-resp-create",
+      "name": "Respond Create",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -200,
+        100
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    },
+    {
+      "id": "rmd-wh-list",
+      "name": "Webhook List",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1200,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "admin/reminders",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "rmd-list"
+    },
+    {
+      "id": "rmd-auth-list",
+      "name": "Auth List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1000,
+        300
+      ],
+      "parameters": {
+        "jsCode": "/* Bearer auth gate. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "rmd-err-list",
+      "name": "Has Error List",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -800,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-list",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "rmd-resperr-list",
+      "name": "Respond Error List",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -600,
+        200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "rmd-load",
+      "name": "Load Reminders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        400
+      ],
+      "parameters": {
+        "jsCode": "/* List reminders (newest first) with a readable local time (+08). */\nconst api = (method, path, qs) => this.helpers.httpRequest({ method, url: 'http://localhost:5678/api/v1' + path, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY }, qs });\nconst tables = (await api('GET', '/data-tables', { limit: 100 })).data || [];\nconst tableId = (tables.find((t) => t.name === 'reminders') || {}).id;\nif (!tableId) return [{ json: { ok: false, error: 'reminders table missing (run deploy.mjs)' } }];\nconst rows = (await api('GET', '/data-tables/' + tableId + '/rows', { limit: 100, sortBy: 'createdAt:desc' })).data || [];\nconst local = (iso) => {\n  const t = Date.parse(iso || '');\n  if (!Number.isFinite(t)) return '';\n  return new Date(t + 8 * 3600000).toISOString().replace('T', ' ').slice(0, 16) + ' +08';\n};\nconst slim = (r) => ({ id: r.id, text: r.text, due_at: r.due_at, due_local: local(r.due_at), status: r.status, delivered: r.delivered || '', attempts: Number(r.attempts || 0) });\nconst pending = rows.filter((r) => r.status === 'pending').sort((a, b) => Date.parse(a.due_at) - Date.parse(b.due_at)).map(slim);\nconst recent = rows.filter((r) => r.status !== 'pending').slice(0, 15).map(slim);\nreturn [{ json: { ok: true, pending_count: pending.length, pending, recent } }];"
+      }
+    },
+    {
+      "id": "rmd-resp-list",
+      "name": "Respond List",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -400,
+        400
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    },
+    {
+      "id": "rmd-wh-cancel",
+      "name": "Webhook Cancel",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1200,
+        600
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/reminders/cancel",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "rmd-cancel"
+    },
+    {
+      "id": "rmd-auth-cancel",
+      "name": "Auth Cancel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1000,
+        600
+      ],
+      "parameters": {
+        "jsCode": "/* Bearer auth gate. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "rmd-err-cancel",
+      "name": "Has Error Cancel",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -800,
+        600
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-cancel",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "rmd-resperr-cancel",
+      "name": "Respond Error Cancel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -600,
+        500
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "rmd-parse-cancel",
+      "name": "Parse Cancel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        700
+      ],
+      "parameters": {
+        "jsCode": "/* Validate a cancel request. */\nconst body = ($('Webhook Cancel').first().json.body) || {};\nconst id = Number(body.id);\nconst bad = (message, code) => [{ json: { __error: true, status: 400, body: { error: { message, type: 'invalid_request_error', code } } } }];\nif (!Number.isFinite(id) || id <= 0) return bad('id (number) is required', 'bad_id');\nreturn [{ json: { id } }];"
+      }
+    },
+    {
+      "id": "rmd-upd-cancel",
+      "name": "Update Cancel",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -400,
+        700
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@reminders",
+          "mode": "id"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "pending"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "canceled"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "rmd-guard-cancel",
+      "name": "Guard Cancel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        700
+      ],
+      "parameters": {
+        "jsCode": "/* Summarize the cancel result; handled when the update matched no pending row. */\nconst rows = $input.all().map((i) => i.json).filter((x) => x && x.id);\nif (!rows.length) return [{ json: { ok: false, error: 'reminder not found or not pending', tip: 'list with GET /webhook/admin/reminders' } }];\nreturn [{ json: { ok: true, canceled: rows.length, reminders: rows.map((r) => ({ id: r.id, text: r.text, due_at: r.due_at, status: r.status })) } }];"
+      }
+    },
+    {
+      "id": "rmd-resp-cancel",
+      "name": "Respond Cancel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        700
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    },
+    {
+      "id": "rmd-wh-run",
+      "name": "Webhook Run",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1200,
+        900
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/reminders/run",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "rmd-run"
+    },
+    {
+      "id": "rmd-auth-run",
+      "name": "Auth Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1000,
+        900
+      ],
+      "parameters": {
+        "jsCode": "/* Bearer auth gate. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "rmd-err-run",
+      "name": "Has Error Run",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -800,
+        900
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-run",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "rmd-resperr-run",
+      "name": "Respond Error Run",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -600,
+        800
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "rmd-sched",
+      "name": "Schedule Tick",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1000,
+        1100
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "rmd-check",
+      "name": "Check Due",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        1000
+      ],
+      "parameters": {
+        "jsCode": "/* Deliver due reminders via the Notify workflow; emit one item per attempt. */\nconst AUTH_HEAD = 'Bea' + 'rer ';\nconst api = (method, path, qs, body) => this.helpers.httpRequest({ method, url: 'http://localhost:5678/api/v1' + path, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' }, qs, body });\nconst tables = (await api('GET', '/data-tables', { limit: 100 })).data || [];\nconst tableId = (tables.find((t) => t.name === 'reminders') || {}).id;\nif (!tableId) return [{ json: { ok: false, error: 'reminders table missing (run deploy.mjs)' } }];\nconst rows = (await api('GET', '/data-tables/' + tableId + '/rows', { limit: 200, sortBy: 'createdAt:desc' })).data || [];\nconst pend = rows.filter((r) => r.status === 'pending');\nconst now = Date.now();\nconst due = pend.filter((r) => { const t = Date.parse(r.due_at || ''); return Number.isFinite(t) && t <= now; });\nconst out = [];\nfor (const r of due) {\n  const attempts = Number(r.attempts || 0) + 1;\n  let delivered = '';\n  let newStatus = 'sent';\n  try {\n    const resp = await this.helpers.httpRequest({\n      method: 'POST',\n      url: 'http://localhost:5678/webhook/internal/notify',\n      headers: { Authorization: AUTH_HEAD + ($env.CHAT_API_KEY || ''), 'Content-Type': 'application/json' },\n      body: { kind: '提醒', message: String(r.text || '') },\n      timeout: 12000,\n    });\n    if (resp && resp.ok) delivered = 'ok';\n    else if (resp && resp.reason) delivered = String(resp.reason);\n    else delivered = 'unknown';\n  } catch (e) {\n    delivered = 'error:' + String((e && e.message) || e).slice(0, 120);\n  }\n  if (delivered !== 'ok' && delivered !== 'skipped:no-channel') newStatus = attempts >= 2 ? 'failed' : 'pending';\n  out.push({ json: { row_id: r.id, text: r.text, due_at: r.due_at, delivered, new_status: newStatus, attempts } });\n}\nif (!out.length) out.push({ json: { ok: true, pending: pend.length, due: 0, delivered: 0 } });\nreturn out;"
+      }
+    },
+    {
+      "id": "rmd-anydue",
+      "name": "Any Due",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -400,
+        1000
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-any-due",
+              "leftValue": "={{ !!$json.row_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "rmd-upd-deliver",
+      "name": "Update Delivered",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -200,
+        950
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@reminders",
+          "mode": "id"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.row_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.new_status }}",
+            "delivered": "={{ $json.delivered }}",
+            "attempts": "={{ $json.attempts }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "rmd-summary",
+      "name": "Run Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1000
+      ],
+      "parameters": {
+        "jsCode": "/* Aggregate the delivery results into one summary item. */\nconst items = $input.all().map((i) => i.json);\nif (items.length === 1 && items[0].ok === true && items[0].due === 0) return [{ json: items[0] }];\nconst results = items.map((x) => ({ id: x.id || x.row_id, text: x.text, delivered: x.delivered, status: x.status || x.new_status, attempts: x.attempts }));\nreturn [{ json: {\n  ok: true,\n  due: results.length,\n  delivered_ok: results.filter((x) => x.delivered === 'ok').length,\n  skipped: results.filter((x) => x.delivered === 'skipped:no-channel').length,\n  results,\n} }];"
+      }
+    },
+    {
+      "id": "rmd-resp-run",
+      "name": "Respond Run",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        200,
+        1000
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    },
+    {
+      "id": "cond-create-valid",
+      "name": "Create Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -500,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-create-valid",
+              "leftValue": "={{ !$json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cond-cancel-valid",
+      "name": "Cancel Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -500,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-cancel-valid",
+              "leftValue": "={{ !$json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Create": {
+      "main": [
+        [
+          {
+            "node": "Auth Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Create": {
+      "main": [
+        [
+          {
+            "node": "Has Error Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Create": {
+      "main": [
+        [
+          {
+            "node": "Respond Error Create",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Create": {
+      "main": [
+        [
+          {
+            "node": "Create Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Reminder": {
+      "main": [
+        [
+          {
+            "node": "Respond Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook List": {
+      "main": [
+        [
+          {
+            "node": "Auth List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth List": {
+      "main": [
+        [
+          {
+            "node": "Has Error List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error List": {
+      "main": [
+        [
+          {
+            "node": "Respond Error List",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Reminders": {
+      "main": [
+        [
+          {
+            "node": "Respond List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Cancel": {
+      "main": [
+        [
+          {
+            "node": "Auth Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Cancel": {
+      "main": [
+        [
+          {
+            "node": "Has Error Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Cancel": {
+      "main": [
+        [
+          {
+            "node": "Respond Error Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Cancel": {
+      "main": [
+        [
+          {
+            "node": "Cancel Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Cancel": {
+      "main": [
+        [
+          {
+            "node": "Guard Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard Cancel": {
+      "main": [
+        [
+          {
+            "node": "Respond Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Run": {
+      "main": [
+        [
+          {
+            "node": "Auth Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Run": {
+      "main": [
+        [
+          {
+            "node": "Has Error Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Run": {
+      "main": [
+        [
+          {
+            "node": "Respond Error Run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Tick": {
+      "main": [
+        [
+          {
+            "node": "Check Due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Due": {
+      "main": [
+        [
+          {
+            "node": "Any Due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Due": {
+      "main": [
+        [
+          {
+            "node": "Update Delivered",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Delivered": {
+      "main": [
+        [
+          {
+            "node": "Run Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Summary": {
+      "main": [
+        [
+          {
+            "node": "Respond Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Valid": {
+      "main": [
+        [
+          {
+            "node": "Insert Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Error Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Valid": {
+      "main": [
+        [
+          {
+            "node": "Update Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Error Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "id": "wgqZmIPVBjlkg2o6"
+}
