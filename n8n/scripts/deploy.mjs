@@ -92,6 +92,15 @@ const DATA_TABLE_COLUMNS = {
     { name: 'meta', type: 'string' }
   ],
 
+  // L2: user-built workflows exposed as chat tools (list / register / toggle)
+  workflow_tools: [
+    { name: 'name', type: 'string' },
+    { name: 'title', type: 'string' },
+    { name: 'description', type: 'string' },
+    { name: 'path', type: 'string' },
+    { name: 'enabled', type: 'number' },
+    { name: 'created_via', type: 'string' },
+  ],
   // admin line: todos (open-loop register, chat + brief + console)
   todos: [
     { name: 'text', type: 'string' },

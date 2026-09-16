@@ -249,6 +249,22 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 
 平台对外暴露标准 MCP Server（工具型，2026-07-28 无状态规范）：
 
+### 自建流程工具（L2，2026-09-16）
+
+把你在 n8n 里亲手搭的流程（带 POST Webhook 触发器）注册成"对话工具"：之后在 TG / LobeHub 里说一句「跑一下 XX」即可点火，AI 只有**点火权**（触发），没有改装权（不建 / 不改 / 不删流程）。
+
+- 注册（二选一，或把参数给我帮你注册）：
+
+```bash
+curl -X POST http://localhost:5678/webhook/admin/tools \
+  -H "Authorization: Bearer <CHAT_API_KEY>" -H "Content-Type: application/json" \
+  -d '{"action":"register","name":"bill_export","title":"账单导出","description":"导出当月账单到表格","path":"admin/bill-export"}'
+```
+
+- 其他操作：`{"action":"list"}` 查看；`{"action":"toggle","name":"bill_export","enabled":0}` 停用。
+- 使用：对话里说「跑一下 账单导出」（TG 里 `/tools` 可看已注册清单）；触发时向你的 Webhook 发送 `{source:"chat", name, text, ts}` + `Authorization: Bearer <CHAT_API_KEY>` 头，返回内容摘要回给对话。
+- 示例：`Example Echo Tool` 工作流 + `echo_demo` 注册项是活的最小样例（TG 说「跑一下 回声示例，文本 hello」可验证全链）。
+- 边界：注册的路径必须是 POST Webhook；流程自己的副作用由搭建者负责（这正是 L2「AI 只点火"的设计）；MCP 的 tools/list 与 L2 注册表暂不互通（v1.5 事项）。
 - 端点：`POST /webhook/mcp`（仅局域网）；暴露 12 个工具（含只读 / 写入 / 长任务风险标注）。
 - 鉴权：`Authorization: Bearer <MCP_API_KEY>`（密钥在 `.env`，SHA-256 哈希存 `gateway_keys`，可独立吊销 / 单独设限速）；亦接受主密钥。
 - 兼容：同时支持 2026-07-28 无状态请求与旧版 `initialize` 握手客户端；JSON-RPC 通知返回 202。

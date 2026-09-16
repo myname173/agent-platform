@@ -1,0 +1,79 @@
+{
+  "name": "Example Echo Tool",
+  "active": true,
+  "nodes": [
+    {
+      "id": "ee-wh",
+      "name": "Webhook Echo",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -400,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/tools/echo-demo",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "ee-echo"
+    },
+    {
+      "id": "ee-code",
+      "name": "Echo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        0
+      ],
+      "parameters": {
+        "jsCode": "/* Minimal L2 example: echoes the text passed by the chat tool ignition. */\nconst b = $input.first().json.body || {};\nreturn [{ json: { ok: true, tool: 'echo_demo', echo: String(b.text || ''), source: String(b.source || ''), at: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "ee-resp",
+      "name": "Respond Echo",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        60,
+        0
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Echo": {
+      "main": [
+        [
+          {
+            "node": "Echo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Echo": {
+      "main": [
+        [
+          {
+            "node": "Respond Echo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "id": "Kf2Qc1F5t8Rbpps0"
+}

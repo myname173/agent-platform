@@ -32,6 +32,18 @@ const SERVER_TOOLS = [
   { type: 'function', function: { name: 'todo_done', description: 'Complete a todo by id.', parameters: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } } },
 ];
 
+/* ---- L2: registered workflow tools (cached 60s) ---- */
+let wfToolCache = { ts: 0, tools: [] };
+async function getWfTools() {
+  if (Date.now() - wfToolCache.ts < 60000) return wfToolCache.tools;
+  try {
+    const r = await fetch('http://n8n:5678/webhook/admin/tools', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: AUTH_PREFIX + CHAT_KEY }, body: JSON.stringify({ action: 'list' }), signal: AbortSignal.timeout(10000) });
+    const j = await r.json();
+    wfToolCache = { ts: Date.now(), tools: (j && j.tools) || [] };
+  } catch (e) {}
+  return wfToolCache.tools;
+}
+const wfToolDefs = (tools) => tools.map((t) => ({ type: 'function', function: { name: 'wf_' + t.name, description: '[自建流程] ' + String(t.description || t.title || t.name), parameters: { type: 'object', properties: { text: { type: 'string', description: '可选：传给流程的文本/参数' } } } } }));
 const normMessages = (arr) =>
   (Array.isArray(arr) ? arr : []).map((m) => {
     if (m && m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length && typeof m.reasoning_content !== 'string') {
@@ -58,7 +70,7 @@ const sseSend = (res, obj) => { try { res.write('data: ' + JSON.stringify(obj) +
 const sseEnd = (res) => { try { res.write('data: [DONE]\n\n'); res.end(); } catch (e) {} };
 const chunkMsg = (id, model, delta, finish) => ({ id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, delta, finish_reason: finish || null }] });
 
-const directiveNow = () => 'Current server time: ' + new Date().toISOString() + ' (UTC; user timezone Asia/Shanghai = UTC+8). You can call the provided tools (platform_status, run_brief, list_alerts, kb_save, create_reminder, list_reminders, cancel_reminder, todo_add, todo_list, todo_done, web_search, kb_search) when the user asks about the platform, reminders, search or the knowledge base. Prefer acting over asking clarifying questions.';
+const directiveNow = () => 'Current server time: ' + new Date().toISOString() + ' (UTC; user timezone Asia/Shanghai = UTC+8). You can call the provided tools (platform_status, run_brief, list_alerts, kb_save, create_reminder, list_reminders, cancel_reminder, todo_add, todo_list, todo_done, web_search, kb_search) when the user asks about the platform, reminders, search or the knowledge base. Prefer acting over asking clarifying questions. 自建流程工具（wf_ 前缀）可直接触发：用户说「跑一下 X」时调用对应 wf_ 工具。';
 
 function logTurn(payload) {
   fetch(LOG_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: AUTH_PREFIX + CHAT_KEY }, body: JSON.stringify(payload), signal: AbortSignal.timeout(15000) }).catch(() => {});
@@ -138,6 +150,7 @@ async function handleStream(req, res, body) {
   const userText = textOf(userMsg && userMsg.content).slice(0, 8000);
   const started = Date.now();
   const model = String(body.model || MODEL_UPSTREAM);
+  const wfTools = await getWfTools();
   console.log('[req] stream sid=' + sid + ' msg=' + userText.slice(0, 28).replace(/\s+/g, ' '));
 
   const upstreamBody = {
@@ -145,7 +158,7 @@ async function handleStream(req, res, body) {
     messages: [...normMessages(messages), { role: 'system', content: directiveNow() }],
     stream: true,
     stream_options: { include_usage: true },
-    tools: [...SERVER_TOOLS, ...(Array.isArray(body.tools) ? body.tools : [])],
+    tools: [...SERVER_TOOLS, ...wfToolDefs(wfTools), ...(Array.isArray(body.tools) ? body.tools : [])],
     ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
     ...(body.top_p !== undefined ? { top_p: body.top_p } : {}),
     ...(body.max_tokens !== undefined ? { max_tokens: body.max_tokens } : {}),

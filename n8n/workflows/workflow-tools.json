@@ -1,0 +1,172 @@
+{
+  "name": "Workflow Tools",
+  "active": true,
+  "nodes": [
+    {
+      "id": "wt-wh",
+      "name": "Webhook Tools",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -600,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/tools",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "wt-registry"
+    },
+    {
+      "id": "wt-auth",
+      "name": "Auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        0
+      ],
+      "parameters": {
+        "jsCode": "/* Auth gate. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, body: { ok: false, error: 'Invalid API key' } } }];\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "wt-if",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -200,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-wt",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "wt-resperr",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        -100
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "wt-do",
+      "name": "Handle Tools",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        100
+      ],
+      "parameters": {
+        "jsCode": "/* L2 registry: user-built n8n workflows exposed as chat tools (list / register / toggle). */\nconst req = $('Webhook Tools').first().json;\nconst body = req.body || {};\nconst action = String(body.action || 'list');\nconst N8N = 'http://localhost:5678/api/v1';\nconst apiJson = (method, path, qs, b) => this.helpers.httpRequest({ method, url: N8N + path, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' }, qs, body: b, timeout: 15000 });\nconst tables = await apiJson('GET', '/data-tables', { limit: 100 });\nlet tid = ((tables.data) || []).find((t) => t.name === 'workflow_tools')?.id;\nif (!tid) {\n  const t = await apiJson('POST', '/data-tables', null, { name: 'workflow_tools', columns: [{ name: 'name', type: 'string' }, { name: 'title', type: 'string' }, { name: 'description', type: 'string' }, { name: 'path', type: 'string' }, { name: 'enabled', type: 'number' }, { name: 'created_via', type: 'string' }] });\n  tid = t && t.id;\n}\nif (!tid) return [{ json: { ok: false, error: 'registry unavailable' } }];\nconst rowsOf = async () => (((await apiJson('GET', '/data-tables/' + tid + '/rows', { limit: 250 })).data) || []);\nconst delByName = async (name) => {\n  const filter = encodeURIComponent(JSON.stringify({ type: 'and', filters: [{ columnName: 'name', condition: 'eq', value: name }] }));\n  await this.helpers.httpRequest({ method: 'DELETE', url: N8N + '/data-tables/' + tid + '/rows/delete?filter=' + filter, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY }, timeout: 15000 }).catch(() => {});\n};\n\nif (action === 'list') {\n  const rows = (await rowsOf()).filter((r) => Number(r.enabled) === 1);\n  return [{ json: { ok: true, tools: rows.map((r) => ({ name: r.name, title: r.title, description: r.description, path: r.path })) } }];\n}\nif (action === 'register' || action === 'update') {\n  const name = String(body.name || '').trim().toLowerCase();\n  const path0 = String(body.path || '').trim().replace(/^https?:\\/\\/[^/]+\\/webhook\\//, '').replace(/^\\/?webhook\\//, '').replace(/^\\//, '');\n  if (!/^[a-z0-9_-]{2,32}$/.test(name)) return [{ json: { ok: false, error: 'name must match [a-z0-9_-]{2,32}' } }];\n  if (!/^[-a-zA-Z0-9_/]{2,80}$/.test(path0)) return [{ json: { ok: false, error: 'path invalid' } }];\n  const RESERVED = ['v1', 'internal', 'mcp', 'admin/tools'];\n  if (RESERVED.some((x) => path0 === x || path0.startsWith(x + '/'))) {\n    const okReserved = path0 === 'admin/tools' ? false : true;\n    if (!okReserved || path0 === 'v1' || path0 === 'mcp' || path0.startsWith('internal/')) return [{ json: { ok: false, error: 'path reserved: ' + path0 } }];\n  }\n  await delByName(name);\n  await apiJson('POST', '/data-tables/' + tid + '/rows', null, { data: [{ name, title: String(body.title || name).slice(0, 60), description: String(body.description || '').slice(0, 300), path: path0, enabled: body.enabled === 0 ? 0 : 1, created_via: String(body.via || 'api').slice(0, 20) }] });\n  return [{ json: { ok: true, registered: name, path: path0 } }];\n}\nif (action === 'toggle') {\n  const name = String(body.name || '').trim().toLowerCase();\n  const rows = await rowsOf();\n  const row = rows.find((r) => String(r.name) === name);\n  if (!row) return [{ json: { ok: false, error: 'not found: ' + name } }];\n  await delByName(name);\n  await apiJson('POST', '/data-tables/' + tid + '/rows', null, { data: [{ name, title: row.title, description: row.description, path: row.path, enabled: body.enabled === 0 ? 0 : 1, created_via: row.created_via || 'api' }] });\n  return [{ json: { ok: true, toggled: name, enabled: body.enabled === 0 ? 0 : 1 } }];\n}\nreturn [{ json: { ok: false, error: 'unknown action: ' + action } }];"
+      }
+    },
+    {
+      "id": "wt-resp",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        220,
+        100
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Tools": {
+      "main": [
+        [
+          {
+            "node": "Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Tools",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Tools": {
+      "main": [
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "id": "7pCpURtve4n5milh"
+}
