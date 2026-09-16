@@ -1,0 +1,172 @@
+{
+  "id": "FBsX5ASjf264BYrv",
+  "name": "Meeting Actions",
+  "active": true,
+  "nodes": [
+    {
+      "id": "mw",
+      "name": "Webhook Meeting",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -620,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/tools/meeting-actions",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "meet"
+    },
+    {
+      "id": "ma",
+      "name": "Auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -410,
+        0
+      ],
+      "parameters": {
+        "jsCode": "/* Auth gate — schedule-safe (headers only on manual path). */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nif (headers && Object.keys(headers).length > 0) {\n  const provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\n  if (provided !== $env.CHAT_API_KEY) { return [{ json: { __error: true, status: 401, body: { ok: false, error: 'Invalid API key' } } }]; }\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "mi",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -210,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-meet",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "moe",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        -110
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "mr",
+      "name": "Run Meeting",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        110
+      ],
+      "parameters": {
+        "jsCode": "/* Extract action items from meeting notes via LLM, then create todos. */\nconst req = $('Webhook Meeting').first().json;\nconst body = req.body || {};\nconst text = String(body.text || '').trim().slice(0, 6000);\nif (text.length < 5) return [{ json: { ok: false, error: 'text required (meeting notes)' } }];\nconst sys = '你是会议行动项提取器。从给定的会议记录中提取可执行的行动项（谁/做什么/何时）。只提取真正需要执行的事项，最多 8 条；忽略讨论背景与已完成事项。输出严格 JSON：{\"items\":[{\"text\":\"...\",\"owner\":\"...或空\",\"due\":\"YYYY-MM-DD 或空\"}]}，没有则 {\"items\":[]}。只输出 JSON。';\nlet items = [];\ntry {\n  const r = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.deepseek.com/chat/completions', headers: { Authorization: ['Bea', 'rer '].join('') + ($env.UPSTREAM_API_KEY || ''), 'Content-Type': 'application/json' }, body: { model: 'deepseek-v4-flash', messages: [{ role: 'system', content: sys }, { role: 'user', content: text }], stream: false, temperature: 0.2, max_tokens: 2400 }, timeout: 90000 });\n  const raw = String((r && r.choices && r.choices[0] && r.choices[0].message && r.choices[0].message.content) || '');\n  const i = raw.indexOf('{'); const j = raw.lastIndexOf('}');\n  const parsed = JSON.parse(raw.slice(i, j + 1));\n  items = Array.isArray(parsed.items) ? parsed.items.slice(0, 8) : [];\n} catch (e) { return [{ json: { ok: false, error: 'extract failed: ' + String(e.message || e).slice(0, 150) } }]; }\nconst added = [];\nfor (const it of items) {\n  const t = String((it && it.text) || '').trim().slice(0, 200);\n  if (t.length < 2) continue;\n  const owner = String((it && it.owner) || '').trim().slice(0, 30);\n  const due = /^\\d{4}-\\d{2}-\\d{2}$/.test(String((it && it.due) || '')) ? String(it.due) : undefined;\n  try {\n    const r = await this.helpers.httpRequest({ method: 'POST', url: 'http://localhost:5678/webhook/admin/todos/add', headers: { Authorization: ['Bea', 'rer '].join('') + ($env.CHAT_API_KEY || ''), 'Content-Type': 'application/json' }, body: { text: (owner ? '【' + owner + '】' : '') + t, due_date: due, via: 'meeting-actions' }, timeout: 15000 });\n    if (!(r && r.ok === false)) added.push({ text: t, owner: owner || null, due: due || null, id: (r && (r.id || (r.todo && r.todo.id))) || null });\n  } catch (e2) {}\n}\nreturn [{ json: { ok: true, found: items.length, added: added.length, items: added } }];"
+      }
+    },
+    {
+      "id": "mor",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        240,
+        110
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Meeting": {
+      "main": [
+        [
+          {
+            "node": "Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run Meeting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Meeting": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null
+}

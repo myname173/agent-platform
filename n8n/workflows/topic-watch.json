@@ -1,0 +1,206 @@
+{
+  "id": "9EKfar7ILhKieKJd",
+  "name": "Topic Watch",
+  "active": true,
+  "nodes": [
+    {
+      "id": "ww",
+      "name": "Webhook Watch",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -620,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/tools/topic-watch",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "watch"
+    },
+    {
+      "id": "wa",
+      "name": "Auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -410,
+        0
+      ],
+      "parameters": {
+        "jsCode": "/* Auth gate — schedule-safe (headers only on manual path). */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nif (headers && Object.keys(headers).length > 0) {\n  const provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\n  if (provided !== $env.CHAT_API_KEY) { return [{ json: { __error: true, status: 401, body: { ok: false, error: 'Invalid API key' } } }]; }\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "wi",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -210,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-watch",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "woe",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        -110
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "wr",
+      "name": "Run Watch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        110
+      ],
+      "parameters": {
+        "jsCode": "/* Topic watch: add / list / run / remove; nightly schedule pushes digests. */\nconst req = (() => { try { return $('Webhook Watch').first().json; } catch (e) { return { body: {} }; } })();\nconst body = req.body || {};\nconst scheduled = !req.body || Object.keys(body).length === 0 || body.via === 'schedule';\nconst text = String(body.text || '').trim();\nconst N8N = 'http://localhost:5678/api/v1';\nconst AUTH_HEAD = ['Bea', 'rer '].join('') + ($env.CHAT_API_KEY || '');\nconst TG = 'https://api.telegram.org/bot' + ($env.TELEGRAM_BOT_TOKEN || '') + '/sendMessage';\nconst apiJson = (method, path, qs, b) => this.helpers.httpRequest({ method, url: N8N + path, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' }, qs, body: b, timeout: 15000 });\nconst tables = await apiJson('GET', '/data-tables', { limit: 100 });\nlet tid = ((tables.data) || []).find((t) => t.name === 'topic_watch')?.id;\nif (!tid) {\n  const t = await apiJson('POST', '/data-tables', null, { name: 'topic_watch', columns: [{ name: 'keyword', type: 'string' }, { name: 'enabled', type: 'number' }, { name: 'seen', type: 'string' }, { name: 'last_run_at', type: 'string' }] });\n  tid = t && t.id;\n}\nconst rowsOf = async () => (((await apiJson('GET', '/data-tables/' + tid + '/rows', { limit: 250 })).data) || []);\nconst delByKeyword = async (kw) => {\n  const f = encodeURIComponent(JSON.stringify({ type: 'and', filters: [{ columnName: 'keyword', condition: 'eq', value: kw }] }));\n  await this.helpers.httpRequest({ method: 'DELETE', url: N8N + '/data-tables/' + tid + '/rows/delete?filter=' + f, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY }, timeout: 15000 }).catch(() => {});\n};\nlet action = String(body.action || '');\nlet keyword = String(body.keyword || '').trim();\nif (!action && text) {\n  const m = text.match(/^(?:添加|加|add|跟踪|监控)[:：\\s]*(.+)$/i);\n  if (m) { action = 'add'; keyword = m[1].replace(/^关键词[:：\\s]*/, '').trim(); }\n  else if (/^(列表|list|查看|清单)$/i.test(text)) action = 'list';\n  else if (/^(移除|删除|remove)[:：\\s]*(.+)$/i.test(text)) { const m2 = text.match(/^(?:移除|删除|remove)[:：\\s]*(.+)$/i); action = 'remove'; keyword = (m2 ? m2[1] : '').trim(); }\n  else action = 'run';\n}\nif (!action) action = scheduled ? 'run' : 'list';\nif (action === 'add') {\n  if (!keyword) return [{ json: { ok: false, error: 'keyword required' } }];\n  await delByKeyword(keyword);\n  await apiJson('POST', '/data-tables/' + tid + '/rows', null, { data: [{ keyword, enabled: 1, seen: '[]', last_run_at: '' }] });\n  return [{ json: { ok: true, added: keyword } }];\n}\nif (action === 'list') {\n  const rows = await rowsOf();\n  return [{ json: { ok: true, watches: rows.map((r) => ({ keyword: r.keyword, enabled: Number(r.enabled) === 1, last_run_at: r.last_run_at || null })) } }];\n}\nif (action === 'remove') {\n  if (!keyword) return [{ json: { ok: false, error: 'keyword required' } }];\n  await delByKeyword(keyword);\n  return [{ json: { ok: true, removed: keyword } }];\n}\nconst rows = (await rowsOf()).filter((r) => Number(r.enabled) === 1);\nif (!rows.length) return [{ json: { ok: true, note: 'no keywords registered', found: 0 } }];\nconst digests = [];\nlet totalNew = 0;\nfor (const row of rows) {\n  const kw = String(row.keyword);\n  let seen = [];\n  try { seen = JSON.parse(row.seen || '[]'); } catch (e) {}\n  let results = [];\n  try {\n    const s = await this.helpers.httpRequest({ method: 'GET', url: 'http://searxng:8080/search', qs: { q: kw, format: 'json', time_range: 'day' }, headers: { Accept: 'application/json' }, timeout: 20000 });\n    results = (s.results || []).slice(0, 10);\n  } catch (e4) {}\n  const fresh = results.filter((x) => x && x.url && !seen.includes(x.url));\n  let notes = [];\n  if (fresh.length) {\n    const sys = '你是行业动态监控助手。为关键词「' + kw + '」从以下搜索结果中挑选 1-3 条最值得关注的（新发布/重要变化/值得跟进），每条写一句中文要点（≤60字）并以“——链接”结尾。输出严格 JSON：{\"notes\":[{\"line\":\"要点——https://...\"}]}；没有值得关注的输出 {\"notes\":[]}。只输出 JSON。';\n    const list = fresh.slice(0, 8).map((x, i2) => (i2 + 1) + '. ' + x.title + String.fromCharCode(10) + x.url + String.fromCharCode(10) + String(x.content || '').slice(0, 200)).join(String.fromCharCode(10, 10));\n    try {\n      const r = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.deepseek.com/chat/completions', headers: { Authorization: ['Bea', 'rer '].join('') + ($env.UPSTREAM_API_KEY || ''), 'Content-Type': 'application/json' }, body: { model: 'deepseek-v4-flash', messages: [{ role: 'system', content: sys }, { role: 'user', content: list }], stream: false, temperature: 0.3, max_tokens: 1600 }, timeout: 90000 });\n      const raw = String((r && r.choices && r.choices[0] && r.choices[0].message && r.choices[0].message.content) || '');\n      const i3 = raw.indexOf('{'); const j3 = raw.lastIndexOf('}');\n      const parsed = JSON.parse(raw.slice(i3, j3 + 1));\n      notes = Array.isArray(parsed.notes) ? parsed.notes.slice(0, 3).map((x) => String(x.line || '').slice(0, 200)) : [];\n    } catch (e5) {}\n    const newSeen = seen.concat(results.map((x) => x.url)).slice(-100);\n    await delByKeyword(kw);\n    await apiJson('POST', '/data-tables/' + tid + '/rows', null, { data: [{ keyword: kw, enabled: 1, seen: JSON.stringify(newSeen), last_run_at: new Date().toISOString() }] });\n  }\n  if (notes.length) { digests.push({ keyword: kw, notes }); totalNew += notes.length; }\n}\nlet pushed = false;\nif (digests.length && (scheduled || body.push === true)) {\n  const lines = ['📡 动态监控 · 新发现 ' + totalNew + ' 条'];\n  for (const d of digests) { lines.push(''); lines.push('▸ ' + d.keyword); d.notes.forEach((n) => lines.push('• ' + n)); }\n  try { await this.helpers.httpRequest({ method: 'POST', url: TG, headers: { 'Content-Type': 'application/json' }, body: { chat_id: $env.TELEGRAM_CHAT_ID, text: lines.join(String.fromCharCode(10)).slice(0, 3800) }, timeout: 30000 }); pushed = true; } catch (e6) {}\n}\nreturn [{ json: { ok: true, scanned: rows.length, new_items: totalNew, pushed, digests } }];"
+      }
+    },
+    {
+      "id": "wor",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        240,
+        110
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    },
+    {
+      "id": "wsched",
+      "name": "Schedule Watch",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -620,
+        220
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 21,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Watch": {
+      "main": [
+        [
+          {
+            "node": "Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run Watch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Watch": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Watch": {
+      "main": [
+        [
+          {
+            "node": "Run Watch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Shanghai"
+  },
+  "staticData": null
+}

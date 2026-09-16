@@ -101,6 +101,13 @@ const DATA_TABLE_COLUMNS = {
     { name: 'enabled', type: 'number' },
     { name: 'created_via', type: 'string' },
   ],
+  // topic watch: keyword monitors for the nightly digest
+  topic_watch: [
+    { name: 'keyword', type: 'string' },
+    { name: 'enabled', type: 'number' },
+    { name: 'seen', type: 'string' },
+    { name: 'last_run_at', type: 'string' },
+  ],
   // admin line: todos (open-loop register, chat + brief + console)
   todos: [
     { name: 'text', type: 'string' },

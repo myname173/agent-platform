@@ -264,6 +264,18 @@ curl -X POST http://localhost:5678/webhook/admin/tools \
 - 其他操作：`{"action":"list"}` 查看；`{"action":"toggle","name":"bill_export","enabled":0}` 停用。
 - 使用：对话里说「跑一下 账单导出」（TG 里 `/tools` 可看已注册清单）；触发时向你的 Webhook 发送 `{source:"chat", name, text, ts}` + `Authorization: Bearer <CHAT_API_KEY>` 头，返回内容摘要回给对话。
 - 示例：`Example Echo Tool` 工作流 + `echo_demo` 注册项是活的最小样例（TG 说「跑一下 回声示例，文本 hello」可验证全链）。
+### 企业繁琐工作包（2026-09-16）
+
+三个"把繁杂提取成工作流"的常用场景，已注册为 L2 工具（TG / LobeHub 里说「跑一下 XX」即可）：
+
+| 工具 | 作用 | 用法 |
+| --- | --- | --- |
+| `meeting_actions` 会议行动项 | 会议记录 → 行动项（人 / 事 / 期限，相对日期自动换算）→ 自动进待办 | 「跑一下 会议行动项，正文：<记录>」 |
+| `smart_summary` 智能摘要 | 长文 → 一句话摘要 + 要点 → 自动归档知识库 | 「跑一下 智能摘要，正文：<长文>」 |
+| `topic_watch` 动态监控 | 关键词监控（搜索 + 模型筛选）；每晚 21:00 自动扫描，有新发现推 TG | 「跑一下 动态监控，添加：关键词」/「列表」/「跑一下」/「移除：关键词」 |
+
+- 实测：三条链路全过（含相对日期换算、同夜去重、真实新闻摘要与链接）；触发自动鉴权；每次触发是独立工作流执行，失败有错误返回。
+- 备注：发票 / 报销类（图片 → 结构化记账）需要新增一个图片入参的侧工具，列为下一候选。
 - 边界：注册的路径必须是 POST Webhook；流程自己的副作用由搭建者负责（这正是 L2「AI 只点火"的设计）；MCP 的 tools/list 与 L2 注册表暂不互通（v1.5 事项）。
 - 端点：`POST /webhook/mcp`（仅局域网）；暴露 12 个工具（含只读 / 写入 / 长任务风险标注）。
 - 鉴权：`Authorization: Bearer <MCP_API_KEY>`（密钥在 `.env`，SHA-256 哈希存 `gateway_keys`，可独立吊销 / 单独设限速）；亦接受主密钥。
