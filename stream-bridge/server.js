@@ -355,6 +355,31 @@ async function handleVoiceReply(res, body) {
     return jsonOut(res, 502, { ok: false, error: 'tts failed' });
   }
 }
+async function handleImageFetch(res, body) {
+  const t0 = Date.now();
+  try {
+    const fileId = String((body && body.file_id) || '');
+    if (!fileId) return jsonOut(res, 400, { ok: false, error: 'file_id required' });
+    if (!VOICE_TOKEN) return jsonOut(res, 500, { ok: false, error: 'telegram token missing on bridge' });
+    const gf = await fetch('https://api.telegram.org/bot' + VOICE_TOKEN + '/getFile?file_id=' + encodeURIComponent(fileId), { signal: AbortSignal.timeout(30000) }).then((r) => r.json());
+    if (!gf || !gf.ok || !gf.result || !gf.result.file_path) return jsonOut(res, 502, { ok: false, error: 'getFile failed' });
+    const fp = String(gf.result.file_path);
+    const dl = await fetch('https://api.telegram.org/file/bot' + VOICE_TOKEN + '/' + fp, { signal: AbortSignal.timeout(60000) });
+    if (!dl.ok) return jsonOut(res, 502, { ok: false, error: 'download failed ' + dl.status });
+    const buf = Buffer.from(await dl.arrayBuffer());
+    if (!buf.length) return jsonOut(res, 502, { ok: false, error: 'empty file' });
+    if (buf.length > 8 * 1024 * 1024) return jsonOut(res, 502, { ok: false, error: 'image too large' });
+    let mime = 'image/jpeg';
+    if (buf[0] === 0x89 && buf[1] === 0x50) mime = 'image/png';
+    else if (buf[0] === 0x47 && buf[1] === 0x49) mime = 'image/gif';
+    else if (buf[0] === 0x52 && buf[1] === 0x49 && buf[8] === 0x57) mime = 'image/webp';
+    console.log('[image] fetch bytes=' + buf.length + ' mime=' + mime + ' ms=' + (Date.now() - t0));
+    return jsonOut(res, 200, { ok: true, mime, bytes: buf.length, data_uri: 'data:' + mime + ';base64,' + buf.toString('base64') });
+  } catch (e) {
+    console.log('[image] fetch FAILED ' + String((e && e.message) || e).slice(0, 160));
+    return jsonOut(res, 502, { ok: false, error: 'image fetch failed' });
+  }
+}
 const server = http.createServer(async (req, res) => {
   try {
     const path0 = req.url ? req.url.split('?')[0] : '';
@@ -368,6 +393,7 @@ const server = http.createServer(async (req, res) => {
     if (path0.endsWith('/embeddings')) return handleEmbeddings(res, body);
     if (path0 === '/voice/transcribe') return handleVoiceTranscribe(res, body);
     if (path0 === '/voice/reply') return handleVoiceReply(res, body);
+    if (path0 === '/image/fetch') return handleImageFetch(res, body);
     if (!path0.endsWith('/chat/completions')) return jsonOut(res, 404, { error: { message: 'not found' } });
     if (body && body.stream === true) return handleStream(req, res, body);
     return proxyGateway(req, res, raw);

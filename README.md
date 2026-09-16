@@ -234,6 +234,7 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 
 - LobeHub 发图 → 网关 / 桥接自动把平台本地的图片 URL（任意 `host:3210` 与 `host:9000` 形式，含 LAN IP）内联为 base64 data URL，再送上游——本地地址上游无法直接下载。
 - 修复记录：此前转换只匹配 `localhost` / `127.0.0.1` 形式，从局域网（`192.168.1.114:3210`）访问时生成的图片地址会漏转、导致上游报 `Failed to download image`；现已覆盖任意主机形式，且桥接侧同步内联（图片轮次可走真流式，不再降级）。
+- Telegram 发图（2026-09-16）：TG 里发照片 / 图片文件（可带文字说明）→ 侧车 `/image/fetch` 取图转 data URI → 网关视觉作答（文字回复）；至此 TG 输入三件套（文字 / 语音 / 图片）齐了。
 ### 周报（Weekly Review，2026-09-16）
 
 - 触发：每周日 20:00（Asia/Shanghai，工作流级时区）；手动 `POST /webhook/admin/weekly-review/run`（`{"force":true}` 可非周日试跑；`{"dry":true}` 只算不发，供自检）。
