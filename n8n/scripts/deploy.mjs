@@ -92,6 +92,12 @@ const DATA_TABLE_COLUMNS = {
     { name: 'meta', type: 'string' }
   ],
 
+  // telegram bridge: polling offset state
+  telegram_state: [
+    { name: 'key', type: 'string' },
+    { name: 'value', type: 'string' },
+  ],
+
   // wishlist #3: reminders created from chat (delivered via the notify channel)
   reminders: [
     { name: 'text', type: 'string' },

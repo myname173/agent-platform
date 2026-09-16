@@ -1,0 +1,203 @@
+{
+  "name": "Telegram Bridge",
+  "active": true,
+  "nodes": [
+    {
+      "id": "tgb-sched",
+      "name": "Schedule Poll",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -600,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "tgb-wh",
+      "name": "Webhook Run",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1000,
+        -100
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/telegram/run",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "tgb-run"
+    },
+    {
+      "id": "tgb-auth",
+      "name": "Auth Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "/* Bearer auth gate. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "tgb-iferr",
+      "name": "Has Error Run",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -600,
+        -100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-tgb",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "tgb-resperr",
+      "name": "Respond Error Run",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -400,
+        -200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "tgb-bridge",
+      "name": "Bridge Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        0
+      ],
+      "parameters": {
+        "jsCode": "/* Telegram bridge: long-poll getUpdates; route owner messages through the\n   chat gateway (session tg-<chatId>), send replies back. Offset persists in\n   the telegram_state data table. Owner-only: strangers are ignored. */\nconst AUTH = 'Bea' + 'rer ' + ($env.CHAT_API_KEY || '');\nconst TOKEN = String($env.TELEGRAM_BOT_TOKEN || '').trim();\nconst OWNER = String($env.TELEGRAM_CHAT_ID || '').trim();\nif (!TOKEN || !OWNER) return [{ json: { ok: false, error: 'telegram env missing (token / chat_id)' } }];\n\nconst N8N = 'http://localhost:5678/api/v1';\nconst apiJson = (method, path, qs, body) => this.helpers.httpRequest({ method, url: N8N + path, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' }, qs, body });\nconst tg = (method, body) => this.helpers.httpRequest({ method: 'POST', url: 'https://api.telegram.org/bot' + TOKEN + '/' + method, headers: { 'Content-Type': 'application/json' }, body, timeout: 60000 });\nconst sleep = (ms) => new Promise((r) => setTimeout(r, ms));\n\nconst tables = (await apiJson('GET', '/data-tables', { limit: 100 })).data || [];\nconst stateId = (tables.find((t) => t.name === 'telegram_state') || {}).id;\nconst msgTableId = (tables.find((t) => t.name === 'chat_messages') || {}).id;\n\nlet offset = 0;\nif (stateId) {\n  const rows = (await apiJson('GET', '/data-tables/' + stateId + '/rows', { limit: 10 })).data || [];\n  const r = rows.find((x) => x.key === 'last_update_id');\n  if (r) offset = Number(r.value) || 0;\n}\nconst saveState = async (key, v) => {\n  const filter = encodeURIComponent(JSON.stringify({ type: 'and', filters: [{ columnName: 'key', condition: 'eq', value: key }] }));\n  await this.helpers.httpRequest({ method: 'DELETE', url: N8N + '/data-tables/' + stateId + '/rows/delete?filter=' + filter, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY }, timeout: 10000 }).catch(() => {});\n  await apiJson('POST', '/data-tables/' + stateId + '/rows', null, { data: [{ key, value: String(v) }] }).catch(() => {});\n};\nlet lastSaved = offset;\nconst saveOffset = async (v) => { if (!stateId || v === lastSaved) return; await saveState(\"last_update_id\", v); lastSaved = v; };\n// single-run lock: skip if another run started <75s ago (prevents overlapping pollers)\nlet lockTs = 0;\nif (stateId) {\n  const lockRows = (await apiJson('GET', '/data-tables/' + stateId + '/rows', { limit: 20 })).data || [];\n  const lr = lockRows.find((x) => x.key === 'lock_ts');\n  if (lr) lockTs = Number(lr.value) || 0;\n}\nif (Date.now() - lockTs < 75000) {\n  return [{ json: { ok: true, skipped: 'busy', lock_age_ms: Date.now() - lockTs } }];\n}\nif (stateId) await saveState('lock_ts', String(Date.now()));\n\nconst started = Date.now();\nlet processed = 0;\nlet sent = 0;\nlet sendFailed = 0;\nconst notes = [];\n\nconst sendText = async (chatId, text) => {\n  const t = String(text || '');\n  for (let i = 0; i < t.length && i < 24000; i += 3800) {\n    const r = await tg('sendMessage', { chat_id: chatId, text: t.slice(i, i + 3800) }).catch(() => null);\n    if (r && r.ok) sent += 1; else sendFailed += 1;\n    if (t.length > 3800) await sleep(400);\n  }\n};\n\nwhile (Date.now() - started < 50000) {\n  const up = await tg('getUpdates', { offset: offset + 1, timeout: 20, allowed_updates: ['message'] }).catch(() => null);\n  if (!up || !up.ok) break;\n  const list = up.result || [];\n  if (!list.length) continue;\n  for (const u of list) {\n    offset = Math.max(offset, Number(u.update_id) || 0);\n    const msg = u.message || {};\n    const chatId = String((msg.chat || {}).id || '');\n    const text = String(msg.text || '').trim();\n    if (chatId !== OWNER) { notes.push('ignored:' + chatId); continue; }\n    if (!text) continue;\n    if (text === '/start' || text === '/help') {\n      await sendText(chatId, '你好，我是你的个人 AI 平台。直接说事即可，例如：平台现在怎么样？ / 1 分钟后提醒我喝水 / 帮我跑一份今天的晨报 / 把这句存进知识库：……  ；/reset 清空本会话记忆');\n      processed += 1;\n      notes.push('start');\n      continue;\n    }\n    if (text === '/reset') {\n      if (msgTableId) {\n        const filter = encodeURIComponent(JSON.stringify({ type: 'and', filters: [{ columnName: 'session_id', condition: 'eq', value: 'tg-' + OWNER }] }));\n        await this.helpers.httpRequest({ method: 'DELETE', url: N8N + '/data-tables/' + msgTableId + '/rows/delete?filter=' + filter, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY }, timeout: 15000 }).catch(() => {});\n      }\n      await sendText(chatId, '已清空本会话记忆');\n      processed += 1;\n      notes.push('reset');\n      continue;\n    }\n    await tg('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});\n    let reply = '';\n    try {\n      const g = await this.helpers.httpRequest({\n        method: 'POST',\n        url: 'http://localhost:5678/webhook/v1/chat/completions',\n        headers: { Authorization: AUTH, 'Content-Type': 'application/json', 'x-session-id': 'tg-' + OWNER, 'x-client': 'telegram' },\n        body: { model: 'deepseek-v4-flash', messages: [{ role: 'user', content: text.slice(0, 4000) }], stream: false },\n        timeout: 150000,\n      });\n      reply = String((g && g.choices && g.choices[0] && g.choices[0].message && g.choices[0].message.content) || '').trim();\n      if (!reply) reply = '（这次没有得到内容回复）';\n    } catch (e) {\n      reply = '处理失败：' + String((e && e.message) || e).slice(0, 300);\n    }\n    await sendText(chatId, reply);\n    processed += 1;\n    notes.push('msg:' + text.slice(0, 20));\n  }\n  await saveOffset(offset);\n  if (Date.now() - started > 46000) break;\n}\nawait saveOffset(offset);\nreturn [{ json: { ok: true, processed, sent, sendFailed, offset, notes: notes.slice(0, 12) } }];"
+      }
+    },
+    {
+      "id": "tgb-resp",
+      "name": "Respond Run",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Poll": {
+      "main": [
+        [
+          {
+            "node": "Bridge Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Run": {
+      "main": [
+        [
+          {
+            "node": "Auth Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Run": {
+      "main": [
+        [
+          {
+            "node": "Has Error Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Run": {
+      "main": [
+        [
+          {
+            "node": "Respond Error Run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bridge Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bridge Run": {
+      "main": [
+        [
+          {
+            "node": "Respond Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "id": "GQ1mDaWXKOhiOUfH"
+}
