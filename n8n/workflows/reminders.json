@@ -698,6 +698,19 @@
         },
         "options": {}
       }
+    },
+    {
+      "id": "p11-sweep-overdue-todos",
+      "name": "Sweep Overdue Todos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        1220
+      ],
+      "parameters": {
+        "jsCode": "/* B2 · 逾期催办与升级（跟着提醒的每分钟巡检一起跑）\n   规则（只针对「已指派」的待办，未指派的不催）：\n   - status=open、owner_ref 非空、due_date 已过、未回执(ack_at 空)\n   - 24 小时冷却，避免刷屏\n   - remind_count 0/1 -> 催本人；>=2 -> 升级机主并置 escalated=1；>2 -> 不再动 */\nconst out = { swept: 0, reminded: 0, escalated: 0, skipped: 0, errors: [] };\ntry {\n  const api = (method, path, qs, payload) => this.helpers.httpRequest({ method, url: 'http://localhost:5678/api/v1' + path, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' }, qs, body: payload, timeout: 20000 });\n  const AUTH = 'Bea' + 'rer ' + ($env.CHAT_API_KEY || '');\n  const tables = (await api('GET', '/data-tables', { limit: 100 })).data || [];\n  const tid = (tables.find((t) => t.name === 'todos') || {}).id;\n  if (!tid) throw new Error('todos table missing');\n  const rows = (await api('GET', '/data-tables/' + tid + '/rows', { limit: 200 })).data || [];\n  const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);\n  const now = Date.now();\n  const due = rows.filter((r) => r.status === 'open' && (r.owner_ref || '') && r.due_date && r.due_date < today && !(r.ack_at || ''));\n  out.swept = due.length;\n  for (const t of due) {\n    const count = Number(t.remind_count || 0);\n    if (count > 2) { out.skipped += 1; continue; }\n    const last = Date.parse(t.last_remind_at || '') || 0;\n    if (last && (now - last) < 24 * 3600000) { out.skipped += 1; continue; }\n    const days = Math.max(1, Math.round((Date.parse(today) - Date.parse(t.due_date)) / 86400000));\n    const escalate = count >= 2;\n    const msg = escalate\n      ? '#' + t.id + ' ' + t.text + '（负责人 ' + t.owner_ref + '，逾期 ' + days + ' 天，已催 ' + count + ' 次无回执）'\n      : '#' + t.id + ' ' + t.text + '（逾期 ' + days + ' 天）';\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: 'http://localhost:5678/webhook/internal/notify', headers: { 'Content-Type': 'application/json', Authorization: AUTH }, body: { kind: escalate ? '逾期升级' : '待办催办', message: msg, owner: escalate ? '' : t.owner_ref }, timeout: 20000 });\n    } catch (eN) { out.errors.push('notify #' + t.id); }\n    const patch = { remind_count: count + 1, last_remind_at: new Date().toISOString() };\n    if (escalate) patch.escalated = 1;\n    try {\n      await api('PATCH', '/data-tables/' + tid + '/rows/update', null, { filter: { type: 'and', filters: [{ columnName: 'id', condition: 'eq', value: t.id }] }, data: patch });\n    } catch (eU) { out.errors.push('update #' + t.id); continue; }\n    if (escalate) out.escalated += 1; else out.reminded += 1;\n  }\n} catch (e) {\n  out.errors.push(String((e && e.message) || e).slice(0, 160));\n}\nreturn [{ json: { ok: true, sweep: out } }];"
+      }
     }
   ],
   "connections": {
@@ -923,6 +936,11 @@
             "node": "Check Due",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Sweep Overdue Todos",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -932,6 +950,11 @@
         [
           {
             "node": "Check Due",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Sweep Overdue Todos",
             "type": "main",
             "index": 0
           }
