@@ -94,6 +94,14 @@ export const navGroups: NavGroup[] = [
         items: []
       },
       {
+        title: 'People',
+        url: '/dashboard/people',
+        icon: 'teams',
+        isActive: false,
+        shortcut: ['p', 'p'],
+        items: []
+      },
+      {
         title: 'Settings',
         url: '/dashboard/settings',
         icon: 'settings',

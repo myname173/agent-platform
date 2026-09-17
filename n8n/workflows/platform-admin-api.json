@@ -1000,6 +1000,250 @@
         1100,
         1400
       ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "admin/people",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "p11-webhook-people",
+      "name": "Webhook People",
+      "webhookId": "admin-people",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        1700
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Bearer auth, same as the Chat Gateway / Stats API. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key. Provide it via the Authorization header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "p11-parse-auth-people",
+      "name": "Parse Auth People",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        1700
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-has-error-people",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "p11-has-error-people",
+      "name": "Has Error People",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        1700
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@people",
+          "mode": "id"
+        },
+        "returnAll": false,
+        "limit": 200,
+        "orderBy": true,
+        "orderByColumn": "createdAt",
+        "orderByDirection": "ASC",
+        "options": {}
+      },
+      "id": "p11-load-people",
+      "name": "Load People",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        1700
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Shape people rows for the console. channels is a JSON string. */\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.name);\nconst people = rows.map((r) => ({\n  id: r.id,\n  name: r.name,\n  display_name: r.display_name || r.name,\n  role: r.role || 'member',\n  channels: r.channels || '',\n  tz: r.tz || 'Asia/Shanghai',\n  active: r.active === 1 || r.active === true,\n  note: r.note || '',\n  created_at: r.createdAt,\n}));\nreturn [{ json: { ok: true, count: people.length, people } }];"
+      },
+      "id": "p11-format-people-list",
+      "name": "Format People List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        1700
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "p11-respond-people-200",
+      "name": "Respond People 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        1700
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/people/manage",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "p11-webhook-people-manage",
+      "name": "Webhook People Manage",
+      "webhookId": "admin-people-manage",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Bearer auth, same as the Chat Gateway / Stats API. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key. Provide it via the Authorization header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "p11-parse-auth-people-manage",
+      "name": "Parse Auth People Manage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-has-error-people-manage",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "p11-has-error-people-manage",
+      "name": "Has Error People Manage",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Manage the people directory — identity foundation (B0).\n   Actions: create | update | toggle | delete. All writes audit-logged.\n   No self-registration: entries are created here by the owner only. */\nconst body = ($('Webhook People Manage').first().json.body) || {};\nconst action = String(body.action || '');\nconst name = String(body.name || '').trim();\n\nconst base = 'http://localhost:5678/api/v1';\nconst api = (method, path, qs, payload) => this.helpers.httpRequest({\n  method, url: base + path,\n  headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' },\n  qs, body: payload,\n});\nconst filter = (col, value) => JSON.stringify({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });\nconst filterObj = (col, value) => ({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });\nconst tableId = async (tname) => {\n  const list = await api('GET', '/data-tables', { limit: 100 });\n  const t = (list.data || []).find((x) => x.name === tname);\n  if (!t) throw new Error(tname + ' table not found');\n  return t.id;\n};\nconst audit = async (act, detail) => {\n  try {\n    const t = await tableId('admin_audit');\n    await api('POST', '/data-tables/' + t + '/rows', null, { data: [{ action: act, target: name || '', detail: String(detail || '').slice(0, 300) }] });\n  } catch (e) { /* audit best-effort */ }\n};\nconst bad = (status, code, message) => [{ json: { __error: true, status, openai_error: { error: { message, type: 'invalid_request_error', code } } } }];\n\nif (!name || !/^[\\w.\\-\\u4e00-\\u9fa5]{1,24}$/.test(name)) return bad(400, 'invalid_name', 'name must be 1-24 chars: letters, digits, CJK, _ . -');\nif (!['create', 'update', 'toggle', 'delete'].includes(action)) return bad(400, 'unknown_action', 'unknown action: ' + action);\n\nconst id = await tableId('people');\nconst rows = await api('GET', '/data-tables/' + id + '/rows', { filter: filter('name', name) });\nconst existing = (rows.data || [])[0] || null;\n\nconst role = String(body.role || '').trim();\nif (role && !['owner', 'member', 'guest'].includes(role)) return bad(400, 'invalid_role', 'role must be one of: owner, member, guest');\n\nlet channels;\nif (body.channels === undefined || body.channels === null) {\n  channels = undefined;\n} else if (typeof body.channels === 'object') {\n  channels = JSON.stringify(body.channels);\n} else {\n  const cs = String(body.channels);\n  if (cs.trim()) { try { JSON.parse(cs); } catch (e) { return bad(400, 'invalid_channels', 'channels must be valid JSON'); } }\n  channels = cs;\n}\n\nif (action === 'create') {\n  if (existing) return bad(409, 'already_exists', 'person already exists: ' + name);\n  const row = {\n    name,\n    display_name: String(body.display_name || '').trim() || name,\n    role: role || 'member',\n    channels: channels || '',\n    tz: String(body.tz || 'Asia/Shanghai'),\n    active: body.active === undefined ? 1 : (body.active ? 1 : 0),\n    note: String(body.note || '').slice(0, 300),\n  };\n  await api('POST', '/data-tables/' + id + '/rows', null, { data: [row] });\n  await audit('people.create', 'role=' + row.role);\n  return [{ json: { ok: true, action, person: row } }];\n}\n\nif (!existing) return bad(404, 'not_found', 'person not found: ' + name);\n\nif (action === 'toggle') {\n  const next = (existing.active === 1 || existing.active === true) ? 0 : 1;\n  await api('PATCH', '/data-tables/' + id + '/rows/update', null, { filter: filterObj('name', name), data: { active: next } });\n  await audit('people.toggle', 'active=' + next);\n  return [{ json: { ok: true, action, name, active: next === 1 } }];\n}\n\nif (action === 'update') {\n  const data = {};\n  if (body.display_name !== undefined) data.display_name = String(body.display_name).trim();\n  if (role) data.role = role;\n  if (channels !== undefined) data.channels = channels;\n  if (body.tz !== undefined) data.tz = String(body.tz);\n  if (body.note !== undefined) data.note = String(body.note).slice(0, 300);\n  if (body.active !== undefined) data.active = body.active ? 1 : 0;\n  if (!Object.keys(data).length) return bad(400, 'empty_update', 'nothing to update');\n  await api('PATCH', '/data-tables/' + id + '/rows/update', null, { filter: filterObj('name', name), data });\n  await audit('people.update', Object.keys(data).join(','));\n  return [{ json: { ok: true, action, name, updated: Object.keys(data) } }];\n}\n\nif (existing.role === 'owner') return bad(400, 'cannot_delete_owner', 'the owner entry cannot be deleted');\nconst deleted = await api('DELETE', '/data-tables/' + id + '/rows/delete', { filter: filter('name', name), returnData: true });\nconst n = Array.isArray(deleted) ? deleted.length : (deleted && deleted.data ? deleted.data.length : 0);\nawait audit('people.delete', 'removed=' + n);\nreturn [{ json: { ok: true, action, name, removed: n } }];"
+      },
+      "id": "p11-handle-people-action",
+      "name": "Handle People Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-route-people-result",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "p11-route-people-result",
+      "name": "Route People Result",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "p11-respond-people-manage-200",
+      "name": "Respond People Manage 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        1820
+      ]
     }
   ],
   "connections": {
@@ -1511,6 +1755,137 @@
         [
           {
             "node": "Respond Briefs 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook People": {
+      "main": [
+        [
+          {
+            "node": "Parse Auth People",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Auth People": {
+      "main": [
+        [
+          {
+            "node": "Has Error People",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error People": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load People",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load People": {
+      "main": [
+        [
+          {
+            "node": "Format People List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format People List": {
+      "main": [
+        [
+          {
+            "node": "Respond People 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook People Manage": {
+      "main": [
+        [
+          {
+            "node": "Parse Auth People Manage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Auth People Manage": {
+      "main": [
+        [
+          {
+            "node": "Has Error People Manage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error People Manage": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle People Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle People Action": {
+      "main": [
+        [
+          {
+            "node": "Route People Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route People Result": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond People Manage 200",
             "type": "main",
             "index": 0
           }

@@ -117,6 +117,17 @@ const DATA_TABLE_COLUMNS = {
     { name: 'meta', type: 'string' },
   ],
 
+  // B0 identity foundation: people directory (owner-managed, no self-registration)
+  people: [
+    { name: 'name', type: 'string' },
+    { name: 'display_name', type: 'string' },
+    { name: 'role', type: 'string' },
+    { name: 'channels', type: 'string' },
+    { name: 'tz', type: 'string' },
+    { name: 'active', type: 'number' },
+    { name: 'note', type: 'string' },
+  ],
+
   // selfcheck: platform self-test runs
   selfcheck_runs: [
     { name: 'source', type: 'string' },
@@ -260,8 +271,11 @@ async function deploy(file) {
   }
 }
 
+// optional: pass a filename fragment to deploy a single workflow only
+const only = process.argv[2] || '';
 const files = readdirSync(dir)
   .filter((f) => f.endsWith('.json'))
+  .filter((f) => !only || f.includes(only))
   .map((f) => join(dir, f));
 if (!files.length) {
   console.log('no workflow files found');
