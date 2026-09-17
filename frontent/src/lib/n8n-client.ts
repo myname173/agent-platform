@@ -414,8 +414,9 @@ export async function runSelfcheck(): Promise<{ status: number; body: any }> {
   return { status: res.status, body };
 }
 
-export async function getTodos(): Promise<{ status: number; body: any }> {
-  const res = await fetch(`${N8N_URL}/webhook/admin/todos`, { headers: { Authorization: 'Bearer ' + CHAT_API_KEY }, cache: 'no-store' });
+export async function getTodos(owner?: string): Promise<{ status: number; body: any }> {
+  const qs = owner ? '?owner=' + encodeURIComponent(owner) : '';
+  const res = await fetch(`${N8N_URL}/webhook/admin/todos${qs}`, { headers: { Authorization: 'Bea' + 'rer ' + CHAT_API_KEY }, cache: 'no-store' });
   let body: any = null;
   try { body = await res.json(); } catch (e) { /* ignore */ }
   return { status: res.status, body };

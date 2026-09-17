@@ -109,12 +109,19 @@ const DATA_TABLE_COLUMNS = {
     { name: 'last_run_at', type: 'string' },
   ],
   // admin line: todos (open-loop register, chat + brief + console)
+  // B1: ownership + escalation fields (empty owner_ref = myself)
   todos: [
     { name: 'text', type: 'string' },
     { name: 'status', type: 'string' },
     { name: 'due_date', type: 'string' },
     { name: 'completed_at', type: 'string' },
     { name: 'meta', type: 'string' },
+    { name: 'owner_ref', type: 'string' },
+    { name: 'source', type: 'string' },
+    { name: 'ack_at', type: 'string' },
+    { name: 'remind_count', type: 'number' },
+    { name: 'last_remind_at', type: 'string' },
+    { name: 'escalated', type: 'number' },
   ],
 
   // B0 identity foundation: people directory (owner-managed, no self-registration)
@@ -162,6 +169,7 @@ const DATA_TABLE_COLUMNS = {
     { name: 'created_via', type: 'string' },
     { name: 'attempts', type: 'number' },
     { name: 'meta', type: 'string' },
+    { name: 'owner_ref', type: 'string' },
   ],
 
   // priority 6: error-rate alerting (data table, API-accessible)
