@@ -1,14 +1,8 @@
-import PageContainer from '@/components/layout/page-container';
-import FormsShowcasePage from '@/features/forms/components/forms-showcase-page';
+import { notFound } from 'next/navigation';
 
-export const metadata = {
-  title: 'Dashboard: Multi-Step Form'
-};
-
+/* 模板遗留页面 —— 已下线（F3）。
+   原实现见 git 历史；这里统一返回 404，避免与平台自有页面语义冲突
+   （例如 /dashboard/users 与 People 页、/dashboard/chat 与 Playground）。 */
 export default function Page() {
-  return (
-    <PageContainer pageTitle='Multi-Step Form' pageDescription='Multi-step wizard form pattern.'>
-      <FormsShowcasePage />
-    </PageContainer>
-  );
+  notFound();
 }

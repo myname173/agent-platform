@@ -1,33 +1,8 @@
-import { HydrationBoundary, dehydrate } from '@tanstack/react-query';
-import { getQueryClient } from '@/lib/query-client';
-import { pokemonOptions } from '@/features/react-query-demo/api/queries';
-import { PokemonInfo } from '@/features/react-query-demo/components/pokemon-info';
-import PageContainer from '@/components/layout/page-container';
-import { Suspense } from 'react';
-import { PokemonSkeleton } from '@/features/react-query-demo/components/pokemon-skeleton';
-import { reactQueryInfoContent } from '@/features/react-query-demo/info-content';
+import { notFound } from 'next/navigation';
 
-export const metadata = {
-  title: 'Dashboard: React Query'
-};
-
-export default function ReactQueryPage() {
-  const queryClient = getQueryClient();
-
-  // Prefetch on the server — data is ready before client JS loads
-  void queryClient.prefetchQuery(pokemonOptions(25));
-
-  return (
-    <PageContainer
-      pageTitle='React Query'
-      pageDescription='Server prefetch + client hydration + suspense query pattern.'
-      infoContent={reactQueryInfoContent}
-    >
-      <HydrationBoundary state={dehydrate(queryClient)}>
-        <Suspense fallback={<PokemonSkeleton />}>
-          <PokemonInfo />
-        </Suspense>
-      </HydrationBoundary>
-    </PageContainer>
-  );
+/* 模板遗留页面 —— 已下线（F3）。
+   原实现见 git 历史；这里统一返回 404，避免与平台自有页面语义冲突
+   （例如 /dashboard/users 与 People 页、/dashboard/chat 与 Playground）。 */
+export default function Page() {
+  notFound();
 }

@@ -1,28 +1,8 @@
-'use client';
+import { notFound } from 'next/navigation';
 
-import PageContainer from '@/components/layout/page-container';
-import { OrganizationList } from '@clerk/nextjs';
-import { workspacesInfoContent } from '@/config/infoconfig';
-
-export default function WorkspacesPage() {
-  return (
-    <PageContainer
-      pageTitle='Workspaces'
-      pageDescription='Manage your workspaces and switch between them'
-      infoContent={workspacesInfoContent}
-    >
-      <OrganizationList
-        appearance={{
-          elements: {
-            organizationListBox: 'space-y-2',
-            organizationPreview: 'rounded-lg border p-4 hover:bg-accent',
-            organizationPreviewMainIdentifier: 'text-lg font-semibold',
-            organizationPreviewSecondaryIdentifier: 'text-sm text-muted-foreground'
-          }
-        }}
-        afterSelectOrganizationUrl='/dashboard/workspaces/team'
-        afterCreateOrganizationUrl='/dashboard/workspaces/team'
-      />
-    </PageContainer>
-  );
+/* 模板遗留页面 —— 已下线（F3）。
+   原实现见 git 历史；这里统一返回 404，避免与平台自有页面语义冲突
+   （例如 /dashboard/users 与 People 页、/dashboard/chat 与 Playground）。 */
+export default function Page() {
+  notFound();
 }
