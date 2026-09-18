@@ -342,6 +342,49 @@ export async function pushLatestBrief(): Promise<{ status: number; body: any }> 
   return { status: res.status, body };
 }
 
+export interface ReminderItem {
+  id: number;
+  text: string;
+  owner_ref?: string;
+  owner_name?: string;
+  due_at: string;
+  due_local: string;
+  status: string;
+  delivered: string;
+  attempts: number;
+}
+
+export async function getReminders(owner?: string): Promise<{
+  ok: boolean;
+  pending_count: number;
+  assigned_pending: number;
+  owner_filter: string;
+  people: { name: string; display_name: string }[];
+  pending: ReminderItem[];
+  recent: ReminderItem[];
+}> {
+  const qs = owner ? '?owner=' + encodeURIComponent(owner) : '';
+  const res = await fetch(`${N8N_URL}/webhook/admin/reminders${qs}`, {
+    headers: { Authorization: 'Bea' + 'rer ' + CHAT_API_KEY },
+    cache: 'no-store'
+  });
+  if (res.status === 401) throw new Error('Admin API 401 - key mismatch');
+  if (!res.ok) throw new Error(`Admin Reminders API error: ${res.status}`);
+  return res.json();
+}
+
+export async function cancelReminder(id: number): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/reminders/cancel`, {
+    method: 'POST',
+    headers: { Authorization: 'Bea' + 'rer ' + CHAT_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+  return { status: res.status, body };
+}
+
 export interface DocItem {
   id: number;
   title: string;
