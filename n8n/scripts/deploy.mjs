@@ -135,6 +135,16 @@ const DATA_TABLE_COLUMNS = {
     { name: 'note', type: 'string' },
   ],
 
+  // B5: document factory — rendered deliverables (minutes / weekly / brief / custom)
+  documents: [
+    { name: 'title', type: 'string' },
+    { name: 'kind', type: 'string' },
+    { name: 'html', type: 'string' },
+    { name: 'summary', type: 'string' },
+    { name: 'source_ref', type: 'string' },
+    { name: 'meta', type: 'string' },
+  ],
+
   // B3: weekly reviews (owner view by default, team view on demand)
   weekly_reviews: [
     { name: 'week_start', type: 'string' },

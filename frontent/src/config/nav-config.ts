@@ -102,6 +102,14 @@ export const navGroups: NavGroup[] = [
         items: []
       },
       {
+        title: 'Docs',
+        url: '/dashboard/docs',
+        icon: 'fileTypeDoc',
+        isActive: false,
+        shortcut: ['d', 'c'],
+        items: []
+      },
+      {
         title: 'Settings',
         url: '/dashboard/settings',
         icon: 'settings',
