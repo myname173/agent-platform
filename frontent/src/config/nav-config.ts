@@ -46,6 +46,14 @@ export const navGroups: NavGroup[] = [
         items: []
       },
       {
+        title: 'Playground',
+        url: '/dashboard/ai-chat',
+        icon: 'sparkles',
+        isActive: false,
+        shortcut: ['p', 'g'],
+        items: []
+      },
+      {
         title: 'Operations',
         url: '/dashboard/workflows',
         icon: 'kanban',
@@ -120,44 +128,11 @@ export const navGroups: NavGroup[] = [
     ]
   },
   {
-    label: 'Template Demos',
-    items: [
-      { title: 'Workspaces', url: '/dashboard/workspaces', icon: 'workspace', isActive: false, items: [] },
-      { title: 'Product', url: '/dashboard/product', icon: 'product', isActive: false, items: [] },
-      { title: 'Users', url: '/dashboard/users', icon: 'teams', isActive: false, items: [] },
-      { title: 'Kanban', url: '/dashboard/kanban', icon: 'kanban', isActive: false, items: [] },
-      { title: 'Chat', url: '/dashboard/chat', icon: 'chat', isActive: false, items: [] },
-      { title: 'AI Chat', url: '/dashboard/ai-chat', icon: 'sparkles', isActive: false, items: [] },
-      {
-        title: 'Forms',
-        url: '#',
-        icon: 'forms',
-        isActive: true,
-        items: [
-          { title: 'Basic Form', url: '/dashboard/forms/basic', icon: 'forms' },
-          { title: 'Multi-Step Form', url: '/dashboard/forms/multi-step', icon: 'forms' },
-          { title: 'Sheet & Dialog', url: '/dashboard/forms/sheet-form', icon: 'forms' },
-          { title: 'Advanced Patterns', url: '/dashboard/forms/advanced', icon: 'forms' }
-        ]
-      },
-      { title: 'React Query', url: '/dashboard/react-query', icon: 'code', isActive: false, items: [] },
-      { title: 'Icons', url: '/dashboard/elements/icons', icon: 'palette', isActive: false, items: [] }
-    ]
-  },
-  {
     label: 'Account',
     items: [
-      { title: 'Exclusive', url: '/dashboard/exclusive', icon: 'exclusive', isActive: false, items: [] },
       { title: 'Profile', url: '/dashboard/profile', icon: 'profile', isActive: false, items: [] },
-      { title: 'Notifications', url: '/dashboard/notifications', icon: 'notification', isActive: false, items: [] },
-      {
-        title: 'Billing',
-        url: '/dashboard/billing',
-        icon: 'billing',
-        isActive: false,
-        access: { requireOrg: true },
-        items: []
-      }
+      { title: 'Notifications', url: '/dashboard/notifications', icon: 'notification', isActive: false, items: [] }
     ]
   }
 ];
+

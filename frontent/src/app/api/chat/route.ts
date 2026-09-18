@@ -1,0 +1,66 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+
+const BRIDGE_URL =
+  process.env.STREAM_BRIDGE_URL ||
+  (process.env.N8N_URL?.includes('n8n:')
+    ? 'http://stream-bridge:3211/v1'
+    : 'http://127.0.0.1:3211/v1');
+
+const CHAT_API_KEY = process.env.CHAT_API_KEY || 'sk-n8n-agent';
+
+export async function POST(req: NextRequest) {
+  const { userId } = await auth();
+
+  if (!userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const body = await req.json();
+    const endpoint = `${BRIDGE_URL}/chat/completions`;
+
+    const upstreamRes = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${CHAT_API_KEY}`,
+        'x-session-id': `console-${userId}`,
+        'x-client': 'kiranism-playground'
+      },
+      body: JSON.stringify({
+        model: body.model || 'deepseek-agent',
+        messages: body.messages || [],
+        stream: true,
+        ...(body.temperature !== undefined ? { temperature: body.temperature } : {})
+      })
+    });
+
+    if (!upstreamRes.ok) {
+      const errText = await upstreamRes.text();
+      return NextResponse.json(
+        { error: `Upstream error (${upstreamRes.status}): ${errText}` },
+        { status: upstreamRes.status }
+      );
+    }
+
+    if (!upstreamRes.body) {
+      return NextResponse.json({ error: 'No response body from stream-bridge' }, { status: 502 });
+    }
+
+    return new Response(upstreamRes.body, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      }
+    });
+  } catch (error: any) {
+    console.error('Chat proxy error:', error);
+    return NextResponse.json(
+      { error: error?.message || 'Internal chat proxy error' },
+      { status: 500 }
+    );
+  }
+}

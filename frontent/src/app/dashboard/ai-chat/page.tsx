@@ -1,14 +1,14 @@
 import PageContainer from '@/components/layout/page-container';
-import { AiChatDemo } from '@/features/ai-chat/components/ai-chat-demo';
+import { AgentPlayground } from '@/features/ai-chat/components/agent-playground';
 
 export const metadata = {
-  title: 'Dashboard: AI Chat'
+  title: 'Dashboard: Agent Playground'
 };
 
 export default function Page() {
   return (
     <PageContainer>
-      <AiChatDemo />
+      <AgentPlayground />
     </PageContainer>
   );
 }
