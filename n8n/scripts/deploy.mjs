@@ -215,6 +215,15 @@ const DATA_TABLE_COLUMNS = {
     { name: 'message', type: 'string' },
     // phase 2: alert webhook delivery status
     { name: 'delivered', type: 'string' },
+    // B5: severity (info | warn | critical)
+    { name: 'severity', type: 'string' },
+  ],
+
+  // B5: maintenance window. While a row's `until` is in the future, alerts are
+  // still recorded but not delivered — silencing noise must not mean losing history.
+  ops_alert_silence: [
+    { name: 'reason', type: 'string' },
+    { name: 'until', type: 'string' },
   ],
   gateway_keys: [
     { name: 'key_hash', type: 'string' },
