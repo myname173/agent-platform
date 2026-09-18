@@ -135,6 +135,16 @@ const DATA_TABLE_COLUMNS = {
     { name: 'note', type: 'string' },
   ],
 
+  // B3: weekly reviews (owner view by default, team view on demand)
+  weekly_reviews: [
+    { name: 'week_start', type: 'string' },
+    { name: 'week_end', type: 'string' },
+    { name: 'content_md', type: 'string' },
+    { name: 'stats_json', type: 'string' },
+    { name: 'scope', type: 'string' },
+    { name: 'people_count', type: 'number' },
+  ],
+
   // selfcheck: platform self-test runs
   selfcheck_runs: [
     { name: 'source', type: 'string' },

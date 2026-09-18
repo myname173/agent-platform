@@ -10,6 +10,8 @@ interface Review {
   week_start?: string;
   week_end?: string;
   content_md?: string;
+  scope?: string;
+  people_count?: number;
   stats_json?: string;
   createdAt?: string;
 }
@@ -48,16 +50,20 @@ export function WeeklyCard() {
     load();
   }, [load]);
 
-  const run = async () => {
+  const run = async (scope: 'owner' | 'team') => {
     setBusy(true);
     setMsg(null);
     try {
-      const r = await fetch('/api/n8n/weekly/run', { method: 'POST' });
+      const r = await fetch('/api/n8n/weekly/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope })
+      });
       const j = await r.json().catch(() => null);
       if (!r.ok || (j && j.ok === false)) {
         setMsg((j && (j.error || j.reason)) || '生成失败');
       } else {
-        setMsg('已生成并推送 TG');
+        setMsg(scope === 'team' ? '已生成团队视图并推送 TG' : '已生成并推送 TG');
       }
       await load();
     } catch (e: any) {
@@ -91,11 +97,17 @@ export function WeeklyCard() {
               <Badge variant='outline'>
                 {latest.week_start} ~ {latest.week_end}
               </Badge>
+              {latest.scope === 'team' ? (
+                <Badge variant='secondary' className='font-normal'>
+                  团队视图{latest.people_count ? ` · ${latest.people_count} 人` : ''}
+                </Badge>
+              ) : null}
               {(() => {
                 const s = stats(latest);
                 return s ? (
                   <span className='text-muted-foreground text-xs'>
-                    待办 {s.done ?? 0}/{Number(s.done || 0) + Number(s.open || 0)} · 提醒 {s.sent ?? 0} · 对话 {s.execs ?? 0} · 记忆 {s.mems ?? 0}
+                    待办 {s.done ?? 0}/{Number(s.done || 0) + Number(s.open || 0)}
+                    {s.assigned ? ` · 已指派 ${s.assigned}` : ''} · 提醒 {s.sent ?? 0} · 对话 {s.execs ?? 0} · 记忆 {s.mems ?? 0}
                   </span>
                 ) : null;
               })()}
@@ -111,8 +123,13 @@ export function WeeklyCard() {
             <span className='text-muted-foreground text-xs'>历史</span>
             {reviews.slice(1, 8).map((r) => (
               <div key={r.id} className='flex items-center justify-between border-b border-dashed pb-1 last:border-0'>
-                <span>
+                <span className='flex items-center gap-2'>
                   {r.week_start} ~ {r.week_end}
+                  {r.scope === 'team' ? (
+                    <Badge variant='secondary' className='font-normal'>
+                      团队
+                    </Badge>
+                  ) : null}
                 </span>
                 <span className='text-muted-foreground text-xs'>{fmt(r.createdAt)}</span>
               </div>
@@ -121,8 +138,11 @@ export function WeeklyCard() {
         ) : null}
         {msg ? <span className='text-muted-foreground'>{msg}</span> : null}
         <div className='flex justify-end gap-2'>
-          <Button size='sm' variant='outline' disabled={busy} onClick={run}>
+          <Button size='sm' variant='outline' disabled={busy} onClick={() => run('owner')}>
             {busy ? '生成中…' : '立即生成'}
+          </Button>
+          <Button size='sm' variant='outline' disabled={busy} onClick={() => run('team')}>
+            生成团队视图
           </Button>
           <Button size='sm' variant='ghost' onClick={load}>
             刷新

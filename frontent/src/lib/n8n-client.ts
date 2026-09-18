@@ -457,11 +457,11 @@ export async function getWeekly(): Promise<{ ok: boolean; reviews: any[] }> {
   return { ok: true, reviews };
 }
 
-export async function runWeekly(): Promise<{ status: number; body: any }> {
+export async function runWeekly(scope: 'owner' | 'team' = 'owner'): Promise<{ status: number; body: any }> {
   const res = await fetch(`${N8N_URL}/webhook/admin/weekly-review/run`, {
     method: 'POST',
     headers: { Authorization: 'Bea' + 'rer ' + CHAT_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ force: true }),
+    body: JSON.stringify({ force: true, scope }),
     cache: 'no-store'
   });
   let body: any = null;
