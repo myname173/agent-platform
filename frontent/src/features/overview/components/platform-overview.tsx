@@ -152,24 +152,51 @@ export function PlatformOverview() {
         </Card>
       </div>
 
-      <TodosCard />
+      <Section title='今日' hint='需要你动手或等别人回话的事'>
+        <TodosCard />
 
-      <RemindersCard />
+        <RemindersCard />
 
-      <DelegationCard />
+        <DelegationCard />
+      </Section>
 
-      <WeeklyCard />
+      <Section title='平台' hint='运行状态与已经沉淀下来的内容'>
+        <WeeklyCard />
 
-      <MemoryCard />
+        <MemoryCard />
 
-      <SelfcheckCard />
+        <SelfcheckCard />
 
-      <PushMobileCard />
+        <PushMobileCard />
+      </Section>
 
       <p className='text-muted-foreground text-xs'>
         数据窗口：扫描 {num(data.chat_window.scanned)} 条执行记录 · 生成于 {formatTime(data.generated_at)}
       </p>
     </div>
+  );
+}
+
+/* F1: the overview had grown to six undifferentiated cards. Splitting it into
+   「今日」(needs action) and 「平台」(state and saved content) means the daily
+   answers come first and the diagnostics are still one scroll away. */
+function Section({
+  title,
+  hint,
+  children
+}: {
+  title: string;
+  hint: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className='flex flex-col gap-3'>
+      <div className='flex items-baseline gap-2'>
+        <h2 className='text-base font-semibold tracking-tight'>{title}</h2>
+        <span className='text-muted-foreground text-xs'>{hint}</span>
+      </div>
+      {children}
+    </section>
   );
 }
 

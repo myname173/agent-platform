@@ -35,7 +35,7 @@ import { NavGroup } from '@/types';
  */
 export const navGroups: NavGroup[] = [
   {
-    label: 'Platform',
+    label: '今日',
     items: [
       {
         title: 'Overview',
@@ -43,6 +43,48 @@ export const navGroups: NavGroup[] = [
         icon: 'dashboard',
         isActive: false,
         shortcut: ['o', 'o'],
+        items: []
+      }
+    ]
+  },
+  {
+    label: '内容',
+    items: [
+      {
+        title: 'Docs',
+        url: '/dashboard/docs',
+        icon: 'fileTypeDoc',
+        isActive: false,
+        shortcut: ['d', 'c'],
+        items: []
+      },
+      {
+        title: 'Knowledge',
+        url: '/dashboard/knowledge',
+        icon: 'fileTypeDoc',
+        isActive: false,
+        shortcut: ['k', 'b'],
+        items: []
+      },
+      {
+        title: 'Briefs',
+        url: '/dashboard/briefs',
+        icon: 'fileTypeDoc',
+        isActive: false,
+        shortcut: ['b', 'r'],
+        items: []
+      }
+    ]
+  },
+  {
+    label: '协作',
+    items: [
+      {
+        title: 'People',
+        url: '/dashboard/people',
+        icon: 'teams',
+        isActive: false,
+        shortcut: ['p', 'p'],
         items: []
       },
       {
@@ -52,7 +94,12 @@ export const navGroups: NavGroup[] = [
         isActive: false,
         shortcut: ['p', 'g'],
         items: []
-      },
+      }
+    ]
+  },
+  {
+    label: '平台',
+    items: [
       {
         title: 'Operations',
         url: '/dashboard/workflows',
@@ -78,43 +125,11 @@ export const navGroups: NavGroup[] = [
         items: []
       },
       {
-        title: 'Briefs',
-        url: '/dashboard/briefs',
-        icon: 'fileTypeDoc',
-        isActive: false,
-        shortcut: ['b', 'r'],
-        items: []
-      },
-      {
-        title: 'Knowledge',
-        url: '/dashboard/knowledge',
-        icon: 'fileTypeDoc',
-        isActive: false,
-        shortcut: ['k', 'b'],
-        items: []
-      },
-      {
         title: 'Models',
         url: '/dashboard/models',
         icon: 'sparkles',
         isActive: false,
         shortcut: ['m', 'o'],
-        items: []
-      },
-      {
-        title: 'People',
-        url: '/dashboard/people',
-        icon: 'teams',
-        isActive: false,
-        shortcut: ['p', 'p'],
-        items: []
-      },
-      {
-        title: 'Docs',
-        url: '/dashboard/docs',
-        icon: 'fileTypeDoc',
-        isActive: false,
-        shortcut: ['d', 'c'],
         items: []
       },
       {
