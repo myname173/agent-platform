@@ -44,6 +44,44 @@ async function getWfTools() {
   return wfToolCache.tools;
 }
 const wfToolDefs = (tools) => tools.map((t) => ({ type: 'function', function: { name: 'wf_' + t.name, description: '[自建流程] ' + String(t.description || t.title || t.name), parameters: { type: 'object', properties: { text: { type: 'string', description: '可选：传给流程的文本/参数' } } } } }));
+
+const TOOL_LABELS = {
+  web_search: '🌐 检索互联网',
+  kb_search: '📚 检索私域知识库',
+  kb_save: '💾 存入私域知识库',
+  platform_status: '📊 查询平台运行状态',
+  run_brief: '📰 生成今日晨报',
+  list_alerts: '⚠️ 查看平台告警',
+  create_reminder: '⏰ 创建定时提醒',
+  list_reminders: '📋 查看提醒事项',
+  cancel_reminder: '❌ 取消提醒',
+  todo_add: '📝 登记待办事项',
+  todo_list: '📋 查询待办清单',
+  todo_done: '✅ 完成待办事项',
+};
+
+function getToolLabel(name) {
+  if (TOOL_LABELS[name]) return TOOL_LABELS[name];
+  if (name && name.startsWith('wf_')) return '⚡ 执行自建流程: ' + name.slice(3);
+  return '⚙️ 调用工具: ' + name;
+}
+
+function extractToolNames(buffer) {
+  const names = new Set();
+  for (const raw of buffer) {
+    try {
+      const j = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const tcs = j?.choices?.[0]?.delta?.tool_calls || j?.choices?.[0]?.message?.tool_calls;
+      if (Array.isArray(tcs)) {
+        for (const tc of tcs) {
+          if (tc.function?.name) names.add(tc.function.name);
+        }
+      }
+    } catch (e) {}
+  }
+  return Array.from(names);
+}
+
 const normMessages = (arr) =>
   (Array.isArray(arr) ? arr : []).map((m) => {
     if (m && m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length && typeof m.reasoning_content !== 'string') {
@@ -235,9 +273,47 @@ async function handleStream(req, res, body) {
     return;
   }
 
-  // Fallback: run the full gateway (tool loop) non-stream, then pseudo-stream it out.
+  // Fallback: run the full gateway (tool loop) non-stream, with live status streaming.
   console.log('[fallback] toolCalls=' + (sawToolCalls ? toolBuffer.length : 0) + ' upstreamFailed=' + upstreamFailed + ' contentLen=' + contentAcc.length + ' reasonLen=' + reasoningAcc.length);
   const tfb = Date.now();
+  const id = 'chatcmpl-bridge-' + Date.now();
+  const wasStarted = sseStarted;
+
+  // Immediate feedback to eliminate silent freeze during gateway execution
+  if (!sseStarted) {
+    sseHeaders(res);
+    sseStarted = true;
+    sseSend(res, chunkMsg(id, model, { role: 'assistant' }, null));
+  }
+
+  // Stream human-friendly tool execution progress into thinking block
+  const toolNames = extractToolNames(toolBuffer);
+  let statusNote = '';
+  if (sawToolCalls || toolNames.length) {
+    const desc = toolNames.length ? toolNames.map(getToolLabel).join('、') : '⚙️ 执行平台内部工具';
+    statusNote = `\n\n> 💡 **${desc}**（正在执行中，请稍候...）\n\n`;
+  } else if (upstreamFailed && !contentAcc) {
+    statusNote = `\n\n> ⚠️ 上游流式中断，正在无缝切换网关重试...\n\n`;
+  }
+  if (statusNote) {
+    sseSend(res, chunkMsg(id, model, { reasoning_content: statusNote }, null));
+  }
+
+  // Subtle heartbeat keeps SSE alive and gives visual breathing indicator
+  const heartbeatTimer = setInterval(() => {
+    try {
+      sseSend(res, chunkMsg(id, model, { reasoning_content: '·' }, null));
+    } catch (e) {}
+  }, 2500);
+
+  const abortCtrl = new AbortController();
+  const timeoutId = setTimeout(() => abortCtrl.abort(), 240000);
+  req.on('close', () => {
+    clearInterval(heartbeatTimer);
+    clearTimeout(timeoutId);
+    abortCtrl.abort();
+  });
+
   let gj = null;
   let gok = false;
   try {
@@ -245,22 +321,28 @@ async function handleStream(req, res, body) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: req.headers['authorization'] || '', 'x-session-id': sid, 'x-client': client },
       body: JSON.stringify({ ...body, stream: false }),
-      signal: AbortSignal.timeout(240000),
+      signal: abortCtrl.signal,
     });
     gj = await r.json();
     gok = r.ok;
-  } catch (e) {}
+  } catch (e) {
+    console.log('[fallback] gateway error: ' + String(e && e.message || e));
+  } finally {
+    clearInterval(heartbeatTimer);
+    clearTimeout(timeoutId);
+  }
 
-  const wasStarted = sseStarted;
+  if (statusNote) {
+    sseSend(res, chunkMsg(id, model, { reasoning_content: ' 完成！\n\n' }, null));
+  }
+
   console.log('[fallback] gateway ms=' + (Date.now() - tfb) + ' ok=' + gok + ' content=' + String((gok && gj && gj.choices && gj.choices[0] && gj.choices[0].message && gj.choices[0].message.content) || '').length);
-  if (!sseStarted) { sseHeaders(res); sseStarted = true; }
-  const id = 'chatcmpl-bridge-' + Date.now();
   const msg = (gok && gj && gj.choices && gj.choices[0] && gj.choices[0].message) || {};
   const content = String(msg.content || '');
   const toolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : null;
 
   if (!content && (!toolCalls || !toolCalls.length)) {
-    if (!wasStarted) sseSend(res, chunkMsg(id, model, { role: 'assistant' }, null));
+    if (!wasStarted && !statusNote) sseSend(res, chunkMsg(id, model, { role: 'assistant' }, null));
     sseSend(res, chunkMsg(id, model, { content: gok ? '（空回复）' : '⚠️ 处理失败，请稍后再试' }, null));
     sseSend(res, chunkMsg(id, model, {}, 'stop'));
     sseEnd(res);
@@ -275,7 +357,7 @@ async function handleStream(req, res, body) {
     return;
   }
 
-  if (!wasStarted) {
+  if (!wasStarted && !statusNote) {
     sseSend(res, chunkMsg(id, model, { role: 'assistant' }, null));
   }
   const CH = 60;
