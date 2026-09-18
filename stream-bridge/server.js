@@ -478,7 +478,7 @@ async function handleImageFetch(res, body) {
 const server = http.createServer(async (req, res) => {
   try {
     const path0 = req.url ? req.url.split('?')[0] : '';
-    if (path0 === '/healthz') return jsonOut(res, 200, { ok: true, upstream: !!UP_KEY, gateway: GATEWAY, embeddings: !!DASH_KEY, voice: !!VOICE_TOKEN });
+    if (path0 === '/healthz') return jsonOut(res, 200, { ok: true, upstream: !!UP_KEY, gateway: GATEWAY, embeddings: !!DASH_KEY, voice: !!VOICE_TOKEN, tools: SERVER_TOOLS.map((t) => t.function.name) });
     if (req.method !== 'POST') return jsonOut(res, 405, { error: { message: 'method not allowed' } });
     const raw = await readBody(req);
     let body = null;

@@ -14,7 +14,7 @@
  *     (table created if missing) before the workflow is sent.
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -133,6 +133,15 @@ const DATA_TABLE_COLUMNS = {
     { name: 'tz', type: 'string' },
     { name: 'active', type: 'number' },
     { name: 'note', type: 'string' },
+  ],
+
+  // B2: tool-contract snapshot (gateway side) — the sidecar reports its own list at /healthz,
+  // and the selfcheck compares the two so a one-sided edit cannot go unnoticed.
+  tool_contract: [
+    { name: 'side', type: 'string' },
+    { name: 'tools', type: 'string' },
+    { name: 'count', type: 'number' },
+    { name: 'updated_at', type: 'string' },
   ],
 
   // B5: document factory — rendered deliverables (minutes / weekly / brief / custom)
@@ -324,4 +333,52 @@ for (const f of files) {
     console.error(`FAILED ${f}: ${e.message}`);
     process.exitCode = 1;
   }
+}
+
+/**
+ * B2: snapshot the gateway's tool names so the platform selfcheck can compare them
+ * against the sidecar's live list (exposed at stream-bridge /healthz). Without this,
+ * the two definitions drift silently and the model ends up seeing tools whose
+ * arguments are dropped.
+ */
+async function snapshotToolContract() {
+  const file = join(dir, 'chat-gateway.json');
+  if (!existsSync(file)) return;
+  const wf = JSON.parse(readFileSync(file, 'utf8'));
+  const node = wf.nodes.find((n) => n.name === 'Build Upstream Payload');
+  const code = node && node.parameters && node.parameters.jsCode;
+  if (!code) return;
+  const start = code.indexOf('const TOOLS = [');
+  const end = code.indexOf('];', start);
+  if (start < 0 || end < 0) return;
+  const names = [
+    ...new Set([...code.slice(start, end).matchAll(/name:\s*'([A-Za-z0-9_]+)'/g)].map((m) => m[1])),
+  ];
+  if (!names.length) return;
+
+  const tid = await resolveDataTableId('tool_contract');
+  const payload = {
+    side: 'gateway',
+    tools: names.join(','),
+    count: names.length,
+    updated_at: new Date().toISOString(),
+  };
+  const existing = ((await api('GET', `/data-tables/${tid}/rows?limit=50`)).data || []).find(
+    (r) => r.side === 'gateway',
+  );
+  if (existing) {
+    await api('PATCH', `/data-tables/${tid}/rows/update`, {
+      filter: { type: 'and', filters: [{ columnName: 'side', condition: 'eq', value: 'gateway' }] },
+      data: payload,
+    });
+  } else {
+    await api('POST', `/data-tables/${tid}/rows`, { data: [payload] });
+  }
+  console.log(`tool contract snapshot: gateway -> ${names.length} tools`);
+}
+
+try {
+  await snapshotToolContract();
+} catch (e) {
+  console.error(`tool contract snapshot failed: ${e.message}`);
 }
