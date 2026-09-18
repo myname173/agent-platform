@@ -62,6 +62,7 @@ const DATA_TABLE_COLUMNS = {
     // priority 3: multi-key attribution + per-request cost
     { name: 'key_name', type: 'string' },
     { name: 'cost_usd', type: 'number' },
+    { name: 'person_ref', type: 'string' },
     { name: 'error_raw', type: 'string' },
     { name: 'status', type: 'string' },
     { name: 'error_code', type: 'string' },
