@@ -342,6 +342,53 @@ export async function pushLatestBrief(): Promise<{ status: number; body: any }> 
   return { status: res.status, body };
 }
 
+export interface DelegationPerson {
+  name: string;
+  display_name: string;
+  role: string;
+  has_channel: boolean;
+  open: number;
+  overdue: number;
+  escalated: number;
+  awaiting_ack: number;
+  done_7d: number;
+  avg_ack_hours: number | null;
+  never_acked: number;
+  oldest_overdue_days: number;
+}
+
+export interface Delegation {
+  ok: boolean;
+  generated_at: string;
+  today: string;
+  totals: {
+    people: number;
+    assigned_open: number;
+    unassigned_open: number;
+    overdue: number;
+    escalated: number;
+    awaiting_ack: number;
+    done_7d: number;
+    channel_less: number;
+  };
+  oldest_waiting: { id: number; text: string; owner: string; due_date: string; days_late: number } | null;
+  people: DelegationPerson[];
+  attention: string[];
+}
+
+export async function getDelegation(): Promise<Delegation> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/delegation`, {
+    headers: {
+      Authorization: 'Bea' + 'rer ' + CHAT_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    cache: 'no-store'
+  });
+  if (res.status === 401) throw new Error('Admin API 401 - key mismatch');
+  if (!res.ok) throw new Error(`Admin Delegation API error: ${res.status}`);
+  return res.json();
+}
+
 export interface Person {
   id: string;
   name: string;

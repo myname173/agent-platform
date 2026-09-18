@@ -1244,6 +1244,97 @@
         880,
         1820
       ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "admin/delegation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b4-webhook-delegation",
+      "name": "Webhook Delegation",
+      "webhookId": "admin-delegation",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        1940
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Bearer auth, same as the Chat Gateway / Stats API. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key. Provide it via the Authorization header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "b4-parse-auth-delegation",
+      "name": "Parse Auth Delegation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        1940
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-has-error-delegation",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b4-has-error-delegation",
+      "name": "Has Error Delegation",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        1940
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* B4 · 派发收口视图：我派出去多少、卡在谁那、平均多久回、谁从不回执。\n   只读聚合，不写任何表。 */\nconst api = (method, path, qs, payload) => this.helpers.httpRequest({ method, url: 'http://localhost:5678/api/v1' + path, headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' }, qs, body: payload, timeout: 20000 });\nconst tables = (await api('GET', '/data-tables', { limit: 100 })).data || [];\nconst tid = (tables.find((t) => t.name === 'todos') || {}).id;\nconst pid = (tables.find((t) => t.name === 'people') || {}).id;\nif (!tid) return [{ json: { ok: false, error: 'todos table missing (run deploy.mjs)' } }];\nconst rows = (await api('GET', '/data-tables/' + tid + '/rows', { limit: 250 })).data || [];\nconst people = pid ? ((await api('GET', '/data-tables/' + pid + '/rows', { limit: 200 })).data || []) : [];\nconst active = people.filter((p) => p.active === 1 || p.active === true);\n\nconst now = Date.now();\nconst today = new Date(now + 8 * 3600000).toISOString().slice(0, 10);\nconst weekAgo = now - 7 * 86400000;\nconst late = (d) => Math.max(0, Math.round((Date.parse(today) - Date.parse(d)) / 86400000));\n\nconst assigned = rows.filter((r) => (r.owner_ref || ''));\nconst openAssigned = assigned.filter((r) => r.status === 'open');\nconst isOverdue = (r) => !!(r.due_date && r.due_date < today);\n\nconst per = active.map((p) => {\n  let ch = {};\n  try { ch = JSON.parse(p.channels || '{}'); } catch (e) { ch = {}; }\n  const mine = assigned.filter((r) => r.owner_ref === p.name);\n  const open = mine.filter((r) => r.status === 'open');\n  const overdue = open.filter(isOverdue);\n  const done7 = mine.filter((r) => r.status === 'done' && Date.parse(r.completed_at || '') >= weekAgo);\n  const acked = mine.filter((r) => r.ack_at);\n  const hrs = acked.map((r) => (Date.parse(r.ack_at) - Date.parse(r.createdAt)) / 3600000).filter((h) => Number.isFinite(h)).map((h) => Math.max(0, h));\n  const avg = hrs.length ? Math.round((hrs.reduce((a, b) => a + b, 0) / hrs.length) * 10) / 10 : null;\n  const neverAcked = mine.filter((r) => !r.ack_at && (r.status === 'done' || isOverdue(r))).length;\n  return {\n    name: p.name,\n    display_name: p.display_name || p.name,\n    role: p.role || 'member',\n    has_channel: Object.values(ch).some((v) => v),\n    open: open.length,\n    overdue: overdue.length,\n    escalated: open.filter((r) => Number(r.escalated || 0) === 1).length,\n    awaiting_ack: open.filter((r) => !r.ack_at).length,\n    done_7d: done7.length,\n    avg_ack_hours: avg,\n    never_acked: neverAcked,\n    oldest_overdue_days: overdue.length ? Math.max.apply(null, overdue.map((r) => late(r.due_date))) : 0,\n  };\n}).sort((a, b) => (b.overdue - a.overdue) || (b.open - a.open) || (a.name < b.name ? -1 : 1));\n\nconst unassignedOpen = rows.filter((r) => r.status === 'open' && !(r.owner_ref || ''));\nconst od = openAssigned.filter(isOverdue).sort((a, b) => (a.due_date < b.due_date ? -1 : 1));\nconst oldest = od[0] || null;\n\nreturn [{ json: {\n  ok: true,\n  generated_at: new Date().toISOString(),\n  today,\n  totals: {\n    people: active.length,\n    assigned_open: openAssigned.length,\n    unassigned_open: unassignedOpen.length,\n    overdue: od.length,\n    escalated: openAssigned.filter((r) => Number(r.escalated || 0) === 1).length,\n    awaiting_ack: openAssigned.filter((r) => !r.ack_at).length,\n    done_7d: assigned.filter((r) => r.status === 'done' && Date.parse(r.completed_at || '') >= weekAgo).length,\n    channel_less: per.filter((p) => !p.has_channel).length,\n  },\n  oldest_waiting: oldest ? { id: oldest.id, text: oldest.text, owner: oldest.owner_ref, due_date: oldest.due_date, days_late: late(oldest.due_date) } : null,\n  people: per,\n  attention: per.filter((p) => p.overdue > 0 || p.never_acked > 0).map((p) => p.display_name),\n} }];"
+      },
+      "id": "b4-build-delegation",
+      "name": "Build Delegation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        1940
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "b4-respond-delegation-200",
+      "name": "Respond Delegation 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        660,
+        1940
+      ]
     }
   ],
   "connections": {
@@ -1886,6 +1977,57 @@
         [
           {
             "node": "Respond People Manage 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Delegation": {
+      "main": [
+        [
+          {
+            "node": "Parse Auth Delegation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Auth Delegation": {
+      "main": [
+        [
+          {
+            "node": "Has Error Delegation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Delegation": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Delegation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Delegation": {
+      "main": [
+        [
+          {
+            "node": "Respond Delegation 200",
             "type": "main",
             "index": 0
           }

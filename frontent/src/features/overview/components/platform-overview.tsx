@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { PushMobileCard } from './push-mobile-card';
 import { SelfcheckCard } from './selfcheck-card';
 import { TodosCard } from './todos-card';
+import { DelegationCard } from './delegation-card';
 import { WeeklyCard } from './weekly-card';
 import { MemoryCard } from './memory-card';
 
@@ -151,6 +152,8 @@ export function PlatformOverview() {
       </div>
 
       <TodosCard />
+
+      <DelegationCard />
 
       <WeeklyCard />
 
