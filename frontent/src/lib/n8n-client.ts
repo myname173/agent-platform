@@ -400,6 +400,21 @@ export async function shareDoc(id: number, to?: string): Promise<{ status: numbe
   return { status: res.status, body };
 }
 
+export async function signDoc(id: number): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/docforge`, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bea' + 'rer ' + CHAT_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ action: 'sign', id }),
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+  return { status: res.status, body };
+}
+
 export async function archiveDoc(id: number): Promise<{ status: number; body: any }> {
   const res = await fetch(`${N8N_URL}/webhook/admin/docforge`, {
     method: 'POST',

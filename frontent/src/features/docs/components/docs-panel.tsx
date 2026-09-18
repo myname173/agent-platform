@@ -102,7 +102,7 @@ export function DocsPanel() {
   );
 
   const act = useCallback(
-    async (id: number, action: 'share' | 'archive') => {
+    async (id: number, action: 'share' | 'archive' | 'sign') => {
       setBusy(action + ':' + id);
       setFlash(null);
       try {
@@ -123,6 +123,20 @@ export function DocsPanel() {
               ? `已推送（对方无通道，已回落给你）：${body.url}`
               : `已推送到 TG：${body.url}`
           });
+        } else if (action === 'sign') {
+          let copied = false;
+          try {
+            await navigator.clipboard.writeText(body.url);
+            copied = true;
+          } catch {
+            /* clipboard unavailable */
+          }
+          setFlash({
+            kind: 'ok',
+            text: copied
+              ? `免登录链接已复制（${body.expires_in_days} 天有效）：${body.url}`
+              : `免登录链接（${body.expires_in_days} 天有效，复制失败请手动选取）：${body.url}`
+          });
         } else {
           setFlash({ kind: 'ok', text: `已归档进知识库：${body.doc_id || '—'} · ${body.chunks || 0} 个片段` });
         }
@@ -140,7 +154,7 @@ export function DocsPanel() {
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <div className='text-muted-foreground text-sm'>
           文档工厂：把平台里的内容变成<b>能发出去、能打印</b>的成品。生成后点标题即在新标签页打开，浏览器里可直接打印或另存为 PDF。
-          「推送」把链接发到 TG；「归档」把正文存进知识库，之后对话里就能问到它。
+          「推送」把链接发到 TG；「复制链接」生成 <b>7 天有效的免登录链接</b>，可以直接发给别人看；「归档」把正文存进知识库，之后对话里就能问到它。
         </div>
         <div className='flex flex-wrap gap-2'>
           <MinutesDialog onCreated={load} busy={busy} create={create} />
@@ -239,6 +253,14 @@ export function DocsPanel() {
                           onClick={() => act(d.id, 'share')}
                         >
                           {busy === 'share:' + d.id ? '…' : '推送'}
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          disabled={busy.startsWith('sign')}
+                          onClick={() => act(d.id, 'sign')}
+                        >
+                          {busy === 'sign:' + d.id ? '…' : '复制链接'}
                         </Button>
                         <Button
                           size='sm'

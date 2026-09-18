@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { getDocs, createDoc, shareDoc, archiveDoc } from '@/lib/n8n-client';
+import { getDocs, createDoc, shareDoc, archiveDoc, signDoc } from '@/lib/n8n-client';
 
 export async function GET() {
   const { userId } = await auth();
@@ -33,13 +33,18 @@ export async function POST(req: Request) {
 
   // actions that operate on an existing document
   const action = String(payload.action || '').toLowerCase();
-  if (action === 'share' || action === 'archive') {
+  if (action === 'share' || action === 'archive' || action === 'sign') {
     const id = Number(payload.id);
     if (!Number.isFinite(id) || id <= 0) {
       return NextResponse.json({ ok: false, error: { message: 'id is required' } }, { status: 400 });
     }
     try {
-      const out = action === 'share' ? await shareDoc(id, payload.to ? String(payload.to) : undefined) : await archiveDoc(id);
+      const out =
+        action === 'share'
+          ? await shareDoc(id, payload.to ? String(payload.to) : undefined)
+          : action === 'archive'
+            ? await archiveDoc(id)
+            : await signDoc(id);
       return NextResponse.json(out.body ?? { ok: false }, { status: out.status });
     } catch (error: any) {
       return NextResponse.json({ error: error.message }, { status: 500 });
