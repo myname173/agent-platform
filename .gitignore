@@ -24,3 +24,6 @@ Thumbs.db
 *.log
 *.log
 backups/
+
+# 开发模式产生的日志
+*.err

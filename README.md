@@ -150,6 +150,56 @@ bash n8n/scripts/backup.sh restore backups/n8n-data-XXXX.tar.gz   # 恢复 n8n �
 MinIO：停 minio 后把归档解回 `minio_data` 卷。每日 03:30 计划任务自动执行（含四项完整性检查）。
 归档含凭据与对话数据，妥善保管。
 
+#### 恢复演练（n8n/scripts/restore-drill.sh）
+
+**没被恢复过的备份只是信念，不是保障。** 该脚本取最新备份集恢复到**临时库**、校验后删除，
+全程不碰生产：
+
+```bash
+bash n8n/scripts/restore-drill.sh
+```
+
+校验 n8n（表数、数据表注册表、documents / people / todos / reminders 等）、
+lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的行——这些正是坏恢复
+真正会丢的东西）、MinIO 归档条目数；并报备份新鲜度（超 `MAX_AGE_HOURS` 默认 48 小时即失败）。
+
+「线上有、恢复结果里没有」的表会单列成 **GAP** 而不算演练失败——通常是该表在最后一次备份
+之后才创建，对策是再跑一次 `backup.sh`。备份只有 03:00 / 15:00 两班，**新建的表最长要等
+12 小时才进入保护**，所以建表后补一次备份是好习惯。
+
+演练在宿主机侧（要访问 `backups/` 与 docker），n8n 容器内看不到，因此**不在每日自检里**，
+属于周期性例行。
+
+### 三道自动校验
+
+| 命令 | 覆盖面 | 何时跑 |
+| --- | --- | --- |
+| `node n8n/scripts/smoke-test.mjs` | 64 项端到端 | 每批交付后 |
+| 控制台「自检」/ `POST /webhook/admin/selfcheck/run` | 40 项（只读 + 少量幂等写），每日 04:15 | 每天 |
+| `node n8n/scripts/check-tool-contract.mjs` | 网关工具表 vs 侧车 `SERVER_TOOLS` | 部署前 |
+
+### 已知坑位（踩过的，别再踩）
+
+1. **n8n Code 节点里 SQL 占位符必须一列一用。** 复用同一个 `$N` 喂类型不同的列（如 `title`
+   varchar 与 `summary` text）→ PG 报 `inconsistent types deduced for parameter $N` →
+   pg-protocol 1.15.0 在构造 `DatabaseError` 时给**只读属性 `name` 赋值抛 TypeError**，异常在
+   socket 回调里、`try/catch` 够不着 → **runner 进程直接死**，n8n 只显示 "Node execution failed"。
+   排查手法：让代码把进度写进一张临时表，即使 runner 崩了也能从库里读出死在哪一步。
+2. **HTTP 请求头里绝不能放原始非 ASCII 字节。** `x-person: 张三丰` 会让请求**静默挂死 110 秒**；
+   同样的值百分号编码后 1.6 秒返回，ASCII 值 1.0 秒。需要中文就让客户端编码、服务端
+   `decodeURIComponent`。
+3. **n8n 数据表 rows API 的顺序不可依赖。** `sortBy` 只有冒号被百分号编码时才生效
+   （`createdAt%3Adesc`），否则按插入顺序返回、**最旧的在前**；且返回的是**最前面 N 行**
+   而非最新 N 行。任何「取最近 N 条」的代码都要自己按时间过滤，不要 `break` 在第一条窗口外的行。
+4. **删除行没有 `DELETE /rows/{id}`**，要用 `DELETE /rows/delete?filter=<encoded>`。
+5. **n8n 数据表 ≠ 同名 Postgres 表。** `documents` 在 `information_schema` 里查不到；真实结构是
+   `data_table`（注册表，含 `name`）+ `data_table_column` + `data_table_user_<id>`（数据）。
+6. **LobeHub 的关键配置只在数据库里**（`enableResponseApi` / `searchMode` /
+   `useModelBuiltinSearch` / `system_agent` / `memory.enabled`），恢复旧备份会静默打回未接线状态。
+   用 `N8N_URL=… CHAT_API_KEY=… node n8n/scripts/lobehub-config.mjs`（`apply` 修复，`status` 检查）。
+7. **网关工具表与侧车 `SERVER_TOOLS` 是两份独立定义**，漏改不报错，只表现为「模型看得到工具
+   但参数丢失」。改任何一侧都要同步另一侧，并跑 `check-tool-contract.mjs`。
+
 ### 推送渠道（消息触达）
 
 统一出口：`Notify` 工作流（`POST /webhook/internal/notify`，Bearer 同 CHAT key）。晨报、告警与后续的提醒都从这里送出。
