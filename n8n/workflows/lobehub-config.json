@@ -1,0 +1,173 @@
+{
+  "name": "LobeHub Config",
+  "active": true,
+  "nodes": [
+    {
+      "id": "sw",
+      "name": "Webhook LobeHub Config",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -620,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/lobehub-config",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "lobehub-config"
+    },
+    {
+      "id": "l1-auth",
+      "name": "Auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -410,
+        0
+      ],
+      "parameters": {
+        "jsCode": "/* Auth gate — schedule-safe (headers only on manual path). */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nif (headers && Object.keys(headers).length > 0) {\n  const provided = String(headers.authorization || '').replace(new RegExp('^' + 'Bea' + 'rer\\\\s+', 'i'), '');\n  if (provided !== $env.CHAT_API_KEY) { return [{ json: { __error: true, status: 401, body: { ok: false, error: 'Invalid API key' } } }]; }\n}\nreturn [{ json: { ok: true } }];"
+      }
+    },
+    {
+      "id": "l1-has-error",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -210,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-sum",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "l1-respond-error",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        -110
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "l1-run-lobehub-config",
+      "name": "Run LobeHub Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        110
+      ],
+      "parameters": {
+        "jsCode": "/* L1 · 把 LobeHub 的关键配置固化成可重放的代码。\n   现状是这些开关只存在于数据库里（当年靠临时脚本改的），一次旧备份恢复就会静默失效，\n   症状是「AI 突然不听话了」——极难归因。这里让它可以被检查、也可以被修复。\n\n   action=status（默认）：只读，返回当前值 + 漂移清单\n   action=apply          ：把要求的值合并进去（只碰我们拥有的键，幂等）\n\n   注意：每个 SQL 占位符只对应一列 —— 复用占位符会触发 pg-protocol 崩溃（见 B8 教训）。 */\nconst body = ($('Webhook LobeHub Config').first().json.body) || {};\nconst action = String(body.action || 'status').toLowerCase() === 'apply' ? 'apply' : 'status';\nconst { Client } = require('pg');\n\n/* ---- 要求的不变式 ---- */\nconst PROVIDER_ID = 'openai';\nconst REQUIRED_PROVIDER = { enableResponseApi: false };           // 必须关：否则走 Responses API\nconst REQUIRED_AGENT = { searchMode: 'off', useModelBuiltinSearch: false, enableStreaming: true, memory: { enabled: true } };\nconst REQUIRED_SYSTEM_AGENT = { topic: { provider: 'openai', model: 'deepseek-chat' }, thread: { provider: 'openai', model: 'deepseek-chat' } };\n\nconst c = new Client({\n  host: $env.DB_POSTGRESDB_HOST || 'postgres',\n  port: Number($env.DB_POSTGRESDB_PORT || 5432),\n  database: 'lobechat',\n  user: $env.DB_POSTGRESDB_USER || 'n8n',\n  password: $env.DB_POSTGRESDB_PASSWORD,\n});\n\nconst changed = [];\nconst drift = [];\nconst j = (v) => (v && typeof v === 'object' ? v : {});\n\nawait c.connect();\ntry {\n  /* ---------- 1. provider ---------- */\n  const prov = (await c.query('SELECT id, config FROM ai_providers WHERE id = $1', [PROVIDER_ID])).rows[0] || null;\n  if (!prov) {\n    drift.push('provider:' + PROVIDER_ID + ':missing');\n  } else {\n    const cfg = j(prov.config);\n    for (const k of Object.keys(REQUIRED_PROVIDER)) {\n      if (cfg[k] !== REQUIRED_PROVIDER[k]) {\n        drift.push('provider.' + k + '=' + JSON.stringify(cfg[k] === undefined ? null : cfg[k]));\n        if (action === 'apply') {\n          const merged = Object.assign({}, cfg);\n          merged[k] = REQUIRED_PROVIDER[k];\n          await c.query('UPDATE ai_providers SET config = $1::jsonb, updated_at = now() WHERE id = $2', [JSON.stringify(merged), PROVIDER_ID]);\n          changed.push('provider.' + k);\n        }\n      }\n    }\n  }\n\n  /* ---------- 2. agents（逐个合并 chat_config） ---------- */\n  const agents = (await c.query('SELECT id, chat_config FROM agents')).rows;\n  for (const a of agents) {\n    const cfg = j(a.chat_config);\n    const next = Object.assign({}, cfg);\n    let touched = false;\n    for (const k of Object.keys(REQUIRED_AGENT)) {\n      if (k === 'memory') {\n        const mem = j(cfg.memory);\n        if (mem.enabled !== true) {\n          drift.push('agent.' + a.id + '.memory.enabled');\n          if (action === 'apply') { next.memory = Object.assign({}, mem, { enabled: true }); touched = true; }\n        }\n      } else if (cfg[k] !== REQUIRED_AGENT[k]) {\n        drift.push('agent.' + a.id + '.' + k + '=' + JSON.stringify(cfg[k] === undefined ? null : cfg[k]));\n        if (action === 'apply') { next[k] = REQUIRED_AGENT[k]; touched = true; }\n      }\n    }\n    if (action === 'apply' && touched) {\n      await c.query('UPDATE agents SET chat_config = $1::jsonb, updated_at = now() WHERE id = $2', [JSON.stringify(next), a.id]);\n      changed.push('agent.' + a.id);\n    }\n  }\n\n  /* ---------- 3. user_settings ---------- */\n  const us = (await c.query('SELECT id, memory, system_agent FROM user_settings')).rows;\n  for (const u of us) {\n    const mem = j(u.memory);\n    const sa = j(u.system_agent);\n    const nextSa = Object.assign({}, sa);\n    let touched = false;\n\n    if (mem.enabled !== true) {\n      drift.push('user.' + u.id + '.memory.enabled');\n      if (action === 'apply') { touched = true; }\n    }\n    for (const slot of ['topic', 'thread']) {\n      const cur = j(sa[slot]);\n      const want = REQUIRED_SYSTEM_AGENT[slot];\n      if (cur.model !== want.model || cur.provider !== want.provider) {\n        drift.push('user.' + u.id + '.system_agent.' + slot + '=' + JSON.stringify(cur.model || null));\n        if (action === 'apply') { nextSa[slot] = Object.assign({}, cur, want); touched = true; }\n      }\n    }\n    if (action === 'apply' && touched) {\n      await c.query(\n        'UPDATE user_settings SET memory = $1::jsonb, system_agent = $2::jsonb, updated_at = now() WHERE id = $3',\n        [JSON.stringify(Object.assign({}, mem, { enabled: true })), JSON.stringify(nextSa), u.id]\n      );\n      changed.push('user.' + u.id);\n    }\n  }\n\n  return [{ json: {\n    ok: true,\n    action,\n    drifted: drift.length,\n    changed: changed.length,\n    drift,\n    changes: changed,\n    summary: drift.length === 0 ? 'in sync' : (action === 'apply' ? 'healed ' + changed.length + ' item(s)' : drift.length + ' item(s) drifted (run action=apply to heal)'),\n  } }];\n} finally {\n  await c.end().catch(() => {});\n}"
+      }
+    },
+    {
+      "id": "l1-respond-lobehub-config",
+      "name": "Respond LobeHub Config",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        240,
+        110
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook LobeHub Config": {
+      "main": [
+        [
+          {
+            "node": "Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run LobeHub Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run LobeHub Config": {
+      "main": [
+        [
+          {
+            "node": "Respond LobeHub Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Shanghai"
+  },
+  "staticData": null,
+  "id": "fpqwKQh5oMLznFnL"
+}
