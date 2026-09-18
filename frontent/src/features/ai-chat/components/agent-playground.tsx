@@ -71,6 +71,11 @@ export function AgentPlayground() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedReasoning, setExpandedReasoning] = useState<Record<string, boolean>>({});
+  // F4: name the session explicitly so multi-session behaviour — and, since B3,
+  // person attribution (tg-<chat_id> or an explicit person) — can be exercised here.
+  const [sessionId, setSessionId] = useState('');
+  // Cached per send so the footer shows which session the turn actually used.
+  const [activeSession, setActiveSession] = useState('');
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
@@ -158,10 +163,12 @@ export function AgentPlayground() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: selectedModel,
-          messages: payloadMessages
+          messages: payloadMessages,
+          ...(sessionId.trim() ? { sessionId: sessionId.trim() } : {})
         }),
         signal: controller.signal
       });
+      setActiveSession(sessionId.trim() || '(默认 console-<user>)');
 
       if (!res.ok) {
         const errText = await res.text();
@@ -292,11 +299,28 @@ export function AgentPlayground() {
             </div>
             <p className="text-xs text-muted-foreground">
               直连 stream-bridge 与 n8n 网关，支持流式思考与工具执行追踪
+              {activeSession ? (
+                <>
+                  {' · '}
+                  <span className="text-foreground">本轮会话 {activeSession}</span>
+                </>
+              ) : null}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* F4: session id — lets you run a separate conversation, or impersonate
+              a tg-<chat_id> session to check person attribution end to end */}
+          <input
+            value={sessionId}
+            onChange={(e) => setSessionId(e.target.value)}
+            disabled={isStreaming}
+            placeholder='会话 id（留空=默认）'
+            title='作为 x-session-id 传给网关；例如 tg-7020739140 可复现某人的归因'
+            className="text-xs border rounded-lg px-2.5 py-1.5 bg-background w-44 focus:ring-1 focus:ring-primary focus:outline-none"
+          />
+
           {/* Model Selector */}
           <select
             value={selectedModel}

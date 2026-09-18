@@ -20,12 +20,19 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const endpoint = `${BRIDGE_URL}/chat/completions`;
 
+    // F4: the debug console can name its own session, so multi-session behaviour
+    // (and, since B3, person attribution) can actually be exercised from here.
+    // Anything not obviously safe is rejected rather than silently passed through.
+    const requested = String(body.sessionId || '').trim();
+    const sessionOk = /^[A-Za-z0-9_.@:-]{1,64}$/.test(requested);
+    const sessionId = sessionOk ? requested : `console-${userId}`;
+
     const upstreamRes = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${CHAT_API_KEY}`,
-        'x-session-id': `console-${userId}`,
+        'x-session-id': sessionId,
         'x-client': 'kiranism-playground'
       },
       body: JSON.stringify({
