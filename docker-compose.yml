@@ -57,6 +57,9 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
       - ALERT_WEBHOOK_FORMAT=${ALERT_WEBHOOK_FORMAT:-generic}
+      # Console base URL used to build links pushed to phones (LAN-reachable).
+      # Without it, workflow-generated links fall back to localhost and are dead on mobile.
+      - CONSOLE_URL=http://${PLATFORM_LAN_IP:-192.168.1.114}:3000
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}

@@ -101,11 +101,46 @@ export function DocsPanel() {
     [load]
   );
 
+  const act = useCallback(
+    async (id: number, action: 'share' | 'archive') => {
+      setBusy(action + ':' + id);
+      setFlash(null);
+      try {
+        const res = await fetch('/api/n8n/docs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, id })
+        });
+        const body = await res.json().catch(() => null);
+        if (!res.ok || !body?.ok) {
+          setFlash({ kind: 'err', text: errText(body) });
+          return;
+        }
+        if (action === 'share') {
+          setFlash({
+            kind: 'ok',
+            text: body.degraded
+              ? `已推送（对方无通道，已回落给你）：${body.url}`
+              : `已推送到 TG：${body.url}`
+          });
+        } else {
+          setFlash({ kind: 'ok', text: `已归档进知识库：${body.doc_id || '—'} · ${body.chunks || 0} 个片段` });
+        }
+      } catch (e: any) {
+        setFlash({ kind: 'err', text: String(e?.message || e) });
+      } finally {
+        setBusy('');
+      }
+    },
+    []
+  );
+
   return (
     <div className='flex flex-1 flex-col gap-4'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <div className='text-muted-foreground text-sm'>
           文档工厂：把平台里的内容变成<b>能发出去、能打印</b>的成品。生成后点标题即在新标签页打开，浏览器里可直接打印或另存为 PDF。
+          「推送」把链接发到 TG；「归档」把正文存进知识库，之后对话里就能问到它。
         </div>
         <div className='flex flex-wrap gap-2'>
           <MinutesDialog onCreated={load} busy={busy} create={create} />
@@ -193,9 +228,27 @@ export function DocsPanel() {
                     </TableCell>
                     <TableCell className='text-muted-foreground text-xs'>{fmtTime(d.created_at)}</TableCell>
                     <TableCell className='text-right'>
-                      <Button size='sm' variant='outline' render={<a href={`/api/n8n/docs/${d.id}`} target='_blank' rel='noreferrer' />}>
-                        打开
-                      </Button>
+                      <div className='flex justify-end gap-2'>
+                        <Button size='sm' variant='outline' render={<a href={`/api/n8n/docs/${d.id}`} target='_blank' rel='noreferrer' />}>
+                          打开
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          disabled={busy.startsWith('share')}
+                          onClick={() => act(d.id, 'share')}
+                        >
+                          {busy === 'share:' + d.id ? '…' : '推送'}
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          disabled={busy.startsWith('archive')}
+                          onClick={() => act(d.id, 'archive')}
+                        >
+                          {busy === 'archive:' + d.id ? '…' : '归档'}
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

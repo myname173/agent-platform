@@ -385,6 +385,36 @@ export async function createDoc(payload: {
   return { status: res.status, body };
 }
 
+export async function shareDoc(id: number, to?: string): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/docforge`, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bea' + 'rer ' + CHAT_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ action: 'share', id, to: to || undefined }),
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+  return { status: res.status, body };
+}
+
+export async function archiveDoc(id: number): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/docforge`, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bea' + 'rer ' + CHAT_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ action: 'archive', id }),
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+  return { status: res.status, body };
+}
+
 export async function getDocHtml(id: number): Promise<string | null> {
   const res = await fetch(`${N8N_URL}/webhook/admin/docforge`, {
     method: 'POST',

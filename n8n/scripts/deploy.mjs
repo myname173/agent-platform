@@ -143,6 +143,8 @@ const DATA_TABLE_COLUMNS = {
     { name: 'summary', type: 'string' },
     { name: 'source_ref', type: 'string' },
     { name: 'meta', type: 'string' },
+    { name: 'archived_at', type: 'string' },
+    { name: 'kb_doc_id', type: 'string' },
   ],
 
   // B3: weekly reviews (owner view by default, team view on demand)
