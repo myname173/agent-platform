@@ -17,7 +17,8 @@
     "lint:strict": "oxlint --deny-warnings",
     "format": "oxfmt --write . '!**/*.md' '!**/*.mdc' '!**/*.mdx' '!**/*.yml' '!**/*.yaml'",
     "format:check": "oxfmt --check . '!**/*.md' '!**/*.mdc' '!**/*.mdx' '!**/*.yml' '!**/*.yaml'",
-    "prepare": "husky"
+    "prepare": "husky",
+    "check:boundary": "node scripts/check-client-boundary.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.47",
