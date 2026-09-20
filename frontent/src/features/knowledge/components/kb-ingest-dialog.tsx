@@ -22,21 +22,45 @@ const OVERLAP_CHARS = 80;
 
 function chunkText(text: string): string[] {
   const sections = text.split(/\n(?=#{1,6}\s)/);
-  const chunks: string[] = [];
+  const out: string[] = [];
   for (const section of sections) {
-    const sents = section.replace(/\s+/g, ' ').match(/[^。！？!?\n]+[。！？!?\n]?/g) || [section];
+    // 只压横向空白，保留换行 —— 换行本身就是段落边界
+    const flat = section.replace(/[ \t\r]+/g, ' ');
+    const sents = flat.match(/[^。！？!?.；;\n]+[。！？!?.；;\n]?/g) || [flat];
     let cur = '';
     for (const s of sents) {
       if (cur && (cur + s).length > TARGET_CHARS) {
-        chunks.push(cur.trim());
+        out.push(cur.trim());
         cur = cur.slice(-Math.min(OVERLAP_CHARS, cur.length)) + s;
       } else {
         cur += s;
       }
     }
-    if (cur.trim()) chunks.push(cur.trim());
+    if (cur.trim()) out.push(cur.trim());
   }
-  return chunks.filter((c) => c.length > 0);
+  // Fallback: text with no sentence punctuation (an English paper, typically)
+  // never hits a boundary and arrives here as one enormous chunk. Hard-split
+  // anything well over target, preferring a space, keeping the overlap.
+  // Kept in step with the workflow copy — otherwise the preview lies.
+  const final: string[] = [];
+  for (const c of out) {
+    if (c.length <= TARGET_CHARS * 1.5) {
+      final.push(c);
+      continue;
+    }
+    let i = 0;
+    while (i < c.length) {
+      let cut = Math.min(i + TARGET_CHARS, c.length);
+      if (cut < c.length) {
+        const sp = c.lastIndexOf(' ', cut);
+        if (sp > i + TARGET_CHARS * 0.5) cut = sp + 1;
+      }
+      final.push(c.slice(i, cut).trim());
+      if (cut >= c.length) break;
+      i = Math.max(cut - OVERLAP_CHARS, i + 1);
+    }
+  }
+  return final.filter((x) => x.length > 0);
 }
 
 const EMBED_QUOTA = 1_000_000;

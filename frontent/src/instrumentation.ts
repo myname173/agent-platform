@@ -1,6 +1,9 @@
 import * as Sentry from '@sentry/nextjs';
 
-const sentryOptions: Sentry.NodeOptions | Sentry.EdgeOptions = {
+// No explicit annotation: Sentry moved these type names around (NodeOptions is
+// no longer exported in v10). Sentry.init below checks the shape anyway, which
+// is the authoritative contract and survives version bumps.
+const sentryOptions = {
   // Sentry DSN
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
 
