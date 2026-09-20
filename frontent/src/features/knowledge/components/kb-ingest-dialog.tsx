@@ -56,6 +56,58 @@ interface FileState {
   text: string;
 }
 
+
+const isPdf = (n: string) => /\.pdf$/i.test(n);
+const isDocx = (n: string) => /\.docx$/i.test(n);
+
+/* PDF / DOCX 的解析库都不小，按需加载，不进首屏。 */
+async function extractFileText(f: File): Promise<{ text: string; warning?: string }> {
+  if (isDocx(f.name)) {
+    const mammoth = await import('mammoth');
+    const out = await mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() });
+    const text = (out.value || '').trim();
+    return text ? { text } : { text: '', warning: '这份 .docx 没有解析出文本。' };
+  }
+  if (isPdf(f.name)) {
+    const pdfjs: any = await import('pdfjs-dist');
+    // webpack 会把 worker 作为资源打包出来
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/build/pdf.worker.min.mjs',
+      import.meta.url
+    ).toString();
+    const doc = await pdfjs.getDocument({ data: await f.arrayBuffer() }).promise;
+    const parts: string[] = [];
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      const content = await page.getTextContent();
+      // 逐个 item 拼接，遇到 y 坐标变化补换行，尽量保留段落结构
+      let lastY: number | null = null;
+      let line = '';
+      for (const it of content.items as any[]) {
+        if (typeof it.str !== 'string') continue;
+        const y = it.transform ? it.transform[5] : null;
+        if (lastY !== null && y !== null && Math.abs(y - lastY) > 2) {
+          parts.push(line);
+          line = '';
+        }
+        line += it.str;
+        if (y !== null) lastY = y;
+      }
+      if (line) parts.push(line);
+      parts.push('');
+    }
+    const text = parts.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (!text) {
+      return {
+        text: '',
+        warning: '这份 PDF 没有文本层（多半是扫描件/图片版）。需要 OCR 才能入库，当前不支持。'
+      };
+    }
+    return { text };
+  }
+  return { text: await f.text() };
+}
+
 export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
@@ -81,14 +133,19 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
   );
 
   const handleFile = useCallback(
-    (f: File) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const raw = String(e.target?.result || '');
+    async (f: File) => {
+      setError(null);
+      setBusy(true);
+      try {
+        const { text: raw, warning } = await extractFileText(f);
+        if (warning) setError(warning);
         setFile({ name: f.name, text: raw });
         processText(raw, f.name);
-      };
-      reader.readAsText(f, 'utf-8');
+      } catch (e: any) {
+        setError('读取失败：' + String((e && e.message) || e));
+      } finally {
+        setBusy(false);
+      }
     },
     [processText]
   );
@@ -200,9 +257,9 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
                     📄 {file.name} · {(file.text.length / 1000).toFixed(1)} KB
                   </span>
                 ) : (
-                  <span>点击或拖入 .txt / .md 文件</span>
+                  <span>点击或拖入 .txt / .md / .pdf / .docx 文件</span>
                 )}
-                <input ref={inputRef} type='file' accept='.txt,.md,.markdown' className='hidden' onChange={onInputChange} />
+                <input ref={inputRef} type='file' accept='.txt,.md,.markdown,.pdf,.docx' className='hidden' onChange={onInputChange} />
               </div>
 
               {!file && (
