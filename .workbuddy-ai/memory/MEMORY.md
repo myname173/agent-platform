@@ -40,6 +40,14 @@
 - `backend/`、`lobechat/` 是上游参考，禁止改动。
 - 改前端需 `docker compose build console` 重建镜像；改 `stream-bridge/server.js` 只需 restart。
 
+## 可观测性（排查用户侧问题用）
+
+- **能看到用户在控制台做了什么**：控制台每个操作都会调到 n8n 的 webhook，因此会留下**工作流执行记录**。
+  查法：`GET /api/v1/executions?workflowId=<id>&limit=N`（带 `X-N8N-API-KEY`），再 `GET /api/v1/executions/<id>?includeData=true` 看 `resultData.runData` 里节点的输入/输出。
+  例如 KB 工作流 `ip9r56a90uKJHFUb`：能看到用户检索了什么词、返回了几条、相似度多少。
+  **用户报"点了没反应/失败了"时，先查执行记录，比猜快得多。**
+- 注意：n8n 的执行记录会保留用户的查询内容，属于可见数据，处理时留意。
+
 ## 关键位置
 
 - 密钥：`.openclaw-autoclaw\workspace\.openclaw\tmp\p5\keys.json`（CHAT_API_KEY / N8N_API_KEY）
