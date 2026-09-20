@@ -75,11 +75,19 @@ interface IngestDialogProps {
   usedTokens?: number;
 }
 
-interface FileState {
+/** 队列里的一篇：读出来 → 算好分块 → 等摄取 → 出结果（或失败） */
+interface QueueItem {
+  id: string;
   name: string;
   text: string;
+  chunks: number;
+  status: 'reading' | 'ready' | 'ingesting' | 'done' | 'skipped' | 'error';
+  note?: string;
+  ingestedChunks?: number;
+  ingestedTokens?: number;
 }
 
+const ACCEPT = '.txt,.md,.markdown,.pdf,.docx';
 
 const isPdf = (n: string) => /\.pdf$/i.test(n);
 const isDocx = (n: string) => /\.docx$/i.test(n);
@@ -132,12 +140,21 @@ async function extractFileText(f: File): Promise<{ text: string; warning?: strin
   return { text: await f.text() };
 }
 
+const STATUS_LABEL: Record<QueueItem['status'], string> = {
+  reading: '读取中',
+  ready: '待摄取',
+  ingesting: '摄取中',
+  done: '完成',
+  skipped: '已跳过',
+  error: '失败'
+};
+
 export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
-  const [file, setFile] = useState<FileState | null>(null);
   const [text, setText] = useState('');
   const [chunks, setChunks] = useState<string[]>([]);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -156,20 +173,54 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
     [title]
   );
 
-  const handleFile = useCallback(
-    async (f: File) => {
+  /** 读一批文件：逐个解析，每读好一个就更新状态，失败的不影响其它 */
+  const addFiles = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
       setError(null);
       setBusy(true);
-      try {
-        const { text: raw, warning } = await extractFileText(f);
-        if (warning) setError(warning);
-        setFile({ name: f.name, text: raw });
-        processText(raw, f.name);
-      } catch (e: any) {
-        setError('读取失败：' + String((e && e.message) || e));
-      } finally {
-        setBusy(false);
+
+      const items: QueueItem[] = files.map((f, i) => ({
+        id: `${Date.now()}-${i}-${f.name}`,
+        name: f.name,
+        text: '',
+        chunks: 0,
+        status: 'reading' as const
+      }));
+      setQueue((prev) => [...prev, ...items]);
+
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const id = items[i].id;
+        try {
+          const { text: raw, warning } = await extractFileText(f);
+          const n = raw ? chunkText(raw).length : 0;
+          setQueue((prev) =>
+            prev.map((q) =>
+              q.id === id
+                ? {
+                    ...q,
+                    text: raw,
+                    chunks: n,
+                    status: raw ? ('ready' as const) : ('error' as const),
+                    note: warning || (raw ? undefined : '没有读到内容')
+                  }
+                : q
+            )
+          );
+          // 单文件时沿用旧体验：直接带出标题和分块预览
+          if (files.length === 1) processText(raw, f.name);
+        } catch (e: any) {
+          setQueue((prev) =>
+            prev.map((q) =>
+              q.id === id
+                ? { ...q, status: 'error' as const, note: String((e && e.message) || e) }
+                : q
+            )
+          );
+        }
       }
+      setBusy(false);
     },
     [processText]
   );
@@ -178,26 +229,121 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragging(false);
-      const f = e.dataTransfer.files?.[0];
-      if (f) handleFile(f);
+      const files = Array.from(e.dataTransfer.files || []);
+      if (files.length) addFiles(files);
     },
-    [handleFile]
+    [addFiles]
   );
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) handleFile(f);
+    const files = Array.from(e.target.files || []);
+    if (files.length) addFiles(files);
+    // 允许再次选择同一批文件
+    e.target.value = '';
   };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     processText(e.target.value);
   };
 
-  const estTokens = estimateTokens(chunks);
-  const projectedUsed = usedTokens + estTokens;
+  const removeFromQueue = (id: string) => setQueue((prev) => prev.filter((q) => q.id !== id));
+
+  const pending = queue.filter((q) => q.status === 'ready');
+  const readyChunks = pending.reduce((a, q) => a + q.chunks, 0);
+
+  // 批量时按队列合计；单文件（或纯粘贴）时用当前预览
+  const shownChunks = queue.length > 1 ? readyChunks : chunks.length;
+  const shownTokens =
+    queue.length > 1
+      ? pending.reduce((a, q) => a + Math.ceil(q.text.length / CHARS_PER_TOKEN), 0)
+      : estimateTokens(chunks);
+  const projectedUsed = usedTokens + shownTokens;
   const projectedPct = Math.round((projectedUsed / EMBED_QUOTA) * 100);
 
+  const ingestOne = async (item: QueueItem): Promise<'ok' | 'skipped' | 'error'> => {
+    setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'ingesting' as const } : q)));
+    try {
+      const res = await fetch('/api/n8n/kb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'ingest',
+          title: item.name.replace(/\.[^.]+$/, ''),
+          text: item.text
+        })
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.ok) {
+        setQueue((prev) =>
+          prev.map((q) =>
+            q.id === item.id
+              ? { ...q, status: 'error' as const, note: body?.error || `摄取失败（${res.status}）` }
+              : q
+          )
+        );
+        return 'error';
+      }
+      setQueue((prev) =>
+        prev.map((q) =>
+          q.id === item.id
+            ? {
+                ...q,
+                status: body.action === 'skipped' ? ('skipped' as const) : ('done' as const),
+                ingestedChunks: body.chunks ?? q.chunks,
+                ingestedTokens: body.tokens_billed ?? 0
+              }
+            : q
+        )
+      );
+      return body.action === 'skipped' ? 'skipped' : 'ok';
+    } catch (e: any) {
+      setQueue((prev) =>
+        prev.map((q) =>
+          q.id === item.id ? { ...q, status: 'error' as const, note: String((e && e.message) || e) } : q
+        )
+      );
+      return 'error';
+    }
+  };
+
+  /** 批量摄取：一篇一篇来 —— 嵌入 API 有并发与额度，串行既能报进度也更好定位失败 */
+  const runBatch = async () => {
+    if (!pending.length) return;
+    setBusy(true);
+    setError(null);
+
+    let ok = 0;
+    let skipped = 0;
+    let failed = 0;
+    let blocks = 0;
+    let tokens = 0;
+    for (const item of pending) {
+      const r = await ingestOne(item);
+      if (r === 'ok') ok += 1;
+      else if (r === 'skipped') skipped += 1;
+      else failed += 1;
+    }
+    for (const q of queue) {
+      if (q.status === 'done' || q.status === 'skipped') {
+        blocks += q.ingestedChunks ?? 0;
+        tokens += q.ingestedTokens ?? 0;
+      }
+    }
+
+    const parts = [`完成 ${ok} 篇`];
+    if (skipped) parts.push(`跳过 ${skipped} 篇（内容相同）`);
+    if (failed) parts.push(`失败 ${failed} 篇`);
+    parts.push(`共 ${blocks} 块 · 计费 ${tokens.toLocaleString()} tokens`);
+    setResult(parts.join(' · '));
+    if (ok || skipped) onDone();
+    setBusy(false);
+  };
+
   const submit = async () => {
+    if (queue.length > 1) {
+      await runBatch();
+      return;
+    }
     if (!title || !text) return;
     setBusy(true);
     setError(null);
@@ -205,7 +351,7 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
       const res = await fetch('/api/n8n/kb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ingest', title, text }),
+        body: JSON.stringify({ action: 'ingest', title, text })
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.ok) {
@@ -217,7 +363,7 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
           ' · ' +
           (body.chunks ?? 0) +
           ' 块 · ' +
-          (body.tokens_billed ?? estTokens) +
+          (body.tokens_billed ?? shownTokens) +
           ' tokens'
       );
       onDone();
@@ -233,12 +379,14 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
     if (!v) {
       setTitle('');
       setText('');
-      setFile(null);
       setChunks([]);
+      setQueue([]);
       setError(null);
       setResult(null);
     }
   };
+
+  const batch = queue.length > 1;
 
   return (
     <Dialog open={open} onOpenChange={close}>
@@ -259,14 +407,14 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
             <DialogHeader>
               <DialogTitle>摄取新文档</DialogTitle>
               <DialogDescription>
-                拖放文本文件（.txt / .md）或粘贴内容，预览分块后再提交。
+                可一次选多个文件（.txt / .md / .pdf / .docx），也可以粘贴内容，预览分块后再提交。
               </DialogDescription>
             </DialogHeader>
 
             <div className='flex flex-col gap-4'>
               <div
                 className={
-                  'flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-8 text-sm transition-colors ' +
+                  'flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-6 text-sm transition-colors ' +
                   (dragging
                     ? 'border-primary bg-primary/5 text-primary'
                     : 'border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/60')
@@ -276,17 +424,67 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
                 onDragLeave={() => setDragging(false)}
                 onDrop={onDrop}
               >
-                {file ? (
-                  <span className='font-medium'>
-                    📄 {file.name} · {(file.text.length / 1000).toFixed(1)} KB
-                  </span>
-                ) : (
-                  <span>点击或拖入 .txt / .md / .pdf / .docx 文件</span>
-                )}
-                <input ref={inputRef} type='file' accept='.txt,.md,.markdown,.pdf,.docx' className='hidden' onChange={onInputChange} />
+                <span>点击或拖入文件（可多选）</span>
+                <span className='text-muted-foreground mt-1 text-xs'>{ACCEPT}</span>
+                <input ref={inputRef} type='file' multiple accept={ACCEPT} className='hidden' onChange={onInputChange} />
               </div>
 
-              {!file && (
+              {batch && (
+                <div className='flex flex-col gap-1.5'>
+                  <div className='flex items-center justify-between'>
+                    <span className='text-xs font-medium'>待摄取 {queue.length} 篇</span>
+                    <span className='text-muted-foreground text-xs'>
+                      就绪 {pending.length} · 合计 {readyChunks} 块
+                    </span>
+                  </div>
+                  <ScrollArea className='max-h-52 rounded-md border'>
+                    <div className='flex flex-col gap-1.5 p-2'>
+                      {queue.map((q) => (
+                        <div key={q.id} className='flex items-center justify-between gap-2 text-xs'>
+                          <div className='flex min-w-0 items-center gap-2'>
+                            <Badge
+                              variant={
+                                q.status === 'error'
+                                  ? 'destructive'
+                                  : q.status === 'done'
+                                    ? 'default'
+                                    : 'outline'
+                              }
+                              className='shrink-0 font-normal'
+                            >
+                              {STATUS_LABEL[q.status]}
+                            </Badge>
+                            <span className='truncate'>{q.name}</span>
+                            <span className='text-muted-foreground shrink-0'>
+                              {q.chunks ? `${q.chunks} 块` : ''}
+                              {q.ingestedChunks ? ` · 入库 ${q.ingestedChunks}` : ''}
+                            </span>
+                          </div>
+                          <div className='flex shrink-0 items-center gap-1'>
+                            {q.note ? (
+                              <span className='text-muted-foreground max-w-[14rem] truncate' title={q.note}>
+                                {q.note}
+                              </span>
+                            ) : null}
+                            {q.status !== 'ingesting' ? (
+                              <Button
+                                size='sm'
+                                variant='ghost'
+                                disabled={busy}
+                                onClick={() => removeFromQueue(q.id)}
+                              >
+                                移除
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </div>
+              )}
+
+              {queue.length === 0 && (
                 <div className='flex flex-col gap-1.5'>
                   <Label>或直接粘贴内容</Label>
                   <textarea
@@ -299,16 +497,18 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
                 </div>
               )}
 
-              <div className='flex flex-col gap-1.5'>
-                <Label htmlFor='kb-title-new'>文档标题</Label>
-                <Input id='kb-title-new' value={title} onChange={(e) => setTitle(e.target.value)} placeholder='例如：平台运维手册 v2' />
-              </div>
+              {!batch && (
+                <div className='flex flex-col gap-1.5'>
+                  <Label htmlFor='kb-title-new'>文档标题</Label>
+                  <Input id='kb-title-new' value={title} onChange={(e) => setTitle(e.target.value)} placeholder='例如：平台运维手册 v2' />
+                </div>
+              )}
 
-              {chunks.length > 0 && (
+              {shownChunks > 0 && (
                 <div className='rounded-lg border p-3'>
                   <div className='mb-1.5 flex items-center justify-between text-xs'>
                     <span className='text-muted-foreground'>
-                      预计 {chunks.length} 块 · ~{estTokens.toLocaleString()} tokens
+                      预计 {shownChunks} 块 · ~{shownTokens.toLocaleString()} tokens
                     </span>
                     <span className={projectedPct > 90 ? 'font-semibold text-destructive' : 'text-muted-foreground'}>
                       摄取后额度占用 {projectedPct}%
@@ -318,7 +518,7 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
                 </div>
               )}
 
-              {chunks.length > 0 && (
+              {!batch && chunks.length > 0 && (
                 <div>
                   <div className='mb-1.5 flex items-center gap-2'>
                     <span className='text-xs font-medium'>分块预览</span>
@@ -344,9 +544,20 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
             </div>
 
             <DialogFooter>
-              <Button variant='outline' onClick={() => close(false)}>取消</Button>
-              <Button disabled={busy || !title || !text} onClick={submit}>
-                {busy ? '摄取中…' : '摄取 ' + chunks.length + ' 块'}
+              <Button variant='outline' onClick={() => close(false)} disabled={busy}>
+                取消
+              </Button>
+              <Button
+                disabled={busy || (batch ? pending.length === 0 : !title || !text)}
+                onClick={submit}
+              >
+                {busy
+                  ? batch
+                    ? '摄取中…'
+                    : '摄取中…'
+                  : batch
+                    ? `摄取 ${pending.length} 篇`
+                    : '摄取 ' + chunks.length + ' 块'}
               </Button>
             </DialogFooter>
           </>
