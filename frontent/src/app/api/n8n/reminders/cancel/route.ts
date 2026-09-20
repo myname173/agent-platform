@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
 import { cancelReminder } from '@/lib/n8n-client';
+import { requireUser } from '@/lib/api-guard';
 
 export async function POST(req: Request) {
-  const { userId } = await auth();
-
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const { denied } = await requireUser();
+  if (denied) return denied;
 
   let id = 0;
   try {

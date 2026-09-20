@@ -6,7 +6,7 @@ export async function GET() {
   const { userId } = await auth();
 
   if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: '登录状态已失效，请重新登录后再试' }, { status: 401 });
   }
 
   try {

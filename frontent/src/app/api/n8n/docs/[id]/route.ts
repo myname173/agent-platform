@@ -22,9 +22,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const shared = verifyDocToken(docId, token);
 
   if (!shared) {
+    // 分享签名无效时退回登录态校验。这里保持 401 —— 与"服务端之间出问题"的 502 不同，
+    // 但光秃秃的 "Unauthorized" 说不清是链接坏了还是没登录，所以写明白。
     const { userId } = await auth();
     if (!userId) {
-      return new Response('Unauthorized', { status: 401 });
+      return new Response('文档链接无效或已过期，且当前未登录', { status: 401 });
     }
   }
 
