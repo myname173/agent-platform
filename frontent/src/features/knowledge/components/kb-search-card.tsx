@@ -5,12 +5,24 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { searchKb, type KbSearchResult } from '@/lib/n8n-client';
 
 /**
  * 检索测试台：直接对知识库做一次语义检索，看命中的是哪几段、相似度多少。
- * 入库之后如果「搜不到」，这里是第一个能自查的地方 —— 不用等到模型侧才发现问题。
+ * 入库之后如果「搜不到」，这里是第一个能自查的地方 —— 不用等到模型侧才发现。
+ *
+ * 注意：这里必须走 /api/n8n/kb 这个服务端路由，不能直接用 lib/n8n-client 里的
+ * searchKb()。那个函数会带上 CHAT_API_KEY，而它是服务端专用变量 —— 在浏览器里是空的，
+ * 结果就是每个请求都没有凭据、被 n8n 拒掉，而前端只看到一个笼统的失败提示。
+ * 控制台里所有卡片的取数都走这个路由，保持一致。
  */
+interface KbSearchResult {
+  title: string;
+  doc_id: string;
+  seq: number;
+  content: string;
+  score: number;
+}
+
 export function KbSearchCard() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<KbSearchResult[] | null>(null);
@@ -26,8 +38,18 @@ export function KbSearchCard() {
     setResults(null);
     const t0 = Date.now();
     try {
-      const r = await searchKb(q, 5);
-      setResults(r.results || []);
+      const res = await fetch('/api/n8n/kb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'search', query: q, top_k: 5 })
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.ok) {
+        // 上游出错时提示里带上它给的原因，别再只显示一句笼统的失败
+        setError(body?.error || body?.message || `请求失败（${res.status}）`);
+        return;
+      }
+      setResults(body.results || []);
       setTook(Date.now() - t0);
     } catch (e: any) {
       setError(String((e && e.message) || e));

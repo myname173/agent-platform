@@ -244,6 +244,12 @@ export async function getKbDocs(): Promise<{ ok: boolean; docs: KbDoc[] }> {
   return res.json();
 }
 
+/**
+ * ⚠️ 下面这些带 CHAT_API_KEY / N8N_API_KEY 的函数**只能在服务端调用**（Route Handler、
+ * Server Component）。CHAT_API_KEY 不是 NEXT_PUBLIC_ 变量，打包进浏览器后是空字符串，
+ * 于是请求不带凭据、被 n8n 拒掉，而前端只会看到一个笼统的失败提示。
+ * 客户端组件请一律走 /api/n8n/* 路由 —— 控制台所有卡片都是这个模式。
+ */
 export async function kbAction(payload: Record<string, unknown>): Promise<{ status: number; body: any }> {
   const res = await fetch(`${N8N_URL}/webhook/admin/kb/ingest`, {
     method: 'POST',
