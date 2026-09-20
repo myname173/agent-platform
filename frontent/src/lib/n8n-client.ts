@@ -539,6 +539,25 @@ export interface Delegation {
   oldest_waiting: { id: number; text: string; owner: string; due_date: string; days_late: number } | null;
   people: DelegationPerson[];
   attention: string[];
+  trend: {
+    day: string;
+    open: number;
+    overdue: number;
+    awaiting_ack: number;
+    done: number;
+    ack_rate: number | null;
+  }[];
+  trend_summary: {
+    days: number;
+    done_7d: number;
+    open_now: number;
+    overdue_now: number;
+    open_delta_7d: number;
+    overdue_delta_7d: number;
+    ack_rate_now: number | null;
+    ack_rate_7d_ago: number | null;
+    closure_rate_7d: number | null;
+  } | null;
 }
 
 export async function getDelegation(): Promise<Delegation> {

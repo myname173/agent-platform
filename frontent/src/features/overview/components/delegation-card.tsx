@@ -37,9 +37,41 @@ interface Delegation {
   oldest_waiting: { id: number; text: string; owner: string; due_date: string; days_late: number } | null;
   people: DPerson[];
   attention: string[];
+  trend: {
+    day: string;
+    open: number;
+    overdue: number;
+    awaiting_ack: number;
+    done: number;
+    ack_rate: number | null;
+  }[];
+  trend_summary: {
+    days: number;
+    done_7d: number;
+    open_now: number;
+    overdue_now: number;
+    open_delta_7d: number;
+    overdue_delta_7d: number;
+    ack_rate_now: number | null;
+    ack_rate_7d_ago: number | null;
+    closure_rate_7d: number | null;
+  } | null;
 }
 
 const ROLE_LABEL: Record<string, string> = { owner: '机主', member: '成员', guest: '外部' };
+const fmtPct = (v: number | null | undefined) => (v === null || v === undefined ? '—' : v + '%');
+
+function Delta({ label, v }: { label: string; v: number }) {
+  if (!v) return <span className='text-muted-foreground'>{label} 持平</span>;
+  const worse = v > 0;
+  return (
+    <span className={worse ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'}>
+      {label} {worse ? '+' : ''}
+      {v}
+    </span>
+  );
+}
+
 
 const fmtAck = (h: number | null) => {
   if (h === null || h === undefined) return '—';
@@ -121,6 +153,62 @@ export function DelegationCard() {
                 <span className='text-muted-foreground'>
                   （{data.oldest_waiting.owner} · 逾期 {data.oldest_waiting.days_late} 天）
                 </span>
+              </div>
+            ) : null}
+
+            {data.trend && data.trend.length ? (
+              <div className='bg-muted/30 flex flex-col gap-2 rounded-md border px-3 py-2'>
+                <div className='flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
+                  <span className='font-medium'>走向</span>
+                  {data.trend_summary ? (
+                    <>
+                      <span className='text-muted-foreground'>近 7 天完成 {data.trend_summary.done_7d}</span>
+                      {data.trend_summary.closure_rate_7d !== null ? (
+                        <Badge variant='outline' className='font-normal'>
+                          闭环率 {data.trend_summary.closure_rate_7d}%
+                        </Badge>
+                      ) : null}
+                      <Delta label='在办' v={data.trend_summary.open_delta_7d} />
+                      <Delta label='逾期' v={data.trend_summary.overdue_delta_7d} />
+                      <span className='text-muted-foreground'>
+                        回执率 {fmtPct(data.trend_summary.ack_rate_7d_ago)} → {fmtPct(data.trend_summary.ack_rate_now)}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+                <div className='flex h-10 items-end gap-1'>
+                  {data.trend.map((d) => {
+                    const max = Math.max(1, ...data.trend.map((x) => x.open));
+                    const h = Math.round((d.open / max) * 100);
+                    const oh = d.open ? Math.round((d.overdue / d.open) * 100) : 0;
+                    return (
+                      <div
+                        key={d.day}
+                        className='h-full flex-1'
+                        title={`${d.day} · 在办 ${d.open} · 逾期 ${d.overdue} · 完成 ${d.done}`}
+                      >
+                        <div className='flex h-full flex-col justify-end'>
+                          <div
+                            className='bg-muted-foreground/30 relative w-full rounded-sm'
+                            style={{ height: (d.open ? Math.max(h, 4) : 2) + '%' }}
+                          >
+                            {d.overdue ? (
+                              <div
+                                className='bg-destructive/70 absolute bottom-0 w-full rounded-sm'
+                                style={{ height: oh + '%' }}
+                              />
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className='text-muted-foreground flex justify-between text-[10px]'>
+                  <span>{data.trend[0].day.slice(5)}</span>
+                  <span className='text-muted-foreground'>柱高＝在办，红色＝其中逾期</span>
+                  <span>{data.trend[data.trend.length - 1].day.slice(5)}</span>
+                </div>
               </div>
             ) : null}
 
