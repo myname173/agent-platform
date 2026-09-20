@@ -23,6 +23,10 @@
 
 ## 技术红线
 
+- **客户端组件绝不能直接调 `lib/n8n-client` 里带 `CHAT_API_KEY` / `N8N_API_KEY` 的函数**（`kbAction`、`searchKb`、`getDelegation`…）。它们是服务端专用变量（非 `NEXT_PUBLIC_`），**打包进浏览器后是空字符串** → 请求不带凭据 → n8n 401，而前端只看到笼统失败。
+  **客户端一律走 `/api/n8n/*` 路由**，由 Route Handler 在服务端带密钥转发。控制台所有卡片都是这个模式。
+  （真实教训：KB 检索卡曾直接调 `searchKb()`，用户点到就报 "KB search failed"，排查全靠猜。）
+
 - **控制台镜像用 `bun install --no-save --frozen-lockfile` 装依赖（Dockerfile 里 `npm i -g bun`）。** 所以**改 `frontent/package.json` 必须连带重新生成 `frontent/bun.lock`**，否则构建直接失败。本地没有 bun 时先 `npm install -g bun`（约 50s），再 `bun install`（约 90s）。
   （npm/pnpm 只是本地跑脚本用，与镜像构建无关；混用会让 lock 不一致。）
 
