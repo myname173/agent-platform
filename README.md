@@ -174,9 +174,15 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 
 | 命令 | 覆盖面 | 何时跑 |
 | --- | --- | --- |
-| `node n8n/scripts/smoke-test.mjs` | 64 项端到端 | 每批交付后 |
-| 控制台「自检」/ `POST /webhook/admin/selfcheck/run` | 40 项（只读 + 少量幂等写），每日 04:15 | 每天 |
+| `node n8n/scripts/smoke-test.mjs` | 71 项端到端（含控制台守卫 7 项） | 每批交付后 |
+| 控制台「自检」/ `POST /webhook/admin/selfcheck/run` | 42 项（只读 + 少量幂等写），每日 04:15 | 每天 |
+| `node n8n/scripts/mcp-test.mjs` | MCP 全部 17 个工具（`MCP_TEST_SLOW=1` 额外跑 `run_brief` / `web_search`） | 改 MCP 后 |
 | `node n8n/scripts/check-tool-contract.mjs` | 网关工具表 vs 侧车 `SERVER_TOOLS` | 部署前 |
+
+MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_API_KEY` 用于清理测试数据。
+
+> 为什么 MCP 要单独一套：它是平台**唯一对外的接口**。它坏了，平台内部所有自检都是绿的，
+> 而外部客户端完全用不了 —— 这类故障不会被任何其他检查发现。
 
 ### 已知坑位（踩过的，别再踩）
 
