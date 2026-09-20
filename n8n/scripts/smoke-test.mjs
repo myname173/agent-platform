@@ -396,6 +396,54 @@ group('chat retention (manual trigger — runs retention for real)');
   check(j?.retention?.every((x) => !x.error), 'no retention errors', JSON.stringify(j?.retention));
 }
 
+/* ---------------- console api guards ---------------- */
+/* The console → n8n hop is where today's failures were, and it had no coverage:
+   smoke only exercised n8n. These also guard against the worst case — someone
+   removing the auth check from a route and exposing data. */
+group('console api guards');
+{
+  const CONSOLE = (process.env.CONSOLE_URL || 'http://localhost:3000').replace(/\/$/, '');
+  const ROUTES = [
+    { name: 'kb', method: 'POST', path: '/api/n8n/kb' },
+    { name: 'delegation', method: 'GET', path: '/api/n8n/delegation' },
+    { name: 'todos', method: 'GET', path: '/api/n8n/todos' },
+    { name: 'reminders', method: 'GET', path: '/api/n8n/reminders' },
+    { name: 'people', method: 'GET', path: '/api/n8n/people' },
+    { name: 'overview', method: 'GET', path: '/api/n8n/overview' },
+    { name: 'docs/[id]', method: 'GET', path: '/api/n8n/docs/6' }
+  ];
+
+  let reachable = true;
+  try {
+    const probe = await fetch(`${CONSOLE}/api/n8n/health`, { signal: AbortSignal.timeout(5000) });
+    void probe;
+  } catch (e) {
+    reachable = false;
+    console.log(`  SKIP  console not reachable at ${CONSOLE} — guard checks skipped`);
+  }
+
+  if (reachable) {
+    for (const rt of ROUTES) {
+      let status = 0;
+      let text = '';
+      try {
+        const res = await fetch(`${CONSOLE}${rt.path}`, {
+          method: rt.method,
+          headers: { 'Content-Type': 'application/json' },
+          body: rt.method === 'POST' ? JSON.stringify({ action: 'search', query: 'x' }) : undefined,
+          signal: AbortSignal.timeout(15000)
+        });
+        status = res.status;
+        text = (await res.text().catch(() => '')).slice(0, 120);
+      } catch (e) {
+        fail(`${rt.name}: request failed`, String(e && e.message));
+        continue;
+      }
+      check(status === 401, `${rt.name}: unauthenticated -> 401`, `got ${status} ${text}`);
+    }
+  }
+}
+
 /* ---------------- summary ---------------- */
 const total = results.length;
 const failed = results.filter((x) => !x).length;
