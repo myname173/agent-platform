@@ -108,6 +108,10 @@ const DATA_TABLE_COLUMNS = {
     { name: 'enabled', type: 'number' },
     { name: 'seen', type: 'string' },
     { name: 'last_run_at', type: 'string' },
+    // Latest findings per keyword. Without this the digests only ever existed
+    // in the Telegram history — the console had nothing to show.
+    { name: 'last_notes', type: 'string' },
+    { name: 'last_found', type: 'number' },
   ],
   // admin line: todos (open-loop register, chat + brief + console)
   // B1: ownership + escalation fields (empty owner_ref = myself)

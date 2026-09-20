@@ -410,6 +410,38 @@ export async function cancelReminder(id: number): Promise<{ status: number; body
   return { status: res.status, body };
 }
 
+export interface TopicWatch {
+  keyword: string;
+  enabled: boolean;
+  last_run_at: string | null;
+  last_found: number;
+  notes: string[];
+}
+
+export interface TopicRunDigest {
+  keyword: string;
+  notes: string[];
+}
+
+/** 关键词监控：add / list / remove / run（run 时 push=false，结果直接返回不推送）。 */
+export async function topicWatch(
+  action: 'add' | 'list' | 'remove' | 'run',
+  keyword?: string
+): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/tools/topic-watch`, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + CHAT_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ action, keyword: keyword || undefined, push: false }),
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+  return { status: res.status, body };
+}
+
 export interface DocItem {
   id: number;
   title: string;
