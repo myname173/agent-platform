@@ -223,7 +223,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ kind: '推送', message: String($json.content_md || '').slice(0, 1500) }) }}",
+        "jsonBody": "={{ JSON.stringify({\n  kind: '晨报',\n  message: String($json.title || '晨报') + String.fromCharCode(10, 10) + String($json.content_md || '').slice(0, 3500)\n    + (String($json.content_md || '').length > 3500\n        ? String.fromCharCode(10, 10) + '…（内容较长已截断，完整版见控制台「Briefs」）'\n        : '')\n}) }}",
         "options": {
           "timeout": 15000
         }
@@ -236,8 +236,7 @@
         1560,
         60
       ],
-      "onError": "continueRegularOutput",
-      "disabled": true
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
