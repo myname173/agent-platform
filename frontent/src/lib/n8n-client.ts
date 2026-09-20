@@ -259,6 +259,25 @@ export async function kbAction(payload: Record<string, unknown>): Promise<{ stat
   return { status: res.status, body };
 }
 
+export interface KbSearchResult {
+  title: string;
+  doc_id: string;
+  seq: number;
+  content: string;
+  score: number;
+}
+
+export async function searchKb(
+  query: string,
+  topK = 6
+): Promise<{ ok: boolean; query: string; top_k: number; results: KbSearchResult[] }> {
+  const out = await kbAction({ mode: 'search', query, top_k: topK });
+  if (!out.body?.ok) {
+    throw new Error(out.body?.error || 'KB search failed');
+  }
+  return out.body;
+}
+
 export interface ModelEntry {
   alias: string;
   upstream: string;

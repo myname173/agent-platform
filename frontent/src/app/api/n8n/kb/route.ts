@@ -42,6 +42,12 @@ export async function POST(req: Request) {
     };
   } else if (action === 'retire') {
     upstream = { mode: 'retire', doc_id: String(payload.doc_id || '') };
+  } else if (action === 'search') {
+    upstream = {
+      mode: 'search',
+      query: String(payload.query || ''),
+      top_k: payload.top_k !== undefined ? Number(payload.top_k) : 6,
+    };
   } else {
     return NextResponse.json({ error: 'unknown action' }, { status: 400 });
   }

@@ -4,20 +4,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { KbIngestDialog } from './kb-ingest-dialog';
+import { KbSearchCard } from './kb-search-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Textarea } from '@/components/ui/textarea';
 
 interface KbDoc {
   doc_id: string;
@@ -129,6 +119,8 @@ export function KnowledgePanel() {
         </div>
       ) : null}
 
+      <KbSearchCard />
+
       <Card>
         <CardHeader>
           <div className='flex items-center justify-between'>
@@ -136,7 +128,7 @@ export function KnowledgePanel() {
               <CardTitle>知识文档</CardTitle>
               <CardDescription>{docs ? `${docs.length} 篇（含已下架）` : '加载中…'}</CardDescription>
             </div>
-            <IngestDialog onDone={load} />
+            <KbIngestDialog onDone={load} usedTokens={stats?.embed_tokens_used ?? 0} />
           </div>
         </CardHeader>
         <CardContent>
@@ -201,98 +193,6 @@ function StatCard({ title, value, sub, loading }: { title: string; value: string
         {sub ? <div className='text-muted-foreground text-xs'>{sub}</div> : null}
       </CardHeader>
     </Card>
-  );
-}
-
-function IngestDialog({ onDone }: { onDone: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState('');
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
-
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/n8n/kb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ingest', title, text })
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok || !body?.ok) {
-        setError(errText(body));
-        return;
-      }
-      setResult(
-        '摄取完成：' + body.action + ' · ' + (body.chunks ?? 0) + ' 块 · 计费 ' + (body.tokens_billed ?? 0) + ' tokens' +
-          (body.cumulative_embed_tokens !== undefined && body.cumulative_embed_tokens !== null
-            ? '（累计 ' + body.cumulative_embed_tokens + '）'
-            : '')
-      );
-      onDone();
-    } catch (e: any) {
-      setError(String(e?.message || e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const close = (v: boolean) => {
-    setOpen(v);
-    if (!v) {
-      setTitle('');
-      setText('');
-      setError(null);
-      setResult(null);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={close}>
-      <DialogTrigger render={<Button />}>摄取新文档</DialogTrigger>
-      <DialogContent className='sm:max-w-lg'>
-        {result ? (
-          <>
-            <DialogHeader>
-              <DialogTitle>摄取成功</DialogTitle>
-              <DialogDescription>{result}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button onClick={() => close(false)}>完成</Button>
-            </DialogFooter>
-          </>
-        ) : (
-          <>
-            <DialogHeader>
-              <DialogTitle>摄取新文档</DialogTitle>
-              <DialogDescription>内容将按约 750 字符切块并嵌入（消耗嵌入额度）。相同内容会自动跳过。</DialogDescription>
-            </DialogHeader>
-            <div className='flex flex-col gap-3'>
-              <div className='flex flex-col gap-1.5'>
-                <Label htmlFor='kb-title'>标题</Label>
-                <Input id='kb-title' value={title} onChange={(e) => setTitle(e.target.value)} placeholder='例如：平台运维手册 v2' />
-              </div>
-              <div className='flex flex-col gap-1.5'>
-                <Label htmlFor='kb-text'>正文</Label>
-                <Textarea id='kb-text' rows={8} value={text} onChange={(e) => setText(e.target.value)} placeholder='粘贴文档正文…' />
-              </div>
-              {error ? <p className='text-destructive text-sm'>{error}</p> : null}
-            </div>
-            <DialogFooter>
-              <Button variant='outline' onClick={() => close(false)}>
-                取消
-              </Button>
-              <Button disabled={busy || !title || !text} onClick={submit}>
-                {busy ? '摄取中…' : '摄取'}
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
   );
 }
 
