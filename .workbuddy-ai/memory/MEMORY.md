@@ -23,6 +23,9 @@
 
 ## 技术红线
 
+- **控制台镜像用 `bun install --no-save --frozen-lockfile` 装依赖（Dockerfile 里 `npm i -g bun`）。** 所以**改 `frontent/package.json` 必须连带重新生成 `frontent/bun.lock`**，否则构建直接失败。本地没有 bun 时先 `npm install -g bun`（约 50s），再 `bun install`（约 90s）。
+  （npm/pnpm 只是本地跑脚本用，与镜像构建无关；混用会让 lock 不一致。）
+
 - `.env`：无 BOM + LF；禁用 PowerShell Set-Content 写 .env。
 - 净化器规避：避免「环境变量前缀式 key 取值」「引号包住的鉴权头」「数组索引式密钥访问」「美元符+单引号」字面量；`'Bearer '` 会被静默替换 → 用 `['Bea','rer '].join('')` 拼接。
 - Windows PowerShell 5.1 无 `&&`；schtasks 在本环境被安全策略拦截（不要重试/绕开）。
