@@ -321,9 +321,11 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 
 ### 自动校验（四道）
 
-> **最后一次实跑：2026-09-21 16:45**（栈在线，搜索引擎换血之后）
+> **最后一次实跑：2026-09-21 18:05**（栈在线，自检三项加固之后）
 > smoke **71/71** · 工具契约 **15/15** · 客户端工具路径 **3/3** · 幂等+追踪 **PASS** ·
-> 自检 **44 项中 44 通过 / 0 失败 / 1 警告**（警告为部分引擎仍不稳定，但有结果）。
+> 自检 **47 项中 45 通过 / 0 失败 / 2 警告**。
+> 两条警告都是真问题：① `searxng engines` 部分引擎仍不稳定（有结果）；
+> ② **`selfcheck ran recently` —— 04:15 定时任务已 85.8 小时没跑**（见坑位 9）。
 > 这个时间戳是给人看的：三天前全绿不等于现在全绿。
 > 而**在此之前**「全绿也不等于能用」：SearXNG 引擎全被封、搜索一律返回空，
 > 上面每一道门照样是绿的——见坑位 8。
@@ -331,7 +333,7 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 | 命令 | 覆盖面 | 何时跑 |
 | --- | --- | --- |
 | `node n8n/scripts/smoke-test.mjs` | 71 项端到端（含控制台守卫 7 项） | 每批交付后 |
-| 控制台「自检」/ `POST /webhook/admin/selfcheck/run` | 44 项（只读 + 少量幂等写），每日 04:15 | 每天 |
+| 控制台「自检」/ `POST /webhook/admin/selfcheck/run` | 47 项（只读 + 少量幂等写），每日 04:15 | 每天 |
 | `node n8n/scripts/mcp-test.mjs` | MCP 全部 17 个工具（`MCP_TEST_SLOW=1` 额外跑 `run_brief` / `web_search`） | 改 MCP 后 |
 | `node n8n/scripts/check-tool-contract.mjs` | 网关清单 ↔ 侧车 `SERVER_TOOLS` ↔ `Execute Tool` 实现，且禁止再出现硬编码副本 | 部署前 |
 | `node --env-file=.env n8n/scripts/test-client-tools.mjs` | 带 `client_tools` 的入口（LobeHub）：服务端工具不得被原样透传 | 改工具分类逻辑后 |
@@ -401,6 +403,22 @@ MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_AP
    ① `keep_only` 只是**从默认名单里挑**，挑出来的 7 个里有 6 个仍是 `disabled: True`
    ——必须再用 `engines: [{name: X, disabled: false}]` 显式打开，否则只有 wikipedia 活着；
    ② `use_default_settings` 必须是**字典**才会读 `keep_only`，写成 `true` 会被静默忽略。
+
+9. **定时任务在 Windows 桌面上是"名义上"的 —— 04:15 那批根本没跑。**（2026-09-21 实测）
+   自检装好新鲜度检查后**当场报警**：`scheduled=85.8h`，即每日 04:15 的自检
+   **已经 3.6 天没有真正触发过**。90 条运行记录里只有 3 条是 `source=schedule`，
+   其余全是手动。根因是环境：容器今天 10:28–14:43 才起来，**04:15 时栈不在线**。
+   这与之前"备份定时任务静默停了 65 小时"（提交 `bb3cd6e`）是同一个根因。
+   **所有挂在凌晨的定时任务（自检、备份…）在这台机器上都要打个问号。**
+   可选项：把时间改到机器实际在线的时段 / 加一个"容器启动后补跑一次"的钩子 /
+   接受只在手动时检查。**注意**：自检的 `selfcheck ran recently` 会
+   **分别统计手动与定时** —— 否则手动跑一次就把定时停摆这件事盖住了。
+10. **n8n 数据表 rows 端点不带 `sortBy` 时返回的是"按主键最前面的 N 行"（最旧的）。**
+    客户端再排序只是在"最旧的 N 条里挑最新"，会得出完全错的结论
+    （实测：真实 age 是 0.1h，这么写会报 30h）。
+    **必须** `sortBy=createdAt%3Adesc`，且**冒号要百分号编码**；
+    建议手工拼 URL（`?limit=250&sortBy=createdAt%3Adesc`）走 `this.helpers.httpRequest`，
+    别让 http helper 二次编码。另：`report` 列存的是 `{checks:[...]}`，不是裸数组。
 
 ### 出向 MCP（连别人的服务）
 
