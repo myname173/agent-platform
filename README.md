@@ -2,11 +2,87 @@
 
 统一 AI Agent 中台平台，以 **n8n** 为核心工作流引擎，串联 **LobeChat**（用户对话前台）与 **Kiranism**（运营管理后台）。
 
-> **EN**: A self-hosted, single-machine AI agent platform. n8n is the orchestration
-> core (24 workflows); three user entry points — LobeHub (chat), an ops console
-> (Next.js) and a Telegram bridge — plus an MCP server for external agent clients.
-> They never call each other; they share one data layer and one key/governance model.
-> Full Chinese docs below. Jump to [部署到一台新机器](#部署到一台新机器).
+---
+
+## English
+
+**A self-hosted AI agent platform that runs on one machine.** Eight Docker
+Compose services, **24 n8n workflows** as the orchestration core, and four ways
+in — a chat front end (LobeHub), an ops console (Next.js), a Telegram bridge,
+and an MCP server for external agent clients.
+
+The organising idea: **the entry points never call each other.** Chat, console
+and Telegram all talk to n8n and stop there. Business logic lives in one place,
+so a change shows up everywhere at once instead of being reimplemented per
+surface.
+
+```
+ LobeHub :3210 ──┐
+ Console :3000 ──┼──▶ n8n :5678 ──▶ DeepSeek / SearXNG / tools / MCP
+ Telegram  poll ─┘        │
+                          ├── Postgres 17 + pgvector (ParadeDB)
+                          ├── MinIO (S3, file uploads)
+                          └── stream-bridge :3211 (streaming sidecar)
+```
+
+**What it actually does**
+
+- **Tool-using chat loop.** 12 server-side tools (web search, KB search, todos,
+  reminders, KB writes, daily brief, alerts…) that the model calls on its own,
+  capped at 2 rounds. Tool errors come back as structured messages so the model
+  can recover instead of the whole turn failing.
+- **RAG over your own documents.** pgvector + HNSW, 1024-d DashScope
+  embeddings. Upload PDF/DOCX/TXT/MD from the browser — parsing happens
+  client-side, so files never touch the server. Chunking is guarded: an
+  oversized chunk fails the daily check instead of silently ruining retrieval.
+- **Memory that survives sessions.** Facts are extracted conservatively after
+  each conversation and mirrored into LobeHub's memory store.
+- **Delegation.** Assign a todo to a person; delivery routes to their channel,
+  falls back to you if they have none, nags at 24h intervals, escalates, and
+  stops the moment they acknowledge.
+- **Pushes you can act on.** Reminders and nudges arrive with inline buttons —
+  tap *done* or *snooze* and it writes straight back to the same row.
+- **Runs itself.** Daily brief at 08:30, topic watch at 21:00, weekly review,
+  a 42-check self-test at 04:15, and five-artifact nightly backups with a
+  restore drill into a throwaway database.
+
+**Numbers** (verified 2026-09-21): 8 containers · 24 workflows · 39 webhook
+paths · 12 agent tools · 19 data tables · 25 console API routes · smoke test
+71/71 · self-check 42/42 · MCP regression 27/27.
+
+**Quick start on a fresh machine**
+
+```bash
+git clone https://github.com/myname173/agent-platform && cd agent-platform
+cp .env.example .env                                  # fill in the real values
+cp frontent/env.example.txt frontent/.env.local       # console secrets (gitignored)
+docker compose up -d                                  # 8 containers
+
+# once n8n answers (30–60s): create an n8n API key (Settings → n8n API),
+# put it in .env as N8N_API_KEY, then load the workflows
+N8N_URL=http://localhost:5678 N8N_API_KEY=<key> node n8n/scripts/deploy.mjs
+```
+
+Then three one-time steps: create a **DeepSeek credential** in n8n and re-run
+`deploy.mjs` (it re-points the credential id and prints what it did), create the
+MinIO bucket, and run `node n8n/scripts/lobehub-config.mjs`. Full Chinese
+walkthrough: [部署到一台新机器](#部署到一台新机器).
+
+**Verification** — four gates, all runnable locally:
+
+| Command | Covers |
+| --- | --- |
+| `node n8n/scripts/validate-workflows.mjs` | structure, unique webhook paths, env/compose consistency, secret scan |
+| `node n8n/scripts/smoke-test.mjs` | 71 end-to-end checks |
+| `POST /webhook/admin/selfcheck/run` | 42 checks, also daily at 04:15 |
+| `node n8n/scripts/mcp-test.mjs` | MCP protocol + all 17 tools |
+
+**About secrets.** No key lives in this repo. Workflows read `$env.*` at
+runtime; `.env` has never been committed. `deploy.mjs` pushes workflow JSON to
+*your* n8n and needs *your* `N8N_API_KEY` — a clone without those cannot reach
+anything.
+
+---
 
 ## 架构概览
 
