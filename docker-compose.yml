@@ -180,8 +180,8 @@ services:
       # container name; browsers resolve `minio` via the host hosts file (127.0.0.1).
       - S3_ENDPOINT=http://${PLATFORM_LAN_IP:-192.168.1.114}:9000 # LAN-reachable host so browser/phone presigned uploads work
       - S3_PUBLIC_DOMAIN=http://${PLATFORM_LAN_IP:-192.168.1.114}:9000
-      - S3_ACCESS_KEY_ID=lobechat-files
-      - S3_SECRET_ACCESS_KEY=lobechat-files-secret
+      - S3_ACCESS_KEY_ID=${MINIO_ROOT_USER}
+      - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}
       - S3_BUCKET=lobechat-files
       - S3_ENABLE_PATH_STYLE=1
       - S3_SET_ACL=0
@@ -204,9 +204,9 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      # Root credentials aligned with lobechat S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY
-      - MINIO_ROOT_USER=lobechat-files
-      - MINIO_ROOT_PASSWORD=lobechat-files-secret
+      # Root credentials come from .env; must match the lobechat S3_* vars above
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
     ports:
       - "9000:9000"
       - "9001:9001"

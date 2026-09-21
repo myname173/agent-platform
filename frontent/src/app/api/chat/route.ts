@@ -7,7 +7,7 @@ const BRIDGE_URL =
     ? 'http://stream-bridge:3211/v1'
     : 'http://127.0.0.1:3211/v1');
 
-const CHAT_API_KEY = process.env.CHAT_API_KEY || 'sk-n8n-agent';
+const CHAT_API_KEY = process.env.CHAT_API_KEY || '';
 
 export async function POST(req: NextRequest) {
   const { userId } = await auth();

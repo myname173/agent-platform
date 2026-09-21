@@ -25,5 +25,9 @@ Thumbs.db
 *.log
 backups/
 
+# AI assistant working state (internal paths, key file locations)
+.workbuddy-ai/
+.openclaw-autoclaw/
+
 # 开发模式产生的日志
 *.err

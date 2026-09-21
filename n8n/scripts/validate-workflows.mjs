@@ -60,7 +60,7 @@ for (const file of files) {
     }
     // secret scan inside node parameters
     const blob = JSON.stringify(node.parameters ?? {});
-    if (/(sk-[A-Za-z0-9]{8,}|eyJhbGciOi)/.test(blob)) {
+    if (/(eyJhbGciOi|(?<![\w-])sk-[A-Za-z0-9_-]{6,}(?![\w-]))/.test(blob)) {
       errors.push(`${file}: node "${node.name}" appears to contain a hardcoded key (sk-…/JWT)`);
     }
     if (node.type === 'n8n-nodes-base.webhook') {

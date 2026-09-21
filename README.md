@@ -89,7 +89,7 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
 ### 对话链路（LobeChat → n8n Chat Gateway → 大模型）
 1. 用户在 LobeChat 发送消息
 2. LobeChat 以 OpenAI 协议 POST 到 `http://n8n:5678/webhook/v1/chat/completions`
-   （鉴权：`Authorization: Bearer sk-n8n-agent`，与 compose 中 LobeChat 的 `OPENAI_API_KEY` 一致）
+   （鉴权：`Authorization: Bearer <CHAT_API_KEY>`，取自根目录 `.env`，与 compose 中 LobeChat 的 `OPENAI_API_KEY` 一致）
 3. **Chat Gateway** 工作流（源码在 `n8n/workflows/chat-gateway.json`）：
    - 校验 Bearer key，失败返回 401 + OpenAI 错误格式。两级鉴权：
      主 key（n8n env `CHAT_API_KEY`，与 LobeChat 共用，不限流）+ 托管 key
@@ -122,7 +122,7 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
 ### 统计接口（新增，供 Kiranism 后续接入）
 ```
 GET http://localhost:5678/webhook/v1/stats/executions
-Authorization: Bearer sk-n8n-agent
+Authorization: Bearer <CHAT_API_KEY>
 ```
 返回总量/成功率/平均延迟/按模型与客户端分布/独立会话数/成本聚合
 （total/24h/7d/按模型/按 key，USD）与最近 20 条执行（含 key_name、cost_usd）。
