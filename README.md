@@ -337,7 +337,11 @@ MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_AP
 - 子进程跑，执行前设 `RLIMIT_CPU / AS(512M) / FSIZE(16M) / NOFILE(64)`，外加墙钟超时（默认 15s，上限 30s）与 8KB 输出上限
 - **默认拒绝**联网、起子进程、动态执行（`eval/exec/__import__`）、写文件，并返回人类可读的理由
 - 每次执行写一行 `admin_audit`（记 `why` / 是否成功 / 是否被拦 / 代码长度）
-- 只有标准库（没有 numpy/pandas）；自检新增一项 `sandbox up`（43 项）
+- 镜像由 `n8n/sandbox.Dockerfile` 构建，带 **numpy 2.5.3 / pandas 3.0.6**（alpine 上有 musl wheel，
+  无需编译工具链）；新 clone 首次 `up` 会构建一次，之后走缓存
+- 内存上限 `SANDBOX_AS_MB`（默认 1536）——**512MB 连 pandas 都 import 不进来**
+  （症状是子进程 MemoryError，而 `docker exec` 里却能跑，因为没有 rlimits）
+- 自检新增一项 `sandbox up`（43 项）
 
 作为网关工具注册，模型可自行调用；侧车 `SERVER_TOOLS` 同步（契约门校验，现为 13 个工具）。
 
