@@ -283,7 +283,11 @@ $s.DisallowStartIfOnBatteries = $false
 Set-ScheduledTask -TaskName "Agent Platform Backup" -Settings $s
 ```
 
-改完确认：`(Get-ScheduledTask "Agent Platform Backup").Settings.StartWhenAvailable` 应为 `True`。
+改完确认：任务属性的「设置」里 **"如果错过了计划开始时间，请尽快运行"** 应为勾选状态。
+
+> 一键修：运行 `n8n/scripts/fix-backup-task.ps1`（右键 → 使用 PowerShell 运行）。
+> 它会改这两个设置、把执行超时从 72 小时收到 2 小时，并打印改后的值供核对。
+> 若提示权限不足，用管理员身份的终端再跑一次。
 
 **心跳必须带证据**：`backup-task.sh` 上报 `{"stamp","n","bytes","integrity"}`，
 自检 `backup heartbeat fresh` 要求 5/5 件、`bytes>0`、`integrity=4/4`——
