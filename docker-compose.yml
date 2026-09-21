@@ -59,12 +59,21 @@ services:
       - ALERT_WEBHOOK_FORMAT=${ALERT_WEBHOOK_FORMAT:-generic}
       # Console base URL used to build links pushed to phones (LAN-reachable).
       # Without it, workflow-generated links fall back to localhost and are dead on mobile.
-      - CONSOLE_URL=http://${PLATFORM_LAN_IP:-192.168.1.114}:3000
+      - CONSOLE_URL=http://${PLATFORM_LAN_IP:-127.0.0.1}:3000
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
       - DB_POSTGRESDB_USER=${POSTGRES_USER}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      # Tuning knobs the workflows read with sane in-code fallbacks; set them
+      # here so a fresh deploy can be tuned from .env alone.
+      - EMBED_QUOTA_TOKENS=${EMBED_QUOTA_TOKENS:-1000000}
+      - ALERT_SEVERITY_CRITICAL=${ALERT_SEVERITY_CRITICAL:-0.8}
+      # LobeHub owner account looked up by the memory mirror; change it if your
+      # LobeHub was registered with a different address.
+      - LOBEHUB_OWNER_EMAIL=${LOBEHUB_OWNER_EMAIL:-owner@agent-platform.local}
+      # Fallback for link building when CONSOLE_URL is empty.
+      - APP_URL=http://${PLATFORM_LAN_IP:-127.0.0.1}:3000
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
@@ -172,14 +181,14 @@ services:
       - AUTH_SECRET=${AUTH_SECRET}
       - KEY_VAULTS_SECRET=${KEY_VAULTS_SECRET}
       - JWKS_KEY=${JWKS_KEY}
-      - APP_URL=http://${PLATFORM_LAN_IP:-192.168.1.114}:3210
+      - APP_URL=http://${PLATFORM_LAN_IP:-127.0.0.1}:3210
       - INTERNAL_APP_URL=http://localhost:3210
       # LAN / phone access: extra trusted auth origins (comma-separated)
       - AUTH_ADDITIONAL_TRUSTED_ORIGINS=http://localhost:3210,http://127.0.0.1:3210
       # File storage: MinIO service below (Phase 4a). S3_ENDPOINT is the internal
       # container name; browsers resolve `minio` via the host hosts file (127.0.0.1).
-      - S3_ENDPOINT=http://${PLATFORM_LAN_IP:-192.168.1.114}:9000 # LAN-reachable host so browser/phone presigned uploads work
-      - S3_PUBLIC_DOMAIN=http://${PLATFORM_LAN_IP:-192.168.1.114}:9000
+      - S3_ENDPOINT=http://${PLATFORM_LAN_IP:-127.0.0.1}:9000 # LAN-reachable host so browser/phone presigned uploads work
+      - S3_PUBLIC_DOMAIN=http://${PLATFORM_LAN_IP:-127.0.0.1}:9000
       - S3_ACCESS_KEY_ID=${MINIO_ROOT_USER}
       - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}
       - S3_BUCKET=lobechat-files

@@ -2,6 +2,12 @@
 
 统一 AI Agent 中台平台，以 **n8n** 为核心工作流引擎，串联 **LobeChat**（用户对话前台）与 **Kiranism**（运营管理后台）。
 
+> **EN**: A self-hosted, single-machine AI agent platform. n8n is the orchestration
+> core (24 workflows); three user entry points — LobeHub (chat), an ops console
+> (Next.js) and a Telegram bridge — plus an MCP server for external agent clients.
+> They never call each other; they share one data layer and one key/governance model.
+> Full Chinese docs below. Jump to [部署到一台新机器](#部署到一台新机器).
+
 ## 架构概览
 
 ```
@@ -59,6 +65,38 @@ cd frontent && pnpm dev        # → http://localhost:3000
 - **LobeChat 对话界面**：http://localhost:3210
 - **Kiranism 管理后台**：http://localhost:3000
 - **MinIO 控制台**：http://localhost:9001（对象存储；API 在 9000）
+
+## 部署到一台新机器
+
+目标：`git clone` → 填 `.env` → `docker compose up -d` → 一条命令灌入工作流，就能跑。
+
+```bash
+git clone <this-repo> agent-platform && cd agent-platform
+cp .env.example .env          # 填真实值：CHAT_API_KEY / N8N_API_KEY / POSTGRES_PASSWORD /
+                              # DASHSCOPE_API_KEY / UPSTREAM_API_KEY / MCP_API_KEY / MINIO_ROOT_*
+docker compose up -d          # 8 个容器
+```
+
+等 n8n 就绪（首次 30–60 秒），把工作流灌进去：
+
+```bash
+# 先在 n8n（Settings → n8n API）建一个 API key，写进 .env 的 N8N_API_KEY
+N8N_URL=http://localhost:5678 N8N_API_KEY=<key> node n8n/scripts/deploy.mjs
+```
+
+`deploy.mjs` 会：创建/更新 24 条工作流 → 建好所有数据表与缺失列 → **把工作流里写死的凭据 ID 重映射到本机同名凭据** → 快照网关工具表。
+
+剩下的手工步骤只有三条：
+
+1. **DeepSeek 凭据**：n8n（Settings → Credentials）新建 `DeepSeek account`，再跑一次 `deploy.mjs`。
+   它会打印 `credential deepSeekApi: <旧id> -> <新id>` 并把新 id 写回 JSON；**没有这条凭据时部署不会失败**，只打一行提示。
+2. **MinIO 桶**：`docker exec minio mc mb local/lobechat-files`（或在 :9001 控制台建）。
+3. **LobeHub 接线**：`N8N_URL=… CHAT_API_KEY=… node n8n/scripts/lobehub-config.mjs`（`status` 看漂移，`apply` 修）。
+
+最后跑一遍 `node n8n/scripts/smoke-test.mjs`（71 项）。
+
+> - 换机器后记得改 `PLATFORM_LAN_IP`：它决定手机能否访问、预签名上传的主机名、以及推到 Telegram 的链接。不填就退回 `127.0.0.1`（仅本机）。
+> - **密钥不会随仓库走**：工作流 JSON 里没有任何 key 的值，只在运行时读 `$env.*`；`deploy.mjs` 推的是你自己 n8n 的地址。别人拉下来没有你的 `.env` 和 `N8N_API_KEY`，跑不动。
 
 ## 环境变量
 
@@ -230,8 +268,8 @@ MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_AP
 
 同一 Wi-Fi 下直接用手机浏览器打开（防火墙与可信来源已配置）：
 
-- 对话（LobeHub）：`http://192.168.1.114:3210`
-- 控制台：`http://192.168.1.114:3000`
+- 对话（LobeHub）：`http://<LAN-IP>:3210`
+- 控制台：`http://<LAN-IP>:3000`
 
 要点：
 - Windows 防火墙含三条入站规则（TCP 3210 / 3000 / 9000，仅限本地子网，命名 `agent-platform LAN: *`）；重装或换机后以管理员运行 `add-lan-rules.cmd` 可重建。
@@ -289,7 +327,7 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 ### 图片消息（视觉，2026-09-16 修复）
 
 - LobeHub 发图 → 网关 / 桥接自动把平台本地的图片 URL（任意 `host:3210` 与 `host:9000` 形式，含 LAN IP）内联为 base64 data URL，再送上游——本地地址上游无法直接下载。
-- 修复记录：此前转换只匹配 `localhost` / `127.0.0.1` 形式，从局域网（`192.168.1.114:3210`）访问时生成的图片地址会漏转、导致上游报 `Failed to download image`；现已覆盖任意主机形式，且桥接侧同步内联（图片轮次可走真流式，不再降级）。
+- 修复记录：此前转换只匹配 `localhost` / `127.0.0.1` 形式，从局域网（`<LAN-IP>:3210`）访问时生成的图片地址会漏转、导致上游报 `Failed to download image`；现已覆盖任意主机形式，且桥接侧同步内联（图片轮次可走真流式，不再降级）。
 - Telegram 发图（2026-09-16）：TG 里发照片 / 图片文件（可带文字说明）→ 侧车 `/image/fetch` 取图转 data URI → 网关视觉作答（文字回复）；至此 TG 输入三件套（文字 / 语音 / 图片）齐了。
 - TG 排版与体验（2026-09-16）：回复改 HTML 渲染（Markdown 转换，失败自动回退纯文本）、长回复按段落智能分段、长任务 12 秒进度提示；新增 `/memory` · `/todos` · `/reminders` 快捷命令（免模型直查）。
 ### 周报（Weekly Review，2026-09-16）

@@ -282,9 +282,69 @@ async function ensureDataTables(workflow) {
   return JSON.parse(blob.replaceAll(/"value":"@([\w-]+)"/g, (_, n) => `"value":"${ids[n]}"`));
 }
 
-async function deploy(file) {
+// --- credential remapping -------------------------------------------------
+// Workflow JSON in this repo carries the credential ids of whichever instance
+// exported them. On a fresh n8n those ids do not exist, so the node silently
+// loses its credential and fails at run time. Before deploying, re-point every
+// reference to a credential that exists on the TARGET instance, matched by
+// type + name (falling back to type alone).
+function collectCredentialRefs(wf) {
+  const refs = [];
+  for (const node of wf.nodes || []) {
+    const creds = node.credentials;
+    if (!creds) continue;
+    for (const [type, ref] of Object.entries(creds)) {
+      refs.push({ node: node.name, type, id: ref && ref.id, name: (ref && ref.name) || '' });
+    }
+  }
+  return refs;
+}
+
+// Mutates BOTH `wf` (the copy actually sent to n8n) and `raw` (the source
+// object, so the caller can persist the new ids). Only exact name matches are
+// propagated to `raw`: a type-only match is a guess and must not be committed.
+async function remapCredentials(wf, raw, available) {
+  const refs = collectCredentialRefs(wf);
+  if (!refs.length) return { changed: false, persisted: false };
+  let persisted = false;
+  const missing = new Set();
+  for (const ref of refs) {
+    const byName = ref.name
+      ? available.find((c) => c.type === ref.type && c.name === ref.name)
+      : null;
+    const match = byName || available.find((c) => c.type === ref.type);
+    if (!match) {
+      missing.add(`${ref.type}${ref.name ? ` ("${ref.name}")` : ''}`);
+      continue;
+    }
+    if (String(match.id) === String(ref.id)) continue;
+    const next = { id: match.id, name: match.name };
+    const node = (wf.nodes || []).find((n) => n.name === ref.node);
+    if (node) node.credentials[ref.type] = { ...next };
+    console.log(
+      `  credential ${ref.type}: ${ref.id} -> ${match.id} (${match.name})` +
+        (byName ? '' : ' [matched by type only — not written back]'),
+    );
+    if (byName) {
+      const srcNode = (raw.nodes || []).find((n) => n.name === ref.node);
+      if (srcNode) {
+        srcNode.credentials[ref.type] = { ...next };
+        persisted = true;
+      }
+    }
+  }
+  for (const m of missing) {
+    console.log(`  ! no credential ${m} on this instance — create it in n8n, then re-run deploy`);
+  }
+  return { changed: true, persisted };
+}
+
+async function deploy(file, availableCredentials) {
   const raw = JSON.parse(readFileSync(file, 'utf8'));
   const wf = await ensureDataTables(raw);
+  const creds = availableCredentials
+    ? await remapCredentials(wf, raw, availableCredentials)
+    : { changed: false, persisted: false };
   const payload = {
     name: wf.name,
     nodes: wf.nodes,
@@ -305,6 +365,12 @@ async function deploy(file) {
   if (existed) {
     await api('PUT', `/workflows/${id}`, payload);
     console.log(`updated  ${wf.name} (${id})`);
+    // Updated in place: the id is unchanged, so only the credential moved.
+    if (creds.persisted) {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(file, JSON.stringify(raw, null, 2) + '\n');
+      console.log(`  persisted credential id into ${file.split(/[\\/]/).pop()}`);
+    }
   } else {
     const created = await api('POST', '/workflows', payload);
     id = created.id;
@@ -312,7 +378,7 @@ async function deploy(file) {
     // persist the generated id back into the source file for future updates
     // (also covers recreation on a fresh instance, where the old id no
     //  longer exists and the source must follow the new one)
-    if (String(created.id) !== String(raw.id)) {
+    if (String(created.id) !== String(raw.id) || creds.persisted) {
       const { writeFileSync } = await import('node:fs');
       writeFileSync(file, JSON.stringify({ ...raw, id }, null, 2) + '\n');
     }
@@ -325,7 +391,9 @@ async function deploy(file) {
 }
 
 // optional: pass a filename fragment to deploy a single workflow only
-const only = process.argv[2] || '';
+// `--check-credentials` is offline: it only lists credential references.
+const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const only = args[0] || '';
 const files = readdirSync(dir)
   .filter((f) => f.endsWith('.json'))
   .filter((f) => !only || f.includes(only))
@@ -334,15 +402,39 @@ if (!files.length) {
   console.log('no workflow files found');
   process.exit(0);
 }
+
+if (process.argv.includes('--check-credentials')) {
+  let total = 0;
+  for (const f of files) {
+    const wf = JSON.parse(readFileSync(f, 'utf8'));
+    for (const ref of collectCredentialRefs(wf)) {
+      total += 1;
+      console.log(`${f.split(/[\\/]/).pop()}  ${ref.node}  ${ref.type}  id=${ref.id}  name=${ref.name}`);
+    }
+  }
+  console.log(`credential references: ${total}`);
+  process.exit(0);
+}
+
 // ensure all declared data tables exist (some are only referenced from Code
 // node strings, which the @name scan inside deploy() cannot see)
 for (const name of Object.keys(DATA_TABLE_COLUMNS)) {
   await resolveDataTableId(name);
 }
 
+// Credentials are instance-local: ids from another n8n will not resolve here,
+// so fetch the target's list once and re-point references during deploy.
+let availableCredentials = null;
+try {
+  const list = await api('GET', '/credentials');
+  availableCredentials = list.data || [];
+} catch (e) {
+  console.log(`! could not list credentials (${e.message}) — leaving references untouched`);
+}
+
 for (const f of files) {
   try {
-    await deploy(f);
+    await deploy(f, availableCredentials);
   } catch (e) {
     console.error(`FAILED ${f}: ${e.message}`);
     process.exitCode = 1;

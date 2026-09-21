@@ -31,3 +31,6 @@ backups/
 
 # 开发模式产生的日志
 *.err
+
+# theme watchdog state
+.theme-keeper-misses
