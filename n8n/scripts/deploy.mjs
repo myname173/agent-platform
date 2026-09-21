@@ -149,6 +149,16 @@ const DATA_TABLE_COLUMNS = {
     { name: 'updated_at', type: 'string' },
   ],
 
+  // Outbound MCP: servers the owner registered. The model may use them but
+  // never add them — registration stays a human action.
+  mcp_servers: [
+    { name: 'name', type: 'string' },
+    { name: 'url', type: 'string' },
+    { name: 'auth_header', type: 'string' },
+    { name: 'enabled', type: 'number' },
+    { name: 'note', type: 'string' },
+  ],
+
   // run_python approvals: hash-keyed, single use, short TTL
   sandbox_approvals: [
     { name: 'code_hash', type: 'string' },
