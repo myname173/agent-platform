@@ -74,8 +74,12 @@ cd frontent && pnpm dev        # → http://localhost:3000
 git clone <this-repo> agent-platform && cd agent-platform
 cp .env.example .env          # 填真实值：CHAT_API_KEY / N8N_API_KEY / POSTGRES_PASSWORD /
                               # DASHSCOPE_API_KEY / UPSTREAM_API_KEY / MCP_API_KEY / MINIO_ROOT_*
+cp frontent/env.example.txt frontent/.env.local   # 控制台的 Clerk / n8n 变量（仓库里没有，必须自己建）
 docker compose up -d          # 8 个容器
 ```
+
+> `frontent/.env.local` 是 gitignore 的，全新 clone 没有它。compose 已把它标成
+> `required: false`，缺了不会让整个栈起不来，但**控制台会因为没有 Clerk key 而不可用**。
 
 等 n8n 就绪（首次 30–60 秒），把工作流灌进去：
 
