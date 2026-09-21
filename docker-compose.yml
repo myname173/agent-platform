@@ -155,9 +155,19 @@ services:
     image: python:3-alpine
     container_name: n8n-sandbox
     restart: unless-stopped
-    command: ["python", "/mock.py"]
+    # Real code-execution service (was `python /mock.py`, an unused stub).
+    # NOT published to the host — only reachable from the docker network,
+    # and every /run call needs the shared secret.
+    command: ["python", "-u", "/sandbox.py"]
     volumes:
+      - ./n8n/sandbox_server.py:/sandbox.py:ro
       - ./n8n/mock.py:/mock.py:ro
+    expose:
+      - "8000"
+    environment:
+      - SANDBOX_KEY=${CHAT_API_KEY}
+      - SANDBOX_PORT=8000
+      - SANDBOX_TIMEOUT=15
     networks:
       - n8n-net
 
