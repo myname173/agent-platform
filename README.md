@@ -244,6 +244,25 @@ MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_AP
 7. **网关工具表与侧车 `SERVER_TOOLS` 是两份独立定义**，漏改不报错，只表现为「模型看得到工具
    但参数丢失」。改任何一侧都要同步另一侧，并跑 `check-tool-contract.mjs`。
 
+### 推送可操作（inline actions）
+
+`Notify` 的 body 可以带 `actions: [{label, kind, id, hours}]`，推送出去就自带按钮：
+
+| kind | 含义 | 写入 |
+|---|---|---|
+| `td` | 待办完成 | `/webhook/admin/todos/complete` |
+| `ta` | 收到（回执，不关闭） | `todos.ack_at` |
+| `ts` | 待办推迟 N 小时 | `todos.due_date` |
+| `rd` | 提醒知道了 | `/webhook/admin/reminders/cancel` |
+| `rs` | 提醒 N 小时后再响 | `reminders.due_at` |
+
+Telegram 渲染成 inline keyboard，点完写回同一行并摘掉按钮（防重复点）；其它渠道降级成一行文字提示。
+**不带 `actions` 时行为与改造前逐字一致。**
+
+两个调用点已接线：`Reminders → Check Due`（知道了 / 1 小时后再提醒）、`Reminders → Sweep Overdue Todos`（派出去的：我收到了 / 已完成；自己的：已完成 / 推迟 1 天）。
+
+> 坑：Telegram 桥的 `getUpdates` 原本是 `allowed_updates: ['message']`——**回调会被 Telegram 直接过滤掉**，按钮点了没反应。必须把 `'callback_query'` 加进去。
+
 ### 推送渠道（消息触达）
 
 统一出口：`Notify` 工作流（`POST /webhook/internal/notify`，Bearer 同 CHAT key）。晨报、告警与后续的提醒都从这里送出。
