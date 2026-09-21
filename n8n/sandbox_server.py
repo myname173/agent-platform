@@ -83,12 +83,18 @@ def scan_code(code, allow_network):
     return None
 
 
+# 512 MB was enough for the stdlib but not for pandas: importing it raised
+# MemoryError inside the child while it worked fine with `docker exec` (no
+# rlimits). Bounded, but roomy enough for real libraries.
+MAX_AS_MB = int(os.environ.get('SANDBOX_AS_MB', '1536'))
+
+
 def _limits(cpu_seconds):
     def apply():
         resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))
-        resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024,) * 2)
+        resource.setrlimit(resource.RLIMIT_AS, (MAX_AS_MB * 1024 * 1024,) * 2)
         resource.setrlimit(resource.RLIMIT_FSIZE, (16 * 1024 * 1024,) * 2)
-        resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
+        resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
     return apply
 
 

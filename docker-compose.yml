@@ -152,7 +152,13 @@ services:
   # n8n Code Sandbox - Isolated Python execution environment
   # --------------------------------------------------------------------------
   n8n-sandbox:
-    image: python:3-alpine
+    # Built locally instead of pulling bare python: the image carries numpy and
+    # pandas (see n8n/sandbox.Dockerfile). First `up` on a fresh clone builds it
+    # once (~1 min); afterwards it is cached.
+    build:
+      context: ./n8n
+      dockerfile: sandbox.Dockerfile
+    image: agent-platform/sandbox:3.14
     container_name: n8n-sandbox
     restart: unless-stopped
     # Real code-execution service (was `python /mock.py`, an unused stub).
@@ -168,6 +174,8 @@ services:
       - SANDBOX_KEY=${CHAT_API_KEY}
       - SANDBOX_PORT=8000
       - SANDBOX_TIMEOUT=15
+      # Address-space cap per run. 512 MB was too small to even import pandas.
+      - SANDBOX_AS_MB=1536
     networks:
       - n8n-net
 
