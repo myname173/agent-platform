@@ -1,4 +1,41 @@
-﻿use_default_settings: true
+﻿# 2026-09-21：默认启用的引擎（brave / duckduckgo / google cse / startpage /
+# wikidata）全部被上游封禁，web_search 一律返回 0 条却不报错。
+# 逐个实测后用 keep_only 换成这批免 key、实测能出结果的引擎：
+#   yep     英文最强（20 条，零 suspended）
+#   yandex  中英都行（中文 15 条）
+#   sogou   中文 11 条
+#   bing    中英都行（中文 10 条）
+#   quark   中文 9 条
+#   360search 中文 5 条
+#   wikipedia 通用事实保底
+# 实测不行的别加回来：baidu(CAPTCHA) / mojeek(access denied) / tusksearch(access denied)
+# keep_only 只在 use_default_settings 是【字典】时才生效（布尔 true 会被忽略）。
+use_default_settings:
+  engines:
+    keep_only:
+      - yep
+      - yandex
+      - bing
+      - sogou
+      - quark
+      - 360search
+      - wikipedia
+# keep_only 只是"从默认名单里挑出这几个"，挑出来之后它们在默认配置里
+# 仍然是 disabled: True（实测：7 个里 6 个是 True，只有 wikipedia 是启用的）。
+# 必须再显式打开，否则默认搜索只会用到 wikipedia —— 这正是第一版改完仍返回 0 条的原因。
+engines:
+  - name: yep
+    disabled: false
+  - name: yandex
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: sogou
+    disabled: false
+  - name: quark
+    disabled: false
+  - name: 360search
+    disabled: false
 server:
   secret_key: "n8nsecretkey123"
 search:
