@@ -149,6 +149,18 @@ const DATA_TABLE_COLUMNS = {
     { name: 'updated_at', type: 'string' },
   ],
 
+  // run_python approvals: hash-keyed, single use, short TTL
+  sandbox_approvals: [
+    { name: 'code_hash', type: 'string' },
+    { name: 'why', type: 'string' },
+    { name: 'snippet', type: 'string' },
+    { name: 'status', type: 'string' },
+    { name: 'requested_at', type: 'string' },
+    { name: 'decided_at', type: 'string' },
+    { name: 'expires_at', type: 'string' },
+    { name: 'used_at', type: 'string' },
+  ],
+
   // B5: document factory — rendered deliverables (minutes / weekly / brief / custom)
   documents: [
     { name: 'title', type: 'string' },
