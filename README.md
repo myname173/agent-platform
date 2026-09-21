@@ -263,6 +263,31 @@ bash n8n/scripts/backup.sh restore backups/n8n-data-XXXX.tar.gz   # 恢复 n8n �
 每次备份生成五件：`n8n-data-*.tar.gz`（卷：n8n 配置与旧 SQLite 回滚件）、
 `pg-n8n-*.sql.gz`（n8n 库逻辑导出）、`pg-lobechat-*.sql.gz`（LobeHub 库：对话/用户数据）、
 `minio-data-*.tar.gz`（对象存储：文件/图片）、`config-*.tar.gz`（compose + .env）。
+
+#### ⚠️ Windows 计划任务的坑（备份为什么曾经停摆 65 小时）
+
+任务 `Agent Platform Backup` 存在且启用，但只有**一个**触发器（每日 03:30），并且：
+
+| 设置 | 值 | 后果 |
+| --- | --- | --- |
+| `StartWhenAvailable` | **false** | **那个点机器关机/睡眠 → 直接跳过，开机后不补跑** |
+| `DisallowStartIfOnBatteries` | true | 用电池时也不跑 |
+
+对一台晚上会关机的机器来说，这等于**备份永远不会跑**。修一次即可：
+
+```powershell
+$t = Get-ScheduledTask -TaskName "Agent Platform Backup"
+$s = $t.Settings
+$s.StartWhenAvailable = $true
+$s.DisallowStartIfOnBatteries = $false
+Set-ScheduledTask -TaskName "Agent Platform Backup" -Settings $s
+```
+
+改完确认：`(Get-ScheduledTask "Agent Platform Backup").Settings.StartWhenAvailable` 应为 `True`。
+
+**心跳必须带证据**：`backup-task.sh` 上报 `{"stamp","n","bytes","integrity"}`，
+自检 `backup heartbeat fresh` 要求 5/5 件、`bytes>0`、`integrity=4/4`——
+空心跳（手工 curl 的那种）会被判失败。别再用补心跳的方式"救火"，那正是它骗了 63 小时的原因。
 恢复参考：`gunzip -c backups/pg-n8n-*.sql.gz | docker exec -i postgres psql -U n8n -d n8n`；
 `gunzip -c backups/pg-lobechat-*.sql.gz | docker exec -i postgres psql -U n8n -d lobechat`；
 MinIO：停 minio 后把归档解回 `minio_data` 卷。每日 03:30 计划任务自动执行（含四项完整性检查）。
@@ -282,7 +307,7 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 真正会丢的东西）、MinIO 归档条目数；并报备份新鲜度（超 `MAX_AGE_HOURS` 默认 48 小时即失败）。
 
 「线上有、恢复结果里没有」的表会单列成 **GAP** 而不算演练失败——通常是该表在最后一次备份
-之后才创建，对策是再跑一次 `backup.sh`。备份只有 03:00 / 15:00 两班，**新建的表最长要等
+之后才创建，对策是再跑一次 `backup.sh`。备份由 Windows 计划任务每日 03:30 触发（只有一个触发器），**新建的表最长要等
 12 小时才进入保护**，所以建表后补一次备份是好习惯。
 
 演练在宿主机侧（要访问 `backups/` 与 docker），n8n 容器内看不到，因此**不在每日自检里**，
