@@ -7,16 +7,14 @@
         "rule": {
           "interval": [
             {
-              "field": "days",
-              "daysInterval": 1,
-              "triggerAtHour": 8,
-              "triggerAtMinute": 30
+              "field": "cronExpression",
+              "expression": "30 8,11,15 * * *"
             }
           ]
         }
       },
       "id": "schedule-daily-830",
-      "name": "Schedule Daily 8:30",
+      "name": "Schedule Daily 8:30/11:30/15:30",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
@@ -237,20 +235,22 @@
         60
       ],
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "/* The 08:30 slot is useless on a host that is asleep at 08:30 — today the\n   stack only came up around 10:28 and the brief never ran. Extra slots at\n   11:30 / 15:30 are pure catch-up: daily_briefs has no dedup of its own, so\n   without this guard an always-on host would produce three briefs a day. */\nconst H = { 'X-N8N-API-KEY': $env.N8N_API_KEY };\nconst list = await this.helpers.httpRequest({ method: 'GET', url: 'http://localhost:5678/api/v1/data-tables', qs: { limit: 100 }, headers: H });\nconst t = (list.data || []).find((x) => x.name === 'daily_briefs');\nif (!t) return $input.all();\nconst rows = await this.helpers.httpRequest({ method: 'GET', url: 'http://localhost:5678/api/v1/data-tables/' + t.id + '/rows?limit=250&sortBy=createdAt%3Adesc', headers: H });\n/* brief_date is written as a UTC date; the slots all map to the same UTC day */\nconst d = new Date();\nconst today = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);\nconst done = ((rows.data || {}).data || []).some((r) => String(r.brief_date || '').slice(0, 10) === today);\nif (done) return [];\nreturn $input.all();"
+      },
+      "id": "brief-guard",
+      "name": "Already Briefed Today",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        180,
+        -120
+      ]
     }
   ],
   "connections": {
-    "Schedule Daily 8:30": {
-      "main": [
-        [
-          {
-            "node": "Auth Check",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Manual Run": {
       "main": [
         [
@@ -334,6 +334,28 @@
           },
           {
             "node": "Push Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Daily 8:30/11:30/15:30": {
+      "main": [
+        [
+          {
+            "node": "Already Briefed Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Briefed Today": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
             "type": "main",
             "index": 0
           }

@@ -7,15 +7,14 @@
         "rule": {
           "interval": [
             {
-              "field": "days",
-              "daysInterval": 1,
-              "triggerAtHour": 3
+              "field": "cronExpression",
+              "expression": "0 3,14 * * *"
             }
           ]
         }
       },
       "id": "schedule-daily",
-      "name": "Schedule Daily 3am",
+      "name": "Schedule Daily 3am/2pm",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
@@ -133,17 +132,6 @@
     }
   ],
   "connections": {
-    "Schedule Daily 3am": {
-      "main": [
-        [
-          {
-            "node": "Auth Check",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Manual Run": {
       "main": [
         [
@@ -189,6 +177,17 @@
         [
           {
             "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Daily 3am/2pm": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
             "type": "main",
             "index": 0
           }

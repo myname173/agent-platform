@@ -96,10 +96,8 @@
         "rule": {
           "interval": [
             {
-              "field": "days",
-              "daysInterval": 1,
-              "triggerAtHour": 4,
-              "triggerAtMinute": 15
+              "field": "cronExpression",
+              "expression": "15 4,10,16,21 * * *"
             }
           ]
         }
@@ -131,6 +129,19 @@
         "respondWith": "firstIncomingItem",
         "options": {}
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "/* The schedule now fires at 04:15 / 10:15 / 16:15 / 21:15. Those extra slots\n   exist only because the host is a desktop that is often off at 04:15 — today\n   it was, and the daily selfcheck had not really run for 3.6 days.\n   Once one slot has landed today the rest must be no-ops, otherwise a host\n   that is up all day runs the whole suite four times. */\nconst H = { 'X-N8N-API-KEY': $env.N8N_API_KEY };\nconst list = await this.helpers.httpRequest({ method: 'GET', url: 'http://localhost:5678/api/v1/data-tables', qs: { limit: 100 }, headers: H });\nconst t = (list.data || []).find((x) => x.name === 'selfcheck_runs');\nif (!t) return $input.all();\nconst rows = await this.helpers.httpRequest({ method: 'GET', url: 'http://localhost:5678/api/v1/data-tables/' + t.id + '/rows?limit=250&sortBy=createdAt%3Adesc', headers: H });\n/* schedule fires on container-local time, so compare local dates */\nconst d = new Date();\nconst today = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);\nconst ran = ((rows.data || {}).data || []).some((r) => r.source === 'schedule' && String(r.checked_at || r.createdAt || '').slice(0, 10) === today);\nif (ran) return [];\nreturn $input.all();"
+      },
+      "id": "sc-guard",
+      "name": "Already Ran Today",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -620,
+        200
+      ]
     }
   ],
   "connections": {
@@ -178,7 +189,7 @@
       "main": [
         [
           {
-            "node": "Run Selfcheck",
+            "node": "Already Ran Today",
             "type": "main",
             "index": 0
           }
@@ -190,6 +201,17 @@
         [
           {
             "node": "Respond Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Ran Today": {
+      "main": [
+        [
+          {
+            "node": "Run Selfcheck",
             "type": "main",
             "index": 0
           }
