@@ -1,0 +1,12 @@
+# Normalise line endings so clones behave the same on Windows and Linux.
+# Shell scripts (n8n/scripts/*.sh) break with CRLF on Linux.
+* text=auto eol=lf
+
+# Binary assets must never be normalised
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.gz binary
+*.woff binary
+*.woff2 binary

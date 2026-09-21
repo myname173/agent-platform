@@ -208,7 +208,7 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 演练在宿主机侧（要访问 `backups/` 与 docker），n8n 容器内看不到，因此**不在每日自检里**，
 属于周期性例行。
 
-### 三道自动校验
+### 自动校验（四道）
 
 | 命令 | 覆盖面 | 何时跑 |
 | --- | --- | --- |
