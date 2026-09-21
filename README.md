@@ -321,15 +321,18 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 
 ### 自动校验（四道）
 
-> **最后一次全绿：2026-09-21 14:10**（栈在线实跑，幂等 + 工具追踪之后）
-> smoke **71/71** · 自检 **43/43** · MCP **27/27** · 工具契约 **15/15** ·
-> 客户端工具路径 **3/3** · 幂等 **PASS**。
+> **最后一次实跑：2026-09-21 15:44**（栈在线，搜索护栏之后）
+> smoke **71/71** · 工具契约 **15/15** · 客户端工具路径 **3/3** · 幂等+追踪 **PASS** ·
+> 自检 **44 项中 43 通过 / 1 失败**。
+> **那 1 项失败是 `searxng engines`，是已知故障、不是误报** —— 见坑位 8。
 > 这个时间戳是给人看的：三天前全绿不等于现在全绿。
+> 而**在此之前**「全绿也不等于能用」：SearXNG 引擎全被封、搜索一律返回空，
+> 上面每一道门照样是绿的——现在已经能被自检点名了。
 
 | 命令 | 覆盖面 | 何时跑 |
 | --- | --- | --- |
 | `node n8n/scripts/smoke-test.mjs` | 71 项端到端（含控制台守卫 7 项） | 每批交付后 |
-| 控制台「自检」/ `POST /webhook/admin/selfcheck/run` | 43 项（只读 + 少量幂等写），每日 04:15 | 每天 |
+| 控制台「自检」/ `POST /webhook/admin/selfcheck/run` | 44 项（只读 + 少量幂等写），每日 04:15 | 每天 |
 | `node n8n/scripts/mcp-test.mjs` | MCP 全部 17 个工具（`MCP_TEST_SLOW=1` 额外跑 `run_brief` / `web_search`） | 改 MCP 后 |
 | `node n8n/scripts/check-tool-contract.mjs` | 网关清单 ↔ 侧车 `SERVER_TOOLS` ↔ `Execute Tool` 实现，且禁止再出现硬编码副本 | 部署前 |
 | `node --env-file=.env n8n/scripts/test-client-tools.mjs` | 带 `client_tools` 的入口（LobeHub）：服务端工具不得被原样透传 | 改工具分类逻辑后 |
@@ -370,6 +373,28 @@ MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_AP
    **已修**：第 2 轮复用第 1 轮下发的 `server_tools`，`SERVER_NAMES` 改为从同一份数组推导——
    副本消失，漂移在结构上不可能发生。新增 `check-tool-contract.mjs` 的三项守卫
    （声明 ⊆ 实现 + 禁止硬编码副本）与 `test-client-tools.mjs`（守住那条没人覆盖的路径）。
+8. **`web_search` 会「成功」地返回 0 条结果，四道门全绿。**（2026-09-21 实测）
+   SearXNG 的引擎会被上游封禁，此时它返回 **HTTP 200 + `results: []`**，
+   网关照原样包成 `{ type: 'web', results: [] }` 交给模型 —— 工具没报错、执行记录是 success、
+   自检是绿的，但模型拿到的信息是空的，只能回答"查不到"。
+   排查命令（在 n8n 容器内打，走容器网络 `searxng:8080` 而不是宿主机 8080）：
+   ```bash
+   docker exec n8n sh -c "wget -q -O - --timeout=25 --header='User-Agent: Mozilla/5.0' \
+     'http://searxng:8080/search?q=test&format=json'"
+   # 看 unresponsive_engines 字段：有值就说明引擎被封了
+   ```
+   2026-09-21 实况：`brave` · `duckduckgo` · `google cse` · `startpage` 全部 Suspended，
+   `wikidata` 随后也挂了 —— **只剩 Wikipedia 偶尔响应，且基本只匹配单词查询**
+   （`python` → 1 条；`python programming language` / `n8n` / `mount everest` → 0 条）。
+   **已证伪的一个猜测**：User-Agent 与能否拿到结果**无关**。无 UA / `Wget/1.21` /
+   `Mozilla/5.0` 三种各跑两次，`results` 与 `unresponsive_engines` 完全一致。
+   （早前误判"不带 UA 更容易拿到结果"，是因为 shell 引号被拆开让 wget 直接失败了。）
+   **别把时间花在 UA 上。**
+   **已加护栏**（同日）：① 网关在 0 结果时给工具结果带上 `empty: true` + `notice` +
+   `unresponsive_engines`，并**透传给模型**——模型现在会说"搜索后端故障、不代表查不到"，
+   而不是断言"不存在"；② 自检新增「searxng engines」一项（43 → **44** 项），
+   **真的发一次搜索**再看 `unresponsive_engines`，全挂且有 0 结果即判失败。
+   注意原来那项「searxng up」只探首页，只证明进程在听 —— 跟沙箱 healthz 是同一个坑。
 
 ### 出向 MCP（连别人的服务）
 
@@ -752,6 +777,21 @@ node --env-file=.env n8n/scripts/cap-rate.mjs 7      # 近 7 天
 换句话说，截断被"收口"掩盖了：代价不是报错，而是**模型可能在信息不足时直接编答案**。
 想测出"模型到底想要几轮"，只能临时把 `MAX_TOOL_ROUNDS` 调高（比如 5），
 再跑 `cap-rate.mjs` 看请求自然停在第几轮。
+
+#### 收口提示（BUDGET_NOTE）
+
+到达 `MAX_TOOL_ROUNDS` 时，网关在**最后一次请求**上追加一条 system 消息，明确告诉模型
+「工具预算已用完，只能依据已有结果回答；信息不足就直说缺什么，不要编」。
+不加这条，模型不知道工具已经被拿走，会继续按"我还能查"的思路推理，最后凭空作答。
+
+提示本身带护栏：「已有信息足以回答就正常回答，不要向用户提及预算」——避免反向误伤。
+
+> **实测结论：效果未证实。** 2026-09-21 做过 A/B（有无提示各跑同一道信息不足题），
+> 两边**都**主动承认信息不足，回答长度 707 vs 547，无决定性差异。
+> 更关键的是：那次 A/B 测的其实不是提示，而是**坏掉的搜索后端**（见坑位 8）——
+> `web_search` 大面积返回空结果，模型不管有没有提示都只能说"查不到"。
+> 保留它的理由是它只在跑满轮次的请求上出现（约 4–15%）、且有护栏，属于便宜的保险；
+> **不要把它当成已验证的修复**。等搜索后端恢复后值得重跑一次 A/B。
 
 > 设计取舍来自 2026-09-21 的一次调研（Anthropic 内部数据 + METR + Pi 的设计哲学）：
 > Claude Code 真实使用中单次会话已能连续调 **21 次**工具，但**超过一半的工程师说
