@@ -159,6 +159,7 @@ const DATA_TABLE_COLUMNS = {
     { name: 'decided_at', type: 'string' },
     { name: 'expires_at', type: 'string' },
     { name: 'used_at', type: 'string' },
+    { name: 'result', type: 'string' },
   ],
 
   // B5: document factory — rendered deliverables (minutes / weekly / brief / custom)
