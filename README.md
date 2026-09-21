@@ -324,6 +324,22 @@ MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_AP
 7. **网关工具表与侧车 `SERVER_TOOLS` 是两份独立定义**，漏改不报错，只表现为「模型看得到工具
    但参数丢失」。改任何一侧都要同步另一侧，并跑 `check-tool-contract.mjs`。
 
+### run_python（代码执行沙箱）
+
+`n8n-sandbox` 容器原来跑一个没人用的 task-runner mock，现在是真正的执行服务
+（`n8n/sandbox_server.py`，纯标准库，`POST /run` + 头 `x-sandbox-key`）。
+
+- **不对宿主机发布端口**，只在 docker 网络内可达；每次 `/run` 都要共享密钥
+- 子进程跑，执行前设 `RLIMIT_CPU / AS(512M) / FSIZE(16M) / NOFILE(64)`，外加墙钟超时（默认 15s，上限 30s）与 8KB 输出上限
+- **默认拒绝**联网、起子进程、动态执行（`eval/exec/__import__`）、写文件，并返回人类可读的理由
+- 每次执行写一行 `admin_audit`（记 `why` / 是否成功 / 是否被拦 / 代码长度）
+- 只有标准库（没有 numpy/pandas）；自检新增一项 `sandbox up`（43 项）
+
+作为网关工具注册，模型可自行调用；侧车 `SERVER_TOOLS` 同步（契约门校验，现为 13 个工具）。
+
+> 静态扫描是减速带不是边界，真正的边界是容器 + rlimits。它的作用是：被提示词注入的模型
+> 不能悄悄外联——想联网必须显式提出来由人决定（这条路径目前还没开）。
+
 ### 推送可操作（inline actions）
 
 `Notify` 的 body 可以带 `actions: [{label, kind, id, hours}]`，推送出去就自带按钮：
