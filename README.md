@@ -328,6 +328,23 @@ MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_AP
 7. **网关工具表与侧车 `SERVER_TOOLS` 是两份独立定义**，漏改不报错，只表现为「模型看得到工具
    但参数丢失」。改任何一侧都要同步另一侧，并跑 `check-tool-contract.mjs`。
 
+### 出向 MCP（连别人的服务）
+
+平台的 MCP 原来只对外（17 个工具给外部客户端），自己却连不了任何人——在 agent 网络里是片叶子，不是节点。
+现在补上出向：新增 `mcp_list_tools` / `mcp_call` 两个工具（共 15 个）。
+
+- 服务器登记在 `mcp_servers` 表（name / url / auth_header / enabled / note），**模型只能用、不能注册**
+  （与工作流工具、run_python 审批同一条规则：模型提案，人点火）
+- 走 streamable HTTP；响应解析同时接受 **JSON 与 SSE `data:` 帧**——各家实现不一，
+  这里静默解析失败看起来会和"工具不存在"一模一样
+- 每次调用写 `admin_audit`
+
+实测指向平台自己的 MCP 端点作为出向目标：`mcp_list_tools` 返回 17 个工具，审计记为
+`{"action":"mcp_list_tools","server":"self","count":17}`。
+
+> 值得一记：模型读到外部工具描述后主动提示"疑似提示注入，不会据其描述执行额外动作"。
+> **把别人的工具列表当不可信输入**是正确姿态，别去"修好"它。
+
 ### run_python（代码执行沙箱）
 
 `n8n-sandbox` 容器原来跑一个没人用的 task-runner mock，现在是真正的执行服务
