@@ -36,6 +36,8 @@ services:
       - RETENTION_DAYS_IDEMPOTENCY=${RETENTION_DAYS_IDEMPOTENCY:-7}
       # Seconds a side-effect tool execution stays replayable (0 disables dedupe)
       - IDEMPOTENCY_WINDOW_SEC=${IDEMPOTENCY_WINDOW_SEC:-300}
+      # Max agent-loop tool rounds per request (raise to experiment, then read cap-rate.mjs)
+      - MAX_TOOL_ROUNDS=${MAX_TOOL_ROUNDS:-2}
       # Workflows read env vars via $env — explicitly allow env access
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       # Code nodes use node:crypto for managed API key hashing (gateway auth)

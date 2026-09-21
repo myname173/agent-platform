@@ -334,6 +334,7 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 | `node n8n/scripts/check-tool-contract.mjs` | 网关清单 ↔ 侧车 `SERVER_TOOLS` ↔ `Execute Tool` 实现，且禁止再出现硬编码副本 | 部署前 |
 | `node --env-file=.env n8n/scripts/test-client-tools.mjs` | 带 `client_tools` 的入口（LobeHub）：服务端工具不得被原样透传 | 改工具分类逻辑后 |
 | `node --env-file=.env n8n/scripts/test-idempotency.mjs` | 重发不重复副作用 · 换 key 仍执行 · `tool_trace` 落库 | 改工具循环后 |
+| `node --env-file=.env n8n/scripts/cap-rate.mjs 7` | 工具轮次分布 / 跑满率 / 撞顶次数 —— 决定循环该多深 | 想调整 `MAX_TOOL_ROUNDS` 前 |
 
 MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_API_KEY` 用于清理测试数据。
 
@@ -736,6 +737,28 @@ node n8n/scripts/keys.mjs disable phone         # 临时吊销 / enable 恢复 /
 落在 `chat_executions.tool_trace`（同时新增 `tool_rounds` 列）。
 
 排障时先查这里：是模型没调工具、工具报错、还是被幂等折叠了，一眼可分。
+
+#### 多步编排该多深：先量再改
+
+```bash
+node --env-file=.env n8n/scripts/cap-rate.mjs 7      # 近 7 天
+```
+
+输出工具轮次分布、跑满率、撞顶次数，并给一句判断。
+轮次上限由 `MAX_TOOL_ROUNDS` 控制（默认 2，改它不需要动代码）。
+
+**一个反直觉的事实**：到达上限时网关会**把工具列表整个移除**来强制收口，
+所以「模型还想调工具却被截断」这个计数**默认恒为 0** —— 不是没生效，是模型无从调用。
+换句话说，截断被"收口"掩盖了：代价不是报错，而是**模型可能在信息不足时直接编答案**。
+想测出"模型到底想要几轮"，只能临时把 `MAX_TOOL_ROUNDS` 调高（比如 5），
+再跑 `cap-rate.mjs` 看请求自然停在第几轮。
+
+> 设计取舍来自 2026-09-21 的一次调研（Anthropic 内部数据 + METR + Pi 的设计哲学）：
+> Claude Code 真实使用中单次会话已能连续调 **21 次**工具，但**超过一半的工程师说
+> 只有 0–20% 的工作能「完全委托」**；METR 则显示成功率随任务长度陡降。
+> 而本平台自己的样本里 **0 条长输入**。所以结论是**不做通用自主规划**：
+> 单步保持现状、2–5 步用「浅循环 + 三重预算」、超过 5 步下沉到 L2 工作流只给点火权。
+> 深度上限应该用**预算**表达（步数 / 墙钟 / 成本），而不是简单调大轮数。
 
 ## 工作流管理（源码化）
 
