@@ -71,6 +71,9 @@ const DATA_TABLE_COLUMNS = {
     { name: 'prompt_tokens', type: 'number' },
     { name: 'completion_tokens', type: 'number' },
     { name: 'total_tokens', type: 'number' },
+    // agent loop observability + idempotency
+    { name: 'tool_rounds', type: 'number' },
+    { name: 'tool_trace', type: 'string' },
   ],
   // priority 3: managed gateway keys (hash-only storage, per-key limits & spend)
   // embedding quota meter (single row; total_embed_tokens)
@@ -79,6 +82,15 @@ const DATA_TABLE_COLUMNS = {
     { name: 'action', type: 'string' },
     { name: 'target', type: 'string' },
     { name: 'detail', type: 'string' }
+  ],
+
+  // idempotency: one row per side-effect tool execution, used to collapse
+  // client retries inside IDEMPOTENCY_WINDOW_SEC
+  idempotency_records: [
+    { name: 'idem_key', type: 'string' },
+    { name: 'tool_name', type: 'string' },
+    { name: 'session_id', type: 'string' },
+    { name: 'result', type: 'string' },
   ],
 
   kb_usage: [

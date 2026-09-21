@@ -77,6 +77,7 @@ walkthrough: [部署到一台新机器](#部署到一台新机器).
 | `POST /webhook/admin/selfcheck/run` | 43 checks, also daily at 04:15 |
 | `node n8n/scripts/mcp-test.mjs` | MCP protocol + all 17 tools |
 | `node --env-file=.env n8n/scripts/test-client-tools.mjs` | client-tool path (LobeHub): no server tool may pass through unexecuted |
+| `node --env-file=.env n8n/scripts/test-idempotency.mjs` | a retried request must not repeat a side effect; `tool_trace` must land |
 
 **About secrets.** No key lives in this repo. Workflows read `$env.*` at
 runtime; `.env` has never been committed. `deploy.mjs` pushes workflow JSON to
@@ -320,8 +321,9 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 
 ### 自动校验（四道）
 
-> **最后一次全绿：2026-09-21 13:35**（栈在线实跑，工具契约重构之后）
-> smoke **71/71** · 自检 **43/43** · MCP **27/27** · 工具契约 **15/15** · 客户端工具路径 **3/3**。
+> **最后一次全绿：2026-09-21 14:10**（栈在线实跑，幂等 + 工具追踪之后）
+> smoke **71/71** · 自检 **43/43** · MCP **27/27** · 工具契约 **15/15** ·
+> 客户端工具路径 **3/3** · 幂等 **PASS**。
 > 这个时间戳是给人看的：三天前全绿不等于现在全绿。
 
 | 命令 | 覆盖面 | 何时跑 |
@@ -331,6 +333,7 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 | `node n8n/scripts/mcp-test.mjs` | MCP 全部 17 个工具（`MCP_TEST_SLOW=1` 额外跑 `run_brief` / `web_search`） | 改 MCP 后 |
 | `node n8n/scripts/check-tool-contract.mjs` | 网关清单 ↔ 侧车 `SERVER_TOOLS` ↔ `Execute Tool` 实现，且禁止再出现硬编码副本 | 部署前 |
 | `node --env-file=.env n8n/scripts/test-client-tools.mjs` | 带 `client_tools` 的入口（LobeHub）：服务端工具不得被原样透传 | 改工具分类逻辑后 |
+| `node --env-file=.env n8n/scripts/test-idempotency.mjs` | 重发不重复副作用 · 换 key 仍执行 · `tool_trace` 落库 | 改工具循环后 |
 
 MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_API_KEY` 用于清理测试数据。
 
@@ -703,6 +706,36 @@ node n8n/scripts/keys.mjs disable phone         # 临时吊销 / enable 恢复 /
 `chat_messages` 默认保留 30 天、`chat_executions` 默认 90 天，由 `.env` 的
 `RETENTION_DAYS_MESSAGES` / `RETENTION_DAYS_EXECUTIONS` 控制。
 手动触发：`POST /webhook/admin/retention/run`（Bearer CHAT_API_KEY）。
+`idempotency_records` 也在清理名单里（`RETENTION_DAYS_IDEMPOTENCY`，默认 7 天）。
+
+### 幂等（重试不会把副作用跑两遍）
+
+客户端超时就会重发。**没有幂等时，一句「记一下买牛奶」在重试后变成两条待办**，
+而用户只说过一次。
+
+- **显式**：请求带 `X-Idempotency-Key: <任意字符串>`，同 key + 同工具 → 直接返回上次结果。
+- **隐式**：没带 key 时，用 `session_id + 工具名 + sha256(args)` 作为键，窗口内重复即折叠。
+  **这条才是真正救命的** —— 客户端不用配合就能防住重试。
+- 只保护**副作用工具**（`todo_add` / `todo_done` / `create_reminder` / `cancel_reminder` /
+  `kb_save` / `run_python` / `mcp_call` / 全部 `wf_*`）；只读工具不去重。
+- 记录落在 `idempotency_records` 表（ idem_key / tool_name / session_id / result ），
+  每天随 retention 清理。窗口 `IDEMPOTENCY_WINDOW_SEC`（默认 300 秒，**0 = 关停**）。
+
+### 工具循环可观测（tool_trace）
+
+以前 `chat_executions` 只知道"用了几轮"，不知道每轮干了什么 —— 出了问题只能猜。
+现在每一轮的每次工具调用都记下来：
+
+```json
+[{"round":1,"tool":"todo_add","ms":247,"ok":true,"replayed":false,"idem":"i:faca966137","args":"{\"text\":\"买牛奶\"}"},
+ {"round":2,"tool":"todo_list","ms":303,"ok":true,"replayed":false,"idem":"","args":"{}"}]
+```
+
+字段：`round` 轮次 · `tool` 工具名 · `ms` 耗时 · `ok` 成败 · `replayed` 是否被幂等折叠 ·
+`idem` 去重键前缀（`k:` 显式 / `i:` 隐式）· `args` 参数摘要。
+落在 `chat_executions.tool_trace`（同时新增 `tool_rounds` 列）。
+
+排障时先查这里：是模型没调工具、工具报错、还是被幂等折叠了，一眼可分。
 
 ## 工作流管理（源码化）
 

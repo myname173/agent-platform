@@ -388,9 +388,10 @@ group('chat retention (manual trigger — runs retention for real)');
   check(r.status === 200, 'with key -> 200', `got ${r.status} ${r.text?.slice(0, 120)}`);
   const j = r.json;
   check(
-    Array.isArray(j?.retention) && j.retention.length === 2 &&
+    Array.isArray(j?.retention) && j.retention.length >= 2 &&
+      ['chat_messages', 'chat_executions'].every((n) => j.retention.some((x) => x.table === n)) &&
       j.retention.every((x) => x.table && ('deleted' in x || 'error' in x)),
-    'retention summary lists both tables',
+    'retention summary lists every configured table (chat_messages + chat_executions at minimum)',
     JSON.stringify(j?.retention)
   );
   check(j?.retention?.every((x) => !x.error), 'no retention errors', JSON.stringify(j?.retention));
