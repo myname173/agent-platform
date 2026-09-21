@@ -1,16 +1,26 @@
 #!/usr/bin/env node
 /**
- * B2 · 工具契约一致性检查。
+ * B2 · 工具契约一致性检查（强化版）。
  *
- * 平台有两份独立的工具定义，必须保持一致：
- *   1. 网关  n8n/workflows/chat-gateway.json  → Build Upstream Payload 的 TOOLS 数组
- *   2. 侧车  stream-bridge/server.js          → SERVER_TOOLS
+ * 背景：2026-09-21 发现网关里曾有 **四份** 服务器工具定义：
+ *   1. build-upstream      → const TOOLS（第 1 轮下发）      15 个
+ *   2. append-tool-results → const TOOLS（第 2 轮重建）      12 个  ← 漂移
+ *   3. check-response      → SERVER_NAMES（服务端/客户端分类） 12 个  ← 漂移
+ *   4. 侧车 server.js      → SERVER_TOOLS                    15 个
  *
- * 它们历史上靠手工同步，已经踩过坑：漏改一处就会出现「模型看得到工具但参数丢失」，
- * 而且不会报错，只是行为变差。这个脚本把两份定义做差集，不一致就非零退出。
+ * 而旧版本脚本只比 1 和 4，所以 **四份里有两份错了，门却是绿的**。后果：
+ *   - 第 2 轮工具循环里 run_python / mcp_list_tools / mcp_call 和全部 wf_* 消失
+ *   - 带 client_tools 的客户端（LobeHub）上，这三个工具被误判成客户端工具，
+ *     网关直接透传上游响应、根本不执行 —— 功能静默死亡
+ * 而 MCP 回归 / 自检 / 冒烟全绿，因为它们都不走那条路径。
+ *
+ * 修法是让 2、3 从 1 推导（单一事实源），本脚本则改为守住这个结构：
+ *   A. 网关规范清单  vs  侧车 SERVER_TOOLS
+ *   B. 声明的工具  ⊆  Execute Tool 真正实现的工具
+ *   C. 不得重新出现硬编码副本（防复发）
  *
  * Usage: node n8n/scripts/check-tool-contract.mjs
- * Exit:  0 = 一致；1 = 有差异；2 = 解析失败
+ * Exit:  0 = 通过；1 = 契约违反；2 = 解析失败
  */
 
 import { readFileSync } from 'node:fs';
@@ -19,54 +29,98 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-/** 从一段代码里抽取 TOOLS/SERVER_TOOLS 数组中的工具名 */
-function namesFromArrayLiteral(code, startMarker) {
-  const start = code.indexOf(startMarker);
-  if (start < 0) return null;
-  // 从起始标记往后找到配对的 '];'
-  const end = code.indexOf('];', start);
-  if (end < 0) return null;
-  const region = code.slice(start, end);
-  const names = [...region.matchAll(/name:\s*'([A-Za-z0-9_]+)'/g)].map((m) => m[1]);
-  return [...new Set(names)];
+function readWorkflow() {
+  return JSON.parse(readFileSync(join(root, 'n8n', 'workflows', 'chat-gateway.json'), 'utf8'));
+}
+function nodeCode(wf, id) {
+  const n = wf.nodes.find((x) => x.id === id);
+  return n && n.parameters && n.parameters.jsCode ? n.parameters.jsCode : '';
 }
 
-function gatewayTools() {
-  const wf = JSON.parse(readFileSync(join(root, 'n8n', 'workflows', 'chat-gateway.json'), 'utf8'));
-  const node = wf.nodes.find((n) => n.name === 'Build Upstream Payload');
-  if (!node || !node.parameters || !node.parameters.jsCode) return null;
-  return namesFromArrayLiteral(node.parameters.jsCode, 'const TOOLS = [');
+/** 从 `const TOOLS = [` 这类数组字面量里抽工具名 */
+function arrayLiteralNames(code, marker) {
+  const s = code.indexOf(marker);
+  if (s < 0) return null;
+  const e = code.indexOf('];', s);
+  if (e < 0) return null;
+  return [...new Set([...code.slice(s, e).matchAll(/name:\s*'([A-Za-z0-9_]+)'/g)].map((m) => m[1]))];
 }
 
-function sidecarTools() {
-  const src = readFileSync(join(root, 'stream-bridge', 'server.js'), 'utf8');
-  return namesFromArrayLiteral(src, 'const SERVER_TOOLS = [');
-}
+const wf = readWorkflow();
+const buildCode = nodeCode(wf, 'build-upstream');
+const appendCode = nodeCode(wf, 'p5-append-tool-results');
+const checkCode = nodeCode(wf, 'p5-check-response');
+const execCode = nodeCode(wf, 'p5b-execute-tool');
+const sidecarSrc = readFileSync(join(root, 'stream-bridge', 'server.js'), 'utf8');
 
-const gw = gatewayTools();
-const sc = sidecarTools();
+const gateway = arrayLiteralNames(buildCode, 'const TOOLS = [');
+const sidecar = arrayLiteralNames(sidecarSrc, 'const SERVER_TOOLS = [');
+/** Execute Tool 里 `it.tool_name === 'xxx'` 的所有分支 */
+const implemented = [...new Set([...execCode.matchAll(/tool_name\s*===\s*'([A-Za-z0-9_]+)'/g)].map((m) => m[1]))];
 
-if (!gw || !sc) {
-  console.error('failed to parse tool definitions (gateway=' + (gw ? gw.length : 'null') + ', sidecar=' + (sc ? sc.length : 'null') + ')');
+const problems = [];
+
+if (!gateway || !sidecar || !implemented.length) {
+  console.error('failed to parse tool definitions');
+  console.error('  gateway=' + (gateway ? gateway.length : 'null') + ' sidecar=' + (sidecar ? sidecar.length : 'null') + ' implemented=' + implemented.length);
   process.exit(2);
 }
 
-const gwSet = new Set(gw);
-const scSet = new Set(sc);
-const onlyGateway = gw.filter((n) => !scSet.has(n));
-const onlySidecar = sc.filter((n) => !gwSet.has(n));
+console.log('gateway canonical   (' + gateway.length + '): ' + gateway.join(', '));
+console.log('sidecar SERVER_TOOLS(' + sidecar.length + '): ' + sidecar.join(', '));
+console.log('gateway implemented (' + implemented.length + '): ' + implemented.join(', '));
+console.log('');
 
-console.log('gateway tools (' + gw.length + '): ' + gw.join(', '));
-console.log('sidecar tools (' + sc.length + '): ' + sc.join(', '));
+/* ---- A. 网关 vs 侧车 ---- */
+const gwSet = new Set(gateway);
+const scSet = new Set(sidecar);
+const onlyGw = gateway.filter((n) => !scSet.has(n));
+const onlySc = sidecar.filter((n) => !gwSet.has(n));
+if (onlyGw.length || onlySc.length) {
+  if (onlyGw.length) problems.push('only in gateway: ' + onlyGw.join(', '));
+  if (onlySc.length) problems.push('only in sidecar: ' + onlySc.join(', '));
+} else {
+  console.log('A. gateway <-> sidecar : OK (' + gateway.length + ' tools)');
+}
 
-if (!onlyGateway.length && !onlySidecar.length) {
-  console.log('tool contract OK — both sides agree on ' + gw.length + ' tools');
+/* ---- B. 声明的必须都被实现 ---- */
+const notImplemented = gateway.filter((n) => !implemented.includes(n));
+if (notImplemented.length) {
+  problems.push('declared but not implemented in Execute Tool: ' + notImplemented.join(', '));
+} else {
+  console.log('B. declared ⊆ implemented : OK (' + gateway.length + '/' + gateway.length + ')');
+}
+
+/* ---- C. 不得重新出现硬编码副本 ---- */
+const stale = [];
+if (/const\s+TOOLS\s*=\s*\[/.test(appendCode)) {
+  stale.push("append-tool-results still defines 'const TOOLS = [' (must reuse server_tools)");
+}
+if (/SERVER_NAMES\s*=\s*new\s+Set\(\s*\[/.test(checkCode)) {
+  stale.push("check-response still hardcodes 'SERVER_NAMES = new Set([...])' (must derive from server_tools)");
+}
+if (!/server_tools/.test(buildCode)) {
+  stale.push('build-upstream no longer emits server_tools');
+}
+if (!/server_tools/.test(appendCode)) {
+  stale.push('append-tool-results no longer threads server_tools');
+}
+if (!/base_meta\.server_tools/.test(checkCode)) {
+  stale.push('check-response no longer derives SERVER_NAMES from base_meta.server_tools');
+}
+if (stale.length) {
+  problems.push(...stale);
+} else {
+  console.log('C. single source of truth : OK (no duplicated literals, server_tools threaded)');
+}
+
+console.log('');
+if (!problems.length) {
+  console.log('tool contract OK — ' + gateway.length + ' tools, one definition, fully implemented');
   process.exit(0);
 }
 
-console.error('');
-console.error('TOOL CONTRACT MISMATCH');
-if (onlyGateway.length) console.error('  only in gateway: ' + onlyGateway.join(', '));
-if (onlySidecar.length) console.error('  only in sidecar: ' + onlySidecar.join(', '));
-console.error('  → update the other side so both define the same tool set');
+console.error('TOOL CONTRACT VIOLATION (' + problems.length + ')');
+for (const p of problems) console.error('  - ' + p);
+console.error('  → see header of this script for why duplicates are dangerous');
 process.exit(1);

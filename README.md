@@ -74,8 +74,9 @@ walkthrough: [部署到一台新机器](#部署到一台新机器).
 | --- | --- |
 | `node n8n/scripts/validate-workflows.mjs` | structure, unique webhook paths, env/compose consistency, secret scan |
 | `node n8n/scripts/smoke-test.mjs` | 71 end-to-end checks |
-| `POST /webhook/admin/selfcheck/run` | 42 checks, also daily at 04:15 |
+| `POST /webhook/admin/selfcheck/run` | 43 checks, also daily at 04:15 |
 | `node n8n/scripts/mcp-test.mjs` | MCP protocol + all 17 tools |
+| `node --env-file=.env n8n/scripts/test-client-tools.mjs` | client-tool path (LobeHub): no server tool may pass through unexecuted |
 
 **About secrets.** No key lives in this repo. Workflows read `$env.*` at
 runtime; `.env` has never been committed. `deploy.mjs` pushes workflow JSON to
@@ -319,16 +320,17 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 
 ### 自动校验（四道）
 
-> **最后一次全绿：2026-09-21 14:00**（commit `46df599`，栈在线实跑）
-> smoke **71/71** · 自检 **43/43** · MCP **27/27** · 工具契约 **13/13**。
+> **最后一次全绿：2026-09-21 13:35**（栈在线实跑，工具契约重构之后）
+> smoke **71/71** · 自检 **43/43** · MCP **27/27** · 工具契约 **15/15** · 客户端工具路径 **3/3**。
 > 这个时间戳是给人看的：三天前全绿不等于现在全绿。
 
 | 命令 | 覆盖面 | 何时跑 |
 | --- | --- | --- |
 | `node n8n/scripts/smoke-test.mjs` | 71 项端到端（含控制台守卫 7 项） | 每批交付后 |
-| 控制台「自检」/ `POST /webhook/admin/selfcheck/run` | 42 项（只读 + 少量幂等写），每日 04:15 | 每天 |
+| 控制台「自检」/ `POST /webhook/admin/selfcheck/run` | 43 项（只读 + 少量幂等写），每日 04:15 | 每天 |
 | `node n8n/scripts/mcp-test.mjs` | MCP 全部 17 个工具（`MCP_TEST_SLOW=1` 额外跑 `run_brief` / `web_search`） | 改 MCP 后 |
-| `node n8n/scripts/check-tool-contract.mjs` | 网关工具表 vs 侧车 `SERVER_TOOLS` | 部署前 |
+| `node n8n/scripts/check-tool-contract.mjs` | 网关清单 ↔ 侧车 `SERVER_TOOLS` ↔ `Execute Tool` 实现，且禁止再出现硬编码副本 | 部署前 |
+| `node --env-file=.env n8n/scripts/test-client-tools.mjs` | 带 `client_tools` 的入口（LobeHub）：服务端工具不得被原样透传 | 改工具分类逻辑后 |
 
 MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_API_KEY` 用于清理测试数据。
 
@@ -354,8 +356,16 @@ MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_AP
 6. **LobeHub 的关键配置只在数据库里**（`enableResponseApi` / `searchMode` /
    `useModelBuiltinSearch` / `system_agent` / `memory.enabled`），恢复旧备份会静默打回未接线状态。
    用 `N8N_URL=… CHAT_API_KEY=… node n8n/scripts/lobehub-config.mjs`（`apply` 修复，`status` 检查）。
-7. **网关工具表与侧车 `SERVER_TOOLS` 是两份独立定义**，漏改不报错，只表现为「模型看得到工具
-   但参数丢失」。改任何一侧都要同步另一侧，并跑 `check-tool-contract.mjs`。
+7. **工具定义曾经有四份副本，其中两份是错的，而四道门全绿。**（2026-09-21 实测）
+   `build-upstream` 的 `TOOLS`（15）· `append-tool-results` 的 `TOOLS`（12）·
+   `check-response` 的 `SERVER_NAMES`（12）· 侧车 `SERVER_TOOLS`（15）。旧版契约门只比首尾两份，
+   所以中间两份漂移了也照样绿。后果有两层：① 第 2 轮工具循环里 `run_python` /
+   `mcp_list_tools` / `mcp_call` 和**全部 `wf_*` 自建流程工具消失**；② 带 `client_tools`
+   的客户端（LobeHub）上，这三个工具被 `SERVER_NAMES` 误判成客户端工具 → 网关整条响应透传、
+   自己不执行 → **用户收到一条空消息**，而 smoke / 自检 / MCP 全绿，因为它们都不走那条路径。
+   **已修**：第 2 轮复用第 1 轮下发的 `server_tools`，`SERVER_NAMES` 改为从同一份数组推导——
+   副本消失，漂移在结构上不可能发生。新增 `check-tool-contract.mjs` 的三项守卫
+   （声明 ⊆ 实现 + 禁止硬编码副本）与 `test-client-tools.mjs`（守住那条没人覆盖的路径）。
 
 ### 出向 MCP（连别人的服务）
 
