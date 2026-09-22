@@ -567,7 +567,8 @@ Telegram 渲染成 inline keyboard，点完写回同一行并摘掉按钮（防�
 
 要点：
 - Windows 防火墙含入站规则（TCP 3210 / 3000 / 9000，以及 HTTPS 的 8443–8446，仅限本地子网，命名 `agent-platform LAN: *`）；重装或换机后以管理员运行 `add-lan-rules.cmd` 可重建。
-- `APP_URL` / `S3_ENDPOINT` / `S3_PUBLIC_DOMAIN` 均使用局域网地址（由 `.env` 的 `PLATFORM_LAN_IP` 控制；换网络时改这一处并重建 lobechat / console）。
+- `APP_URL` / `S3_ENDPOINT` / `S3_PUBLIC_DOMAIN` 均使用局域网地址（由 `.env` 的 `PLATFORM_LAN_IP` 控制；换网络时改这一处并重建 **n8n / lobechat**——`console` 不引用这个变量，不用重建）。
+- ⚠️ 别把 `PLATFORM_LAN_IP` 填成 **OpenVPN / Hyper-V / WSL 虚拟网卡**的 IP：那些地址只有本机可达，手机和其他 Wi-Fi 设备访问不到。查真实局域网 IP 用 `Get-NetIPAddress -AddressFamily IPv4`，认准 WLAN 那一条。
 - 手机可把两个页面「添加到主屏幕」，体验接近 App。
 - 已知限制：桌面休眠时手机不可达；出门在外访问属可选进阶（Tailscale）。
 
@@ -588,12 +589,15 @@ Telegram 渲染成 inline keyboard，点完写回同一行并摘掉按钮（防�
 - 正式域名：`caddy/Caddyfile.domain.example`，自动 Let's Encrypt。
 - 防火墙：以管理员运行 `add-lan-rules.cmd`（已包含 8443–8446）。
 
-两个坑，都踩过，别改回去：
+三个坑，都踩过，别改回去：
 
 1. **站点地址不能只写 `:8443`。** 没有主机名时 Caddy 的内部 CA 拿不到任何名字，签不出叶子证书（`/data/caddy/certificates` 会是空的），TLS 握手以 `internal_error`(alert 80) 中断——所有客户端连不上，而 Caddy 日志照样打印 `server running`。这是"看着全绿其实全挂"的典型。
 2. **验证时必须用证书里的名字当 Host。** 连 `127.0.0.1:8443` 会带 `Host: 127.0.0.1:8443`，匹配不到站点，Caddy 返回**空 200**（无 content-type、无上游 etag），极易误判成"代理坏了"。另外 Windows 上 curl 会被 `https_proxy` 环境变量劫持，要加 `--noproxy '*'`；判读证书错误用 `openssl s_client` 比 curl 的 Schannel 后端准。
+3. **用 IP 访问时客户端不发 SNI**（RFC 6066 禁止把 IP 填进 SNI，浏览器和 curl 都遵守）。没有 SNI，Caddy 匹配不到站点，**握手直接断**——表现是"20ms 就连接失败"，既不是超时也不是证书错误，很容易误判成端口没开。Caddyfile 里用 `default_sni {$LAN_IP}` 兜底。**注意：Node 探针可以显式塞 `servername`，那不是浏览器的真实行为，别拿它当证据。**
 
-验收脚本：`node caddy/probe.mjs`（逐个入口打一遍，打印 HTTP 状态 / 字节数 / `Via: 1.1 Caddy`）。
+LobeHub（8444）额外做了 `header_down Location` 重写：它用 `APP_URL`（`http://<LAN-IP>:3210`）拼**绝对**跳转地址，会把已经走 https 进来的人又送回 http。重写后 `Location` 与 `callbackUrl` 都留在 https，且主机名跟着入口走（从 localhost 进就跳 localhost，从局域网 IP 进就跳局域网 IP）。
+
+验收脚本：`LAN_IP=192.168.209.141 node caddy/probe.mjs`。它会验三种路径（localhost / 局域网 IP / **不发 SNI**）× 四个入口，并断言 `Via: 1.1 Caddy` 与 LobeHub 跳转后仍是 https。当前 **12/12 通过**。
 
 MinIO 加一层 basic auth（可选，默认关闭——避免把没人知道的密码写进配置）：
 

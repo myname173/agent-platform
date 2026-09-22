@@ -17,6 +17,13 @@
 {
 	# 不自作主张占用 80 去做 HTTP->HTTPS 跳转：那会影响将来挂别的站点
 	auto_https disable_redirects
+
+	# 客户端用 IP 访问时（https://192.168.209.141:8443）**不会发 SNI** —— RFC 6066
+	# 禁止把 IP 填进 SNI，浏览器和 curl 都遵守。没有 SNI，Caddy 匹配不到站点，
+	# TLS 握手直接断（表现是"20ms 就连接失败"，不是超时也不是证书错误）。
+	# 这一行给"没带 SNI 的连接"兜底，让手机用 IP 访问也能进来。
+	# 路由仍然按 Host 头匹配，所以不影响后面每个站点的分流。
+	default_sni {$LAN_IP}
 }
 
 # 重要：站点地址必须带"名字"，不能只写 :8443。
@@ -34,7 +41,17 @@ localhost:8443, {$LAN_IP}:8443 {
 
 localhost:8444, {$LAN_IP}:8444 {
 	tls internal
-	reverse_proxy lobechat:3210
+	reverse_proxy lobechat:3210 {
+		# LobeHub 用 APP_URL（http://<LAN-IP>:3210）拼**绝对**跳转地址，
+		# 会把已经走 https 进来的人又送回 http://…:3210 —— https 白加了。
+		# 这里把上游回的 Location 改回"当前入口"的 https 地址：
+		#   第一条改明文形式（Location 本身）
+		#   第二条改 URL 编码形式（callbackUrl 参数里的地址）
+		# {hostport} 是请求带来的 Host（含端口），所以从 localhost 进来就跳 localhost，
+		# 从局域网 IP 进来就跳局域网 IP，两边都不会被拽回 http。
+		header_down Location http://[^/]+:3210 https://{hostport}
+		header_down Location http%3A%2F%2F[^&]+%3A3210 https%3A%2F%2F{hostport}
+	}
 }
 
 # n8n 编辑器依赖 WebSocket，Caddy 默认透传 Upgrade，无需额外配置
