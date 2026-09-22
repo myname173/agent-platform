@@ -79,7 +79,10 @@ export function SelfcheckCard() {
     <Card>
       <CardHeader>
         <CardTitle>平台自检</CardTitle>
-        <CardDescription>全链路体检：基础设施 / 网关 / 流式 / 通道 / 数据（每日 04:15 自动 + 随时手动）。</CardDescription>
+        <CardDescription>
+          全链路体检：基础设施 / 网关 / 流式 / 通道 / 数据。每日 04:15 / 10:15 / 16:15 / 21:15
+          四个时点，机器在线时补跑，一天只真跑一次。
+        </CardDescription>
       </CardHeader>
       <CardContent className='flex flex-col gap-3 text-sm'>
         <div className='flex items-center gap-3'>

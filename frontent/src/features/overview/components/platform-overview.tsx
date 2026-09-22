@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PushMobileCard } from './push-mobile-card';
 import { SelfcheckCard } from './selfcheck-card';
+import { CostCard } from './cost-card';
 import { TodosCard } from './todos-card';
 import { DelegationCard } from './delegation-card';
 import { RemindersCard } from './reminders-card';
@@ -166,6 +167,8 @@ export function PlatformOverview() {
         <MemoryCard />
 
         <SelfcheckCard />
+
+        <CostCard />
 
         <PushMobileCard />
       </Section>

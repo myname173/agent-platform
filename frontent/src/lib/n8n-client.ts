@@ -38,11 +38,22 @@ export interface ChatStats {
   by_model: Record<string, number>;
   by_client: Record<string, number>;
   unique_sessions: number;
+  /* Cost aggregates. The upstream Stats workflow has returned these since
+     priority 3, but the type was never updated — the console silently had no
+     way to read them. Added together with the cost card. */
+  cost: {
+    total_cost_usd: number;
+    cost_24h_usd: number;
+    cost_7d_usd: number;
+    by_model: Record<string, number>;
+    by_key: Record<string, number>;
+  };
   recent: Array<{
     execution_id: string;
     session_id: string;
     model: string;
     client: string;
+    key_name: string;
     status: string;
     error_code: string | null;
     error_message: string | null;
@@ -50,6 +61,7 @@ export interface ChatStats {
     total_tokens: number;
     prompt_tokens: number;
     completion_tokens: number;
+    cost_usd: number;
     created_at: string;
   }>;
 }
@@ -203,6 +215,7 @@ export interface PlatformSettings {
     webhook_format: string;
   };
   embedding: { quota_tokens: number };
+  cost: { budget_24h_usd: number; critical_24h_usd: number };
   retention: { messages_days: number; executions_days: number };
   note: string;
 }
