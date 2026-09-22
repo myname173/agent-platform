@@ -200,6 +200,18 @@ CLERK_SECRET_KEY=sk_test_...
 CONSOLE_CLERK_PUBLISHABLE_KEY=pk_test_...   # 用于 console 镜像构建（与 frontent/.env.local 保持一致）
 ```
 
+### 告警与预算阈值（根 .env，改完需 `docker compose up -d n8n`）
+
+```bash
+ALERT_WINDOW_MIN=60            # 错误率统计窗口（分钟）
+ALERT_RATE_THRESHOLD=0.5       # 错误率阈值
+ALERT_MIN_TOTAL=5              # 窗口内最少请求数，低于此不判错误率
+ALERT_COOLDOWN_MIN=60          # 告警冷却（分钟）
+ALERT_COST_24H_USD=2           # 24h 模型花费预算，超过即告警（warn）
+ALERT_COST_CRITICAL_USD=5      # 超过则升级为 critical
+ALERT_SEVERITY_CRITICAL=0.8    # 错误率达到多少算 critical
+```
+
 ### LobeChat（通过 docker-compose 环境变量配置）
 
 LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，指向 n8n 的 OpenAI 兼容 Webhook。S3 文件存储已接线（`S3_ENDPOINT` → MinIO），详见「文件存储（MinIO）」一节。多模态与网关模式：`deepseek-v4-flash` 已声明 vision；客户端按网关设计配套（Responses API 关、联网搜索关、流式输出关、记忆暂关），图片由网关内联后转上游。
@@ -247,6 +259,35 @@ Authorization: Bearer <CHAT_API_KEY>
 返回总量/成功率/平均延迟/按模型与客户端分布/独立会话数/成本聚合
 （total/24h/7d/按模型/按 key，USD）与最近 20 条执行（含 key_name、cost_usd）。
 Kiranism 需要时在 `frontent/src/app/api/n8n/` 下加一条服务端路由代理即可（已有三条路由不受影响）。
+
+### 成本可见性与预算告警（2026-09-22）
+
+成本**一直在算**（Chat Stats 从 priority 3 起就有 `cost` 聚合），但**一直到不了用户眼前**：
+TS 类型 `ChatStats` 里压根没声明 `cost` 字段，控制台没有任何地方能读到它，也没有任何阈值。
+这是「数据有了、通道没有」——**不算缺失功能，等于缺失功能**。
+
+现在的两条通路：
+
+| 通路 | 位置 | 说明 |
+| --- | --- | --- |
+| 看得见 | 控制台 Overview →「模型成本」卡 | 24h / 7d / 累计；预算进度条；按模型、按调用方 key 拆分 |
+| 会报警 | `chat-alerts` 新增 `cost_budget` 规则 | 24h 花费 ≥ `ALERT_COST_24H_USD` → warn；≥ `ALERT_COST_CRITICAL_USD` → critical |
+
+```bash
+# .env（改完要 docker compose up -d n8n，让容器重新读取）
+ALERT_COST_24H_USD=2        # 24h 预算，超过即告警
+ALERT_COST_CRITICAL_USD=5   # 翻倍到这里升级为 critical
+```
+
+**两个设计决定，都是为了不让它变成"接好了但其实不响"**：
+
+1. **告警复用 Chat Stats 的成本数，不自己重算。** `chat-alerts` 本来就取了 250 行执行记录，
+   而 Stats 取的是 1000 行 —— 各算一遍会出现「卡片显示 $1.9、告警却在 $2 触发」的错位，
+   而那正是最难查的一类问题：**两边都没坏，只是不一致**。
+2. **去重按 kind 24h 一次，但 warn → critical 的升级不受去重限制。**
+   否则预算从 $2 花到 $6，第一条 warn 发过之后就再也不响了 —— **涨得最凶的时候反而最安静**。
+
+阈值通过 `/admin/settings` 的 `cost` 字段下发到控制台，卡片显示的是**实际生效的配置**，不是前端猜的数。
 
 ## 运维
 
