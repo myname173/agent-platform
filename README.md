@@ -566,10 +566,43 @@ Telegram 渲染成 inline keyboard，点完写回同一行并摘掉按钮（防�
 - 控制台：`http://<LAN-IP>:3000`
 
 要点：
-- Windows 防火墙含三条入站规则（TCP 3210 / 3000 / 9000，仅限本地子网，命名 `agent-platform LAN: *`）；重装或换机后以管理员运行 `add-lan-rules.cmd` 可重建。
+- Windows 防火墙含入站规则（TCP 3210 / 3000 / 9000，以及 HTTPS 的 8443–8446，仅限本地子网，命名 `agent-platform LAN: *`）；重装或换机后以管理员运行 `add-lan-rules.cmd` 可重建。
 - `APP_URL` / `S3_ENDPOINT` / `S3_PUBLIC_DOMAIN` 均使用局域网地址（由 `.env` 的 `PLATFORM_LAN_IP` 控制；换网络时改这一处并重建 lobechat / console）。
 - 手机可把两个页面「添加到主屏幕」，体验接近 App。
 - 已知限制：桌面休眠时手机不可达；出门在外访问属可选进阶（Tailscale）。
+
+### HTTPS 入口（Caddy 反向代理）
+
+现有的 HTTP 端口（3000 / 3210 / 5678 / 9001）**一个都不动**，Caddy 只是在旁边新增一层加密入口：
+
+| 地址 | 转发到 |
+| --- | --- |
+| `https://<host>:8443` | 控制台 `platform-console:3000` |
+| `https://<host>:8444` | LobeHub `lobechat:3210` |
+| `https://<host>:8445` | n8n `n8n:5678` |
+| `https://<host>:8446` | MinIO 控制台 `minio:9001` |
+
+- 启动 / 停止：`docker compose up -d caddy` / `docker compose stop caddy`（停掉后原来的访问方式照旧可用）。
+- 证书：局域网模式用 Caddy 内部 CA 自签（`tls internal`）。首次访问浏览器会提示"证书不受信任"，点继续即可，**流量是真的加密的**。
+- 站点名字取自 `.env` 的 `LAN_IP`（compose 回退 `127.0.0.1`）。**换网络后改这一行再 `docker compose restart caddy`**，否则 SNI 对不上会握手失败。
+- 正式域名：`caddy/Caddyfile.domain.example`，自动 Let's Encrypt。
+- 防火墙：以管理员运行 `add-lan-rules.cmd`（已包含 8443–8446）。
+
+两个坑，都踩过，别改回去：
+
+1. **站点地址不能只写 `:8443`。** 没有主机名时 Caddy 的内部 CA 拿不到任何名字，签不出叶子证书（`/data/caddy/certificates` 会是空的），TLS 握手以 `internal_error`(alert 80) 中断——所有客户端连不上，而 Caddy 日志照样打印 `server running`。这是"看着全绿其实全挂"的典型。
+2. **验证时必须用证书里的名字当 Host。** 连 `127.0.0.1:8443` 会带 `Host: 127.0.0.1:8443`，匹配不到站点，Caddy 返回**空 200**（无 content-type、无上游 etag），极易误判成"代理坏了"。另外 Windows 上 curl 会被 `https_proxy` 环境变量劫持，要加 `--noproxy '*'`；判读证书错误用 `openssl s_client` 比 curl 的 Schannel 后端准。
+
+验收脚本：`node caddy/probe.mjs`（逐个入口打一遍，打印 HTTP 状态 / 字节数 / `Via: 1.1 Caddy`）。
+
+MinIO 加一层 basic auth（可选，默认关闭——避免把没人知道的密码写进配置）：
+
+```bash
+docker run --rm caddy:2-alpine caddy hash-password --plaintext '你的密码'
+# 输出写进 .env 的 ADMIN_PASSWORD_HASH（含 $，用单引号包住），
+# 然后去掉 caddy/Caddyfile 里 :8446 段落的 basic_auth 注释，
+# docker compose restart caddy
+```
 
 ### 流式输出（打字机）
 

@@ -279,6 +279,35 @@ services:
     depends_on:
       - n8n
 
+  # Caddy 反向代理：给局域网访问加一层 TLS，并为将来挂正式域名留好入口。
+  # 现有端口一个都不动 —— 不想用就 docker compose stop caddy，原来的访问方式照旧。
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+      - "8444:8444"
+      - "8445:8445"
+      - "8446:8446"
+    environment:
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
+      # 证书的 SAN 里要写进局域网 IP，否则从手机访问时 SNI 对不上会握手失败。
+      # 换网段后改 .env 里的 LAN_IP 并 restart caddy。
+      - LAN_IP=${LAN_IP:-127.0.0.1}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - n8n-net
+    depends_on:
+      - console
+      - lobechat
+      - n8n
+      - minio
+
 networks:
   n8n-net:
     name: n8n-net
@@ -293,3 +322,7 @@ volumes:
     name: postgres_data_pg17
   minio_data:
     name: minio_data
+  caddy_data:
+    name: caddy_data
+  caddy_config:
+    name: caddy_config

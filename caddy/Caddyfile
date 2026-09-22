@@ -1,0 +1,55 @@
+# Caddy 反向代理 —— 给平台加一层 TLS 与统一入口。
+#
+# 设计原则：现有端口（3000 / 3210 / 5678 / 9000 / 9001）一个都不动，
+# Caddy 只是"新增的、更安全的入口"。不想用就 docker compose stop caddy，
+# 原来的访问方式照旧可用。
+#
+# 局域网模式（当前）：Caddy 内部 CA 自签证书，浏览器首次会提示"证书不受信任"，
+#   点继续即可；流量是真的加密的。想要正式证书请看 Caddyfile.domain.example。
+#
+# 访问：
+#   https://localhost:8443       控制台
+#   https://localhost:8444       LobeHub 对话
+#   https://localhost:8445       n8n（自带登录）
+#   https://localhost:8446       MinIO 控制台
+#   把 localhost 换成 <LAN-IP>（当前 192.168.209.141）即可从手机/别的机器访问。
+
+{
+	# 不自作主张占用 80 去做 HTTP->HTTPS 跳转：那会影响将来挂别的站点
+	auto_https disable_redirects
+}
+
+# 重要：站点地址必须带"名字"，不能只写 :8443。
+# 只写端口时 Caddy 的内部 CA 拿不到任何域名，签不出叶子证书，
+# TLS 握手会以 internal_error(alert 80) 中断——所有 client 都连不上，
+# 而 Caddy 日志看起来一切正常（server running）。踩过一次，别改回去。
+#
+# {$LAN_IP} 由 docker-compose 从 .env 传入。换网段后改 .env 里的 LAN_IP，
+# 再 `docker compose restart caddy` 即可重新签发。
+
+localhost:8443, {$LAN_IP}:8443 {
+	tls internal
+	reverse_proxy platform-console:3000
+}
+
+localhost:8444, {$LAN_IP}:8444 {
+	tls internal
+	reverse_proxy lobechat:3210
+}
+
+# n8n 编辑器依赖 WebSocket，Caddy 默认透传 Upgrade，无需额外配置
+localhost:8445, {$LAN_IP}:8445 {
+	tls internal
+	reverse_proxy n8n:5678
+}
+
+# MinIO 控制台是唯一一个"拿到就等于拿到全部对象存储"的入口，建议加一层 basic auth。
+# 默认不开（避免把没人知道的密码写进配置），启用方法见 README「Caddy 反向代理」：
+# 生成哈希 -> 写进 .env -> 去掉下面三行的注释 -> docker compose restart caddy
+localhost:8446, {$LAN_IP}:8446 {
+	tls internal
+	# basic_auth {
+	#	{$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+	# }
+	reverse_proxy minio:9001
+}

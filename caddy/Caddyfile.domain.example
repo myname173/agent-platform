@@ -1,0 +1,38 @@
+# 正式域名模式 —— 用这个文件替换 caddy/Caddyfile，并在 .env 里填好
+# PLATFORM_DOMAIN 与 ADMIN_*，然后 docker compose restart caddy。
+#
+# 前提：
+#   1. 你有一个域名，并把下面四个主机名都解析到这台机器（或到你的公网入口）
+#   2. 80 / 443 能从公网进来（路由器端口转发，或用 Tailscale + 自己的 DNS）
+#   3. Caddy 会自动向 Let's Encrypt 申请证书，无需手动操作
+#
+# 相比局域网模式的变化：
+#   - 四个服务共用一个 443，靠主机名区分，不用记端口号
+#   - 真证书，手机浏览器不再报警
+
+{
+	email {$ACME_EMAIL}
+}
+
+console.{$PLATFORM_DOMAIN} {
+	encode gzip
+	reverse_proxy platform-console:3000
+}
+
+chat.{$PLATFORM_DOMAIN} {
+	encode gzip
+	reverse_proxy lobechat:3210
+}
+
+n8n.{$PLATFORM_DOMAIN} {
+	encode gzip
+	reverse_proxy n8n:5678
+}
+
+minio.{$PLATFORM_DOMAIN} {
+	encode gzip
+	basic_auth {
+		{$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+	}
+	reverse_proxy minio:9001
+}
