@@ -457,10 +457,14 @@ MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_AP
    | Selfcheck | 04:15 | `15 4,10,16,21 * * *` | `Already Ran Today`（看 `selfcheck_runs.source='schedule'`） |
    | Chat Retention | 03:00 | `0 3,14 * * *` | 无（清理本身幂等） |
    | Daily Brief | 08:30 | `30 8,11,15 * * *` | `Already Briefed Today`（看 `daily_briefs.brief_date`） |
-   **守卫是必需的**：否则机器全天在线时自检会跑 4 次、晨报会出 3 份。
-   加了守卫，多出来的时间点就纯粹是"补跑"——**一天只真跑一次，直到机器开机为止**。
-   **未改**：`topic-watch`（21:00）与 `weekly-review`（周日 20:00）同样暴露在风险里，
-   但两者都没有明确的日期字段可用于去重，加补跑点会导致重复产出 —— **没猜，先放着**。
+   | Topic Watch | 21:00 | `0 9,13,17,21 * * *` | `Already Ran Today`（看 `cron_runs`，period=当天） |
+   | Weekly Review | 周日 20:00 | `0 9,14,20 * * 0` | `Already Ran This Week`（看 `cron_runs`，period=ISO 周） |
+   **守卫是必需的**：否则机器全天在线时自检会跑 4 次、晨报会出 3 份、周报周日会出 3 份。
+   加了守卫，多出来的时间点就纯粹是"补跑"——**一天（周）只真跑一次，直到机器开机为止**。
+   `topic-watch` / `weekly-review` 原本没有可用于去重的日期字段，所以新建了一张通用的
+   `cron_runs` 表（`job` / `period` / `ran_at` / `source`），守卫查它、跑成功后打标记。
+   **守卫 fail-open**：查不到状态时放行（宁可重复一次，也不能把任务悄悄掐死）；
+   **标记只在跑成功后写**——跑失败时 n8n 会停在这里，标记不落，后面的时间点还有机会补。
    **注意**：自检的 `selfcheck ran recently` 会**分别统计手动与定时** ——
    否则手动跑一次就把定时停摆这件事盖住了。
 10. **n8n 数据表 rows 端点不带 `sortBy` 时返回的是"按主键最前面的 N 行"（最旧的）。**

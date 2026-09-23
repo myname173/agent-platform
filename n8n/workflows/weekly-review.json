@@ -33,13 +33,8 @@
         "rule": {
           "interval": [
             {
-              "field": "weeks",
-              "weeksInterval": 1,
-              "triggerAtDay": [
-                0
-              ],
-              "triggerAtHour": 20,
-              "triggerAtMinute": 0
+              "field": "cronExpression",
+              "expression": "0 9,14,20 * * 0"
             }
           ]
         }
@@ -135,6 +130,32 @@
         "respondWith": "firstIncomingItem",
         "options": {}
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Slots Sun 09:00 / 14:00 / 20:00. Same reason as the others: a desktop host is often off at the original 20:00, and a weekly job that misses its slot is silent for seven days. Once one slot has landed this ISO week the rest must be no-ops. */\nconst N8N = 'http://localhost:5678/api/v1';\nconst H = { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' };\nconst api = (m, p, qs, b) => this.helpers.httpRequest({ method: m, url: N8N + p, headers: H, qs, body: b, timeout: 15000 });\n/* 失败要 fail-open：守卫查不到状态时宁可多跑一次，也不能把任务悄悄掐死。 */\nconst table = async () => {\n  try {\n    let t = (((await api('GET', '/data-tables', { limit: 100 })).data) || []).find((x) => x.name === 'cron_runs');\n    if (!t || !t.id) {\n      t = await api('POST', '/data-tables', null, { name: 'cron_runs', columns: [\n        { name: 'job', type: 'string' }, { name: 'period', type: 'string' },\n        { name: 'ran_at', type: 'string' }, { name: 'source', type: 'string' } ] });\n    }\n    return (t && t.id) ? t : null;\n  } catch (e) { return null; }\n};\n/* once per ISO week, not once per day */\nconst _d = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000);\nconst _t = new Date(Date.UTC(_d.getUTCFullYear(), _d.getUTCMonth(), _d.getUTCDate()));\nconst _day = _t.getUTCDay() || 7;\n_t.setUTCDate(_t.getUTCDate() + 4 - _day);\nconst _ys = new Date(Date.UTC(_t.getUTCFullYear(), 0, 1));\nconst _w = Math.ceil((((_t - _ys) / 86400000) + 1) / 7);\nconst period = _t.getUTCFullYear() + '-W' + String(_w).padStart(2, '0');\nlet t = await table();\nif (!t) return $input.all();\nlet rows = [];\ntry { rows = (((await api('GET', '/data-tables/' + t.id + '/rows', { limit: 250 })).data) || []); } catch (e2) { return $input.all(); }\nif (rows.some((r) => r.job === 'weekly_review' && String(r.period || '') === period)) return [];\nreturn $input.all();"
+      },
+      "id": "wk-guard",
+      "name": "Already Ran This Week",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Record that this period is done, so the remaining schedule slots no-op.\n   Runs only after the work succeeded: if the run throws, n8n stops here and the\n   marker is never written, so a later slot still gets its chance. */\nconst N8N = 'http://localhost:5678/api/v1';\nconst H = { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' };\nconst api = (m, p, qs, b) => this.helpers.httpRequest({ method: m, url: N8N + p, headers: H, qs, body: b, timeout: 15000 });\n/* 失败要 fail-open：守卫查不到状态时宁可多跑一次，也不能把任务悄悄掐死。 */\nconst table = async () => {\n  try {\n    let t = (((await api('GET', '/data-tables', { limit: 100 })).data) || []).find((x) => x.name === 'cron_runs');\n    if (!t || !t.id) {\n      t = await api('POST', '/data-tables', null, { name: 'cron_runs', columns: [\n        { name: 'job', type: 'string' }, { name: 'period', type: 'string' },\n        { name: 'ran_at', type: 'string' }, { name: 'source', type: 'string' } ] });\n    }\n    return (t && t.id) ? t : null;\n  } catch (e) { return null; }\n};\n/* once per ISO week, not once per day */\nconst _d = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000);\nconst _t = new Date(Date.UTC(_d.getUTCFullYear(), _d.getUTCMonth(), _d.getUTCDate()));\nconst _day = _t.getUTCDay() || 7;\n_t.setUTCDate(_t.getUTCDate() + 4 - _day);\nconst _ys = new Date(Date.UTC(_t.getUTCFullYear(), 0, 1));\nconst _w = Math.ceil((((_t - _ys) / 86400000) + 1) / 7);\nconst period = _t.getUTCFullYear() + '-W' + String(_w).padStart(2, '0');\nlet source = 'schedule';\ntry { if ($('Webhook Weekly').first().json) source = 'manual'; } catch (e) {}\ntry {\n  const t = await table();\n  if (t) await api('POST', '/data-tables/' + t.id + '/rows', null, { data: [{\n    job: 'weekly_review', period, ran_at: new Date().toISOString(), source }] });\n} catch (e3) {}\nreturn $input.all();"
+      },
+      "id": "wk-mark",
+      "name": "Mark Ran",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        150,
+        120
+      ]
     }
   ],
   "connections": {
@@ -182,7 +203,7 @@
       "main": [
         [
           {
-            "node": "Run Review",
+            "node": "Already Ran This Week",
             "type": "main",
             "index": 0
           }
@@ -190,6 +211,28 @@
       ]
     },
     "Run Review": {
+      "main": [
+        [
+          {
+            "node": "Mark Ran",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Ran This Week": {
+      "main": [
+        [
+          {
+            "node": "Run Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Ran": {
       "main": [
         [
           {

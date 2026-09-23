@@ -124,14 +124,38 @@
         "rule": {
           "interval": [
             {
-              "field": "days",
-              "daysInterval": 1,
-              "triggerAtHour": 21,
-              "triggerAtMinute": 0
+              "field": "cronExpression",
+              "expression": "0 9,13,17,21 * * *"
             }
           ]
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Slots at 09:00 / 13:00 / 17:00 / 21:00. The extras exist only because this host is a desktop that is often off at the original 21:00 — the same reason the daily selfcheck silently missed days. Once one slot has produced a digest today the rest must be no-ops. */\nconst N8N = 'http://localhost:5678/api/v1';\nconst H = { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' };\nconst api = (m, p, qs, b) => this.helpers.httpRequest({ method: m, url: N8N + p, headers: H, qs, body: b, timeout: 15000 });\n/* 失败要 fail-open：守卫查不到状态时宁可多跑一次，也不能把任务悄悄掐死。 */\nconst table = async () => {\n  try {\n    let t = (((await api('GET', '/data-tables', { limit: 100 })).data) || []).find((x) => x.name === 'cron_runs');\n    if (!t || !t.id) {\n      t = await api('POST', '/data-tables', null, { name: 'cron_runs', columns: [\n        { name: 'job', type: 'string' }, { name: 'period', type: 'string' },\n        { name: 'ran_at', type: 'string' }, { name: 'source', type: 'string' } ] });\n    }\n    return (t && t.id) ? t : null;\n  } catch (e) { return null; }\n};\n/* schedule fires on container-local time, so compare local dates */\nconst _d = new Date();\nconst period = new Date(_d.getTime() - _d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);\nlet t = await table();\nif (!t) return $input.all();\nlet rows = [];\ntry { rows = (((await api('GET', '/data-tables/' + t.id + '/rows', { limit: 250 })).data) || []); } catch (e2) { return $input.all(); }\nif (rows.some((r) => r.job === 'topic_watch' && String(r.period || '') === period)) return [];\nreturn $input.all();"
+      },
+      "id": "wguard",
+      "name": "Already Ran Today",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Record that this period is done, so the remaining schedule slots no-op.\n   Runs only after the work succeeded: if the run throws, n8n stops here and the\n   marker is never written, so a later slot still gets its chance. */\nconst N8N = 'http://localhost:5678/api/v1';\nconst H = { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' };\nconst api = (m, p, qs, b) => this.helpers.httpRequest({ method: m, url: N8N + p, headers: H, qs, body: b, timeout: 15000 });\n/* 失败要 fail-open：守卫查不到状态时宁可多跑一次，也不能把任务悄悄掐死。 */\nconst table = async () => {\n  try {\n    let t = (((await api('GET', '/data-tables', { limit: 100 })).data) || []).find((x) => x.name === 'cron_runs');\n    if (!t || !t.id) {\n      t = await api('POST', '/data-tables', null, { name: 'cron_runs', columns: [\n        { name: 'job', type: 'string' }, { name: 'period', type: 'string' },\n        { name: 'ran_at', type: 'string' }, { name: 'source', type: 'string' } ] });\n    }\n    return (t && t.id) ? t : null;\n  } catch (e) { return null; }\n};\n/* schedule fires on container-local time, so compare local dates */\nconst _d = new Date();\nconst period = new Date(_d.getTime() - _d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);\nlet source = 'schedule';\ntry { if ($('Webhook Watch').first().json) source = 'manual'; } catch (e) {}\ntry {\n  const t = await table();\n  if (t) await api('POST', '/data-tables/' + t.id + '/rows', null, { data: [{\n    job: 'topic_watch', period, ran_at: new Date().toISOString(), source }] });\n} catch (e3) {}\nreturn $input.all();"
+      },
+      "id": "wmark",
+      "name": "Mark Ran",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        130,
+        110
+      ]
     }
   ],
   "connections": {
@@ -179,7 +203,7 @@
       "main": [
         [
           {
-            "node": "Respond OK",
+            "node": "Mark Ran",
             "type": "main",
             "index": 0
           }
@@ -190,7 +214,29 @@
       "main": [
         [
           {
+            "node": "Already Ran Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Ran Today": {
+      "main": [
+        [
+          {
             "node": "Run Watch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Ran": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
             "type": "main",
             "index": 0
           }
