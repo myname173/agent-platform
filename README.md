@@ -335,6 +335,24 @@ Set-ScheduledTask -TaskName "Agent Platform Backup" -Settings $s
 **心跳必须带证据**：`backup-task.sh` 上报 `{"stamp","n","bytes","integrity"}`，
 自检 `backup heartbeat fresh` 要求 5/5 件、`bytes>0`、`integrity=4/4`——
 空心跳（手工 curl 的那种）会被判失败。别再用补心跳的方式"救火"，那正是它骗了 63 小时的原因。
+
+**还有一个更阴的：心跳曾经"发了但没落地"，备份却说成功。** `send_heartbeat` 用字符串拼接造 body，
+而 `detail` 本身是一段 JSON，内层引号没转义 → 整个 body 是**非法 JSON** → 端点回 **422**；
+而 `curl` 那段只判断退出码、没加 `-f`，于是 4xx 也被记成 `heartbeat sent (ok=true)`。
+结果：备份成功、日志报成功、自检却报 `backup heartbeat fresh` 失败——三方互相矛盾，谁都像是坏了。
+**已修**：detail 先转义再拼，并且用 `-w '%{http_code}'` 读真实状态码，非 200 要打印响应体。
+（教训同"工具清单漂移"：一个环节静默失败，其它环节全绿，最后表现成一个无法定位的矛盾。）
+
+**03:30 这个点本身也要打个问号**：它是 Windows 计划任务，机器开着不代表 Docker 开着。
+实测 09-22、09-23 连续两天 03:30 触发时 Docker Desktop 没运行，日志里是
+`failed to connect to the docker API` → 备份失败。`StartWhenAvailable` 只能保证"开机后补跑"，
+补跑时 Docker 仍未就绪照样失败。**建议把触发器改到你通常已经开了 Docker 的时段**（或再加几个时间点）。
+`schtasks` 在本环境被安全策略拦截，改触发器需要你自己跑（管理员终端）：
+
+```powershell
+schtasks /change /tn "Agent Platform Backup" /st 10:30
+```
+
 恢复参考：`gunzip -c backups/pg-n8n-*.sql.gz | docker exec -i postgres psql -U n8n -d n8n`；
 `gunzip -c backups/pg-lobechat-*.sql.gz | docker exec -i postgres psql -U n8n -d lobechat`；
 MinIO：停 minio 后把归档解回 `minio_data` 卷。每日 03:30 计划任务自动执行（含四项完整性检查）。

@@ -31,13 +31,25 @@ send_heartbeat() {
   chat_key="$(grep -m1 '^CHAT_API_KEY=' "${REPO_DIR}/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r')"
   if [ -z "${chat_key}" ]; then echo "heartbeat: skipped (no CHAT_API_KEY)"; return 0; fi
   local authh="Bea""rer ${chat_key}"
+  # `detail` carries a JSON object (artifact count / bytes / integrity). Splicing
+  # it into the body raw produced INVALID JSON, the endpoint answered 422, and --
+  # because only curl's exit code was checked -- the log still printed
+  # "heartbeat sent (ok=true)". That is how the self-check reported "backup stale"
+  # minutes after a perfectly good backup. Escape it, and read the HTTP status.
+  local esc="${detail//\\/\\\\}"
+  esc="${esc//\"/\\\"}"
   local body
-  body="$(printf '{"job":"backup","ok":%s,"detail":%s}' "${ok}" "\"${detail}\"")"
-  if curl -sS -m 20 -X POST "http://localhost:5678/webhook/admin/heartbeat" -H "Content-Type: application/json" -H "Authorization: ${authh}" -d "${body}" >/dev/null 2>&1; then
+  body="$(printf '{"job":"backup","ok":%s,"detail":"%s"}' "${ok}" "${esc}")"
+  local hb_out http
+  hb_out="$(mktemp)"
+  http="$(curl -sS -m 20 -o "${hb_out}" -w '%{http_code}' -X POST "http://localhost:5678/webhook/admin/heartbeat" -H "Content-Type: application/json" -H "Authorization: ${authh}" -d "${body}" 2>/dev/null || echo 000)"
+  if [ "${http}" = "200" ]; then
     echo "heartbeat sent (ok=${ok})"
   else
-    echo "heartbeat failed (non-fatal) — the self-check will go stale until the next successful run"
+    echo "heartbeat FAILED (http=${http}) $(head -c 200 "${hb_out}" 2>/dev/null)"
+    echo "  ^ no heartbeat landed, so the self-check will go stale until one does"
   fi
+  rm -f "${hb_out}"
 }
 
 {
