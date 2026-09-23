@@ -279,6 +279,39 @@ services:
     depends_on:
       - n8n
 
+  # 备份（栈内）：刻意不依赖宿主机的计划任务。
+  # 宿主机那个每日 03:30 的 Windows 任务改不动 —— schtasks.exe 被安全策略拦截，
+  # PowerShell 的 Set-ScheduledTask 也返回"拒绝访问"，都要管理员。
+  # 而它触发时 Docker 常常没开（09-22 / 09-23 连续两天失败，日志是
+  # failed to connect to the docker API），StartWhenAvailable 补跑也一样失败。
+  # 放进栈里之后：只要栈起来就一定会备份 —— 容器启动即跑一次，之后每 N 小时一轮。
+  backup:
+    build:
+      context: ./backup
+    container_name: platform-backup
+    restart: unless-stopped
+    environment:
+      - PGHOST=postgres
+      - PGUSER=${POSTGRES_USER}
+      - PGPASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - CHAT_API_KEY=${CHAT_API_KEY}
+      - BACKUP_INTERVAL_HOURS=${BACKUP_INTERVAL_HOURS:-6}
+      - BACKUP_MIN_AGE_HOURS=${BACKUP_MIN_AGE_HOURS:-20}
+    volumes:
+      - ./backups:/backups
+      - n8n_data:/vol/n8n_data:ro
+      - minio_data:/vol/minio_data:ro
+      - ./docker-compose.yml:/cfg/docker-compose.yml:ro
+      - ./.env:/cfg/.env:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      n8n:
+        condition: service_started
+    networks:
+      - n8n-net
+
   # Caddy 反向代理：给局域网访问加一层 TLS，并为将来挂正式域名留好入口。
   # 现有端口一个都不动 —— 不想用就 docker compose stop caddy，原来的访问方式照旧。
   caddy:

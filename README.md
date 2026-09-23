@@ -22,7 +22,8 @@ surface.
  Telegram  poll ─┘        │
                           ├── Postgres 17 + pgvector (ParadeDB)
                           ├── MinIO (S3, file uploads)
-                          └── stream-bridge :3211 (streaming sidecar)
+                          ├── stream-bridge :3211 (streaming sidecar)
+                          └── backup (in-stack, so it runs whenever the stack is up)
 ```
 
 **What it actually does**
@@ -153,7 +154,7 @@ git clone <this-repo> agent-platform && cd agent-platform
 cp .env.example .env          # 填真实值：CHAT_API_KEY / N8N_API_KEY / POSTGRES_PASSWORD /
                               # DASHSCOPE_API_KEY / UPSTREAM_API_KEY / MCP_API_KEY / MINIO_ROOT_*
 cp frontent/env.example.txt frontent/.env.local   # 控制台的 Clerk / n8n 变量（仓库里没有，必须自己建）
-docker compose up -d          # 8 个容器
+docker compose up -d          # 9 个容器（含栈内备份 backup）
 ```
 
 > `frontent/.env.local` 是 gitignore 的，全新 clone 没有它。compose 已把它标成
@@ -343,20 +344,46 @@ Set-ScheduledTask -TaskName "Agent Platform Backup" -Settings $s
 **已修**：detail 先转义再拼，并且用 `-w '%{http_code}'` 读真实状态码，非 200 要打印响应体。
 （教训同"工具清单漂移"：一个环节静默失败，其它环节全绿，最后表现成一个无法定位的矛盾。）
 
-**03:30 这个点本身也要打个问号**：它是 Windows 计划任务，机器开着不代表 Docker 开着。
+#### 备份现在跑在栈里（`backup` 服务）—— 宿主机计划任务不再是主力
+
+**03:30 这个点本身就是错的**：它是 Windows 计划任务，而**机器开着不代表 Docker 开着**。
 实测 09-22、09-23 连续两天 03:30 触发时 Docker Desktop 没运行，日志里是
 `failed to connect to the docker API` → 备份失败。`StartWhenAvailable` 只能保证"开机后补跑"，
-补跑时 Docker 仍未就绪照样失败。**建议把触发器改到你通常已经开了 Docker 的时段**（或再加几个时间点）。
-`schtasks` 在本环境被安全策略拦截，改触发器需要你自己跑（管理员终端）：
+补跑时 Docker 仍未就绪，照样失败。
 
-```powershell
-schtasks /change /tn "Agent Platform Backup" /st 10:30
+**而这个触发器我们改不动**：`schtasks.exe` 被安全策略拦截，PowerShell 的 `Set-ScheduledTask`
+同样返回**「拒绝访问」**（都要管理员），只有 `Get-ScheduledTask` 能读。
+
+**所以备份搬进了栈内** —— 容器只可能在栈起来时运行，而"栈起来了"本来就是备份能成功的唯一前提：
+
+| 项 | 说明 |
+| --- | --- |
+| 服务 | `backup`（`backup/Dockerfile`，基于 `postgres:17-alpine`：自带 `pg_dump`/`tar`，客户端版本与服务端一致） |
+| 触发 | 容器**启动即跑一次**，之后每 `BACKUP_INTERVAL_HOURS`（默认 6）小时一轮；不用 cron，一个循环就够 |
+| 去重 | 成功后写标记 `backups/.last-ok`；距上次成功不足 `BACKUP_MIN_AGE_HOURS`（默认 20）小时则跳过——**机器全天在线也不会刷出好几份 110MB** |
+| 产物 | 与宿主机脚本**完全一致的五件套**（`n8n-data-` / `config-n8n-data-` / `minio-data-` / `pg-n8n-` / `pg-lobechat-`），命名不变，所以自检的 `backup heartbeat fresh` 无需改动 |
+| 不需要 docker CLI | `pg_dump -h postgres` 直连数据库；`n8n_data` / `minio_data` 卷只读挂载后打 tar |
+| 保留 | 按**整套**裁剪，保留最近 30 套（半个套比没有更糟，所以绝不单删文件） |
+| 心跳 | 复用 `/webhook/admin/heartbeat`，带 `{stamp,n,bytes,integrity}` 证据 |
+
+运维：
+
+```bash
+docker compose up -d --build backup     # 起（首次会构建镜像）
+docker logs platform-backup             # 看每一轮
+docker compose stop backup              # 停（宿主机脚本仍可手动用）
+docker exec platform-backup /usr/local/bin/backup.sh   # 手动触发一轮（有守卫，20h 内会跳过）
 ```
+
+宿主机那条 `bash n8n/scripts/backup-task.sh` 保留可用；那个改不动的 Windows 任务就留着——
+跑成功算多一份，跑失败也不碍事。
+
+> 实测（2026-09-23）：起容器 → 5 件套产出 + 完整性 4/4 + 心跳 `ok=true` 落库；
+> 重启容器 → 再跑一次但被守卫跳过；自检 47 项 46 通过 / 0 失败。
 
 恢复参考：`gunzip -c backups/pg-n8n-*.sql.gz | docker exec -i postgres psql -U n8n -d n8n`；
 `gunzip -c backups/pg-lobechat-*.sql.gz | docker exec -i postgres psql -U n8n -d lobechat`；
-MinIO：停 minio 后把归档解回 `minio_data` 卷。每日 03:30 计划任务自动执行（含四项完整性检查）。
-归档含凭据与对话数据，妥善保管。
+MinIO：停 minio 后把归档解回 `minio_data` 卷。归档含凭据与对话数据，妥善保管。
 
 #### 恢复演练（n8n/scripts/restore-drill.sh）
 
