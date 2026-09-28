@@ -1,0 +1,75 @@
+{
+  "captured_at": "2026-09-28T16:47:23+08:00",
+  "items": [
+    {
+      "file": "01_console_signin.png",
+      "label": "控制台登录页",
+      "kind": "browser-ui",
+      "url": "http://localhost:3000/auth/sign-in",
+      "final_url": "http://localhost:3000/auth/sign-in",
+      "http_status": 200,
+      "title": "Authentication | Sign In | Shadcn Dashboard",
+      "truth": "由当前服务页面/HTTP响应直接截取；不含合成动画"
+    },
+    {
+      "file": "02_lobechat_signin.png",
+      "label": "LobeChat登录页",
+      "kind": "browser-ui",
+      "url": "http://localhost:3210",
+      "final_url": "http://192.168.209.141:3210/signin?callbackUrl=http%3A%2F%2F192.168.209.141%3A3210%2F",
+      "http_status": 200,
+      "title": "PivotAI - 从对话到执行 | Chat less. Ship more.",
+      "truth": "由当前服务页面/HTTP响应直接截取；不含合成动画"
+    },
+    {
+      "file": "03_n8n_signin.png",
+      "label": "n8n登录页",
+      "kind": "browser-ui",
+      "url": "http://localhost:5678/signin",
+      "final_url": "http://localhost:5678/signin",
+      "http_status": 200,
+      "title": "n8n.io - Workflow Automation",
+      "truth": "由当前服务页面/HTTP响应直接截取；不含合成动画"
+    },
+    {
+      "file": "04_searxng_search.png",
+      "label": "SearXNG真实搜索结果页",
+      "kind": "browser-ui",
+      "url": "http://localhost:8080/search?q=agent+platform&format=html",
+      "final_url": "http://localhost:8080/search?q=agent+platform&format=html",
+      "http_status": 200,
+      "title": "SearXNG",
+      "truth": "由当前服务页面/HTTP响应直接截取；不含合成动画"
+    },
+    {
+      "file": "05_minio_console.png",
+      "label": "MinIO登录页或控制台",
+      "kind": "browser-ui",
+      "url": "http://localhost:9001/",
+      "final_url": "http://localhost:9001/login",
+      "http_status": 200,
+      "title": "MinIO Console",
+      "truth": "由当前服务页面/HTTP响应直接截取；不含合成动画"
+    },
+    {
+      "file": "06_platform_health.json.png",
+      "label": "控制台健康 API 原始响应",
+      "kind": "raw-api",
+      "url": "http://localhost:3000/api/n8n/health",
+      "final_url": "http://localhost:3000/api/n8n/health",
+      "http_status": 200,
+      "title": "控制台健康 API 原始响应",
+      "truth": "由当前服务页面/HTTP响应直接截取；不含合成动画"
+    },
+    {
+      "file": "07_n8n_workflows.json.png",
+      "label": "n8n工作流 API 原始响应（不嵌密钥）",
+      "kind": "raw-api",
+      "url": "http://localhost:5678/api/v1/workflows?limit=24&fields=id,name,active,updatedAt",
+      "final_url": "http://localhost:5678/api/v1/workflows?limit=24&fields=id,name,active,updatedAt",
+      "http_status": 200,
+      "title": "n8n工作流 API 原始响应（不嵌密钥）",
+      "truth": "由当前服务页面/HTTP响应直接截取；不含合成动画"
+    }
+  ]
+}
