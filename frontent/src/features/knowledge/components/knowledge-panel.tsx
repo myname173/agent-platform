@@ -5,9 +5,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { KbIngestDialog } from './kb-ingest-dialog';
-import { KbSearchCard } from './kb-search-card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { KbIngestDialog } from './kb-ingest-dialog';
+import { KbSearchTester } from './kb-search-tester';
 
 interface KbDoc {
   doc_id: string;
@@ -119,63 +120,84 @@ export function KnowledgePanel() {
         </div>
       ) : null}
 
-      <KbSearchCard />
+      <Tabs defaultValue='docs' className='flex flex-col gap-4'>
+        <TabsList>
+          <TabsTrigger value='docs'>文档库 ({docs ? docs.length : '…'})</TabsTrigger>
+          <TabsTrigger value='testbench'>检索演练</TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader>
-          <div className='flex items-center justify-between'>
-            <div>
-              <CardTitle>知识文档</CardTitle>
-              <CardDescription>{docs ? `${docs.length} 篇（含已下架）` : '加载中…'}</CardDescription>
-            </div>
-            <KbIngestDialog onDone={load} usedTokens={stats?.embed_tokens_used ?? 0} />
-          </div>
-        </CardHeader>
-        <CardContent>
-          {loadError ? (
-            <p className='text-destructive text-sm'>加载失败：{loadError}</p>
-          ) : docs === null ? (
-            <div className='flex flex-col gap-2'>
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} className='h-9 w-full' />
-              ))}
-            </div>
-          ) : docs.length === 0 ? (
-            <p className='text-muted-foreground text-sm'>暂无文档 —— 用右上角「摄取新文档」添加第一篇。</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>标题</TableHead>
-                  <TableHead>来源</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>分块</TableHead>
-                  <TableHead>创建时间</TableHead>
-                  <TableHead className='text-right'>操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {docs.map((d) => (
-                  <TableRow key={d.doc_id}>
-                    <TableCell className='font-medium'>{d.title}</TableCell>
-                    <TableCell className='text-muted-foreground text-xs'>{d.source_type}</TableCell>
-                    <TableCell>
-                      <Badge variant={d.status === 'active' ? 'default' : 'outline'}>
-                        {d.status === 'active' ? '生效中' : '已下架'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className='tabular-nums'>{d.chunks}</TableCell>
-                    <TableCell className='text-muted-foreground text-xs'>{fmtTime(d.created_at)}</TableCell>
-                    <TableCell className='text-right'>
-                      {d.status === 'active' ? <RetireButton doc={d} onRetire={retire} /> : null}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+        <TabsContent value='docs'>
+          <Card>
+            <CardHeader>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <CardTitle>知识文档</CardTitle>
+                  <CardDescription>{docs ? `${docs.length} 篇（含已下架）` : '加载中…'}</CardDescription>
+                </div>
+                <KbIngestDialog onDone={load} usedTokens={stats?.embed_tokens_used ?? 0} />
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadError ? (
+                <p className='text-destructive text-sm'>加载失败：{loadError}</p>
+              ) : docs === null ? (
+                <div className='flex flex-col gap-2'>
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className='h-9 w-full' />
+                  ))}
+                </div>
+              ) : docs.length === 0 ? (
+                <p className='text-muted-foreground text-sm'>暂无文档 —— 用右上角「摄取新文档」添加第一篇。</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>标题</TableHead>
+                      <TableHead>来源</TableHead>
+                      <TableHead>状态</TableHead>
+                      <TableHead>分块</TableHead>
+                      <TableHead>创建时间</TableHead>
+                      <TableHead className='text-right'>操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {docs.map((d) => (
+                      <TableRow key={d.doc_id}>
+                        <TableCell className='font-medium'>{d.title}</TableCell>
+                        <TableCell className='text-muted-foreground text-xs'>{d.source_type}</TableCell>
+                        <TableCell>
+                          <Badge variant={d.status === 'active' ? 'default' : 'outline'}>
+                            {d.status === 'active' ? '生效中' : '已下架'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className='tabular-nums'>{d.chunks}</TableCell>
+                        <TableCell className='text-muted-foreground text-xs'>{fmtTime(d.created_at)}</TableCell>
+                        <TableCell className='text-right'>
+                          {d.status === 'active' ? <RetireButton doc={d} onRetire={retire} /> : null}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value='testbench'>
+          <Card>
+            <CardHeader>
+              <CardTitle>检索演练与质量评测</CardTitle>
+              <CardDescription>
+                对已入库内容做语义检索。输入查询，实时检验 DashScope 文本嵌入 + pgvector 余弦相似度召回效果与排序质量。
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <KbSearchTester />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

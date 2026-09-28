@@ -34,3 +34,4 @@ backups/
 
 # theme watchdog state
 .theme-keeper-misses
+deliverables/_verify/
