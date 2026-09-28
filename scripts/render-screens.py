@@ -420,14 +420,20 @@ def screen_stream():
 # 5. Telegram phone mockup built around the REAL desktop capture
 # ═══════════════════════════════════════════════════════════════════════════
 def screen_telegram_mock():
-    src_path = OUT / "telegram_full.png"
-    if src_path.exists():
-        src = Image.open(src_path).convert("RGB")
-        # crop the chat pane (right ~62% of the window, below the title bar)
-        w0, h0 = src.size
-        crop = src.crop((int(w0 * 0.30), int(h0 * 0.13), int(w0 * 0.995), int(h0 * 0.92)))
+    # Prefer the freshly-captured live shot; fall back to the older archive.
+    src_path = OUT / "telegram_live.png"
+    if not src_path.exists():
+        src_path = OUT / "telegram_full.png"
+    src = Image.open(src_path).convert("RGB")
+    w0, h0 = src.size
+
+    # The Telegram window is a left rail (chat list) + right pane (active
+    # conversation). The phone mockup should show the active chat, so crop
+    # only the right pane, below the title bar.
+    if w0 > 600:
+        crop = src.crop((int(w0 * 0.625), int(h0 * 0.085), int(w0 * 0.998), int(h0 * 0.92)))
     else:
-        crop = Image.new("RGB", (600, 700), (255, 255, 255))
+        crop = src.crop((int(w0 * 0.30), int(h0 * 0.13), int(w0 * 0.995), int(h0 * 0.92)))
 
     PHONE_W, PHONE_H = 420, 860
     screen_w = PHONE_W - 40
