@@ -318,8 +318,11 @@ n8n API 工作流数。
 - [ ] n8n 里 4 条 credentials 能打开且能解密
 - [ ] Kiranism 控制台 Clerk 登录正常（Clerk 是 SaaS，与机器无关）
 - [ ] **Telegram 必须登同一个账号**（见下）
-- [ ] 重装 OpenVPN / 更新分流规则后，`searxng` 与
-      `api.deepseek.com` / `api.telegram.org` 要能通
+- [ ] 新机器上如果装有 Clash / mihomo 这类**系统代理**，确认 `localhost` / `127.*`
+      在绕过列表里（`ProxyOverride`）。注意：**.NET 的 `HttpWebRequest` 不读这份
+      豁免列表** —— 脚本里探测本地服务必须显式禁用代理，否则会误报 404。
+      （与本机挂的 OpenVPN 无关：项目不依赖 VPN，`PLATFORM_LAN_IP` 指的是
+      WLAN 网卡地址，不是 VPN 隧道地址。）
 - [ ] Caddy 的 HTTPS 入口用**证书里的名字**访问（`https://<新IP>:8443`），
       不要用 `127.0.0.1` —— 路由按 Host 头匹配，IP 直连会得到空 200
 
