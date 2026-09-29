@@ -151,6 +151,46 @@ foreach ($e in $eps) {
     Check $e.Name ($r.Ok -or ($e.Expect -contains $r.Code)) ("HTTP " + $r.Code)
 }
 
+Write-Host "`n=== telegram channel ===" -ForegroundColor Cyan
+# The only channel tied to an ACCOUNT rather than a machine. getMe proves the
+# bot token works; getChat proves the owner's chat id is still valid. When the
+# human signs in on the new box with a different Telegram account, getChat
+# returns "chat not found" and everything Telegram silently goes dead.
+$tgToken = Get-EnvValue $envFile "TELEGRAM_BOT_TOKEN"
+$tgChat  = Get-EnvValue $envFile "TELEGRAM_CHAT_ID"
+function TgApi($method, $token) {
+    try {
+        $req = [System.Net.HttpWebRequest]::Create("https://api.telegram.org/bot$token/$method")
+        $req.Proxy = $null; $req.Accept = "*/*"; $req.Timeout = 20000
+        $resp = $req.GetResponse()
+        $body = ([System.IO.StreamReader]::new($resp.GetResponseStream())).ReadToEnd()
+        $resp.Close()
+        return ($body | ConvertFrom-Json)
+    } catch [System.Net.WebException] {
+        if ($_.Exception.Response) {
+            $body = ([System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())).ReadToEnd()
+            return ($body | ConvertFrom-Json)
+        }
+        return $null
+    } catch { return $null }
+}
+if ($tgToken -and $tgChat) {
+    $me = TgApi "getMe" $tgToken
+    Check "telegram bot token valid" ($me -and $me.ok) ("@" + $(if ($me -and $me.result) { $me.result.username } else { "?" }))
+    $chat = TgApi "getChat?chat_id=$tgChat" $tgToken
+    if ($chat -and $chat.ok) {
+        $t = $chat.result.type
+        $nm = if ($chat.result.username) { "@" + $chat.result.username } else { $chat.result.first_name }
+        Check "telegram owner chat reachable" $true "$t $nm"
+        Check "TELEGRAM_CHAT_ID is a private chat" ($t -eq "private") $t
+    } else {
+        $why = if ($chat) { $chat.description } else { "no response" }
+        Check "telegram owner chat reachable" $false ($why + " -- sign in to Telegram with the SAME account, or update TELEGRAM_CHAT_ID")
+    }
+} else {
+    Write-Host "   (no TELEGRAM_* in .env, Telegram channel disabled)" -ForegroundColor Yellow
+}
+
 Write-Host "`n=== n8n API ===" -ForegroundColor Cyan
 if ($n8nKey) {
     try {

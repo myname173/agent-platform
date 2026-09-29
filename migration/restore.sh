@@ -62,9 +62,13 @@ fi
 PG_USER="$(env_val "$ENV_FILE" POSTGRES_USER)"; PG_USER="${PG_USER:-n8n}"
 PG_DB="$(env_val "$ENV_FILE" POSTGRES_DB)";     PG_DB="${PG_DB:-n8n}"
 
-say "3/8  create external volume n8n_data"
-docker volume inspect n8n_data >/dev/null 2>&1 && ok "already exists" \
-  || { docker volume create n8n_data >/dev/null; ok "created"; }
+# compose declares BOTH n8n-net (network) and n8n_data (volume) as
+# external: true, so it creates neither — `up` aborts on a fresh machine.
+say "3/8  create external resources (n8n-net, n8n_data)"
+docker network inspect n8n-net >/dev/null 2>&1 && ok "network n8n-net already exists" \
+  || { docker network create n8n-net >/dev/null; ok "created network n8n-net"; }
+docker volume inspect n8n_data >/dev/null 2>&1 && ok "volume n8n_data already exists" \
+  || { docker volume create n8n_data >/dev/null; ok "created volume n8n_data"; }
 
 say "4/8  start postgres and wait for healthy"
 (cd "$TARGET" && compose up -d postgres)

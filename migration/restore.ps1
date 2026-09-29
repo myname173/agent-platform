@@ -112,17 +112,53 @@ $key = Get-EnvValue $envFile "N8N_ENCRYPTION_KEY"
 if (-not $key) { Warn "N8N_ENCRYPTION_KEY is empty — restored credentials will NOT decrypt" }
 else           { Ok "N8N_ENCRYPTION_KEY present (credentials stay decryptable)" }
 
+# Telegram is the one channel that is bound to an ACCOUNT, not to a machine.
+# TELEGRAM_CHAT_ID is used both as the owner allow-list and as every push
+# target, so if the human signs in to Telegram on the new box with a DIFFERENT
+# account, the id no longer matches: the bridge silently ignores every message
+# ("strangers are ignored") and no alert can be delivered. Nothing errors out.
+$tgToken = Get-EnvValue $envFile "TELEGRAM_BOT_TOKEN"
+$tgChat = Get-EnvValue $envFile "TELEGRAM_CHAT_ID"
+if ($tgToken) {
+    try {
+        $req = [System.Net.HttpWebRequest]::Create("https://api.telegram.org/bot$tgToken/getMe")
+        $req.Proxy = $null; $req.Accept = "*/*"; $req.Timeout = 20000
+        $resp = $req.GetResponse()
+        $me = ([System.IO.StreamReader]::new($resp.GetResponseStream())).ReadToEnd() | ConvertFrom-Json
+        $resp.Close()
+        if ($me.ok) {
+            Ok ("telegram bot reachable: @" + $me.result.username)
+            if ($tgChat) {
+                if ($tgChat -match "^-") { Warn "TELEGRAM_CHAT_ID is negative (a group) — the owner allow-list then matches only group messages" }
+                else { Ok "TELEGRAM_CHAT_ID $tgChat is a private-user id" }
+            } else { Warn "TELEGRAM_CHAT_ID empty — Telegram is effectively off" }
+        } else { Warn "telegram getMe did not return ok (token wrong?)" }
+    } catch {
+        Warn "telegram not reachable from here (offline ok) — verify by hand later"
+    }
+} else { Warn "no TELEGRAM_BOT_TOKEN — Telegram channel disabled" }
+
 $pgUser = Get-EnvValue $envFile "POSTGRES_USER"; if (-not $pgUser) { $pgUser = "n8n" }
 $pgDb   = Get-EnvValue $envFile "POSTGRES_DB";   if (-not $pgDb)   { $pgDb   = "n8n" }
 
-# ── 3. external volume ──────────────────────────────────────────────────────
-Say "3/8  create external volume n8n_data"
+# ── 3. external resources ───────────────────────────────────────────────────
+# compose declares BOTH `n8n-net` (network) and `n8n_data` (volume) as
+# external: true, so it creates neither. On a fresh machine `up` aborts with
+# "network n8n-net declared as external, but could not be found". Make them.
+Say "3/8  create external resources (n8n-net, n8n_data)"
+$nets = & docker network ls --format "{{.Name}}"
+if ($nets -contains "n8n-net") { Ok "network n8n-net already exists" }
+else {
+    & docker network create n8n-net | Out-Null
+    if ($LASTEXITCODE -ne 0) { Die "docker network create n8n-net failed" }
+    Ok "created network n8n-net"
+}
 $existing = & docker volume ls --format "{{.Name}}"
-if ($existing -contains "n8n_data") { Ok "n8n_data already exists" }
+if ($existing -contains "n8n_data") { Ok "volume n8n_data already exists" }
 else {
     & docker volume create n8n_data | Out-Null
     if ($LASTEXITCODE -ne 0) { Die "docker volume create n8n_data failed" }
-    Ok "created"
+    Ok "created volume n8n_data"
 }
 
 # ── 4. postgres only ────────────────────────────────────────────────────────

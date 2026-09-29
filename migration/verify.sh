@@ -67,6 +67,29 @@ for pair in "console:3000|http://localhost:3000/" "lobechat:3210|http://localhos
   [ "$c" = "200" ] || [ "$c" = "307" ] || [ "$c" = "302" ] && check "$n" 1 "HTTP $c" || check "$n" 0 "HTTP $c"
 done
 
+echo; echo "=== telegram channel ==="
+# The only channel tied to an ACCOUNT rather than a machine. getChat proves the
+# owner's chat id is still valid; with a different Telegram account it returns
+# "chat not found" and every Telegram path goes silently dead.
+TG_TOKEN="$(env_val "$ENV_FILE" TELEGRAM_BOT_TOKEN)"
+TG_CHAT="$(env_val "$ENV_FILE" TELEGRAM_CHAT_ID)"
+if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ]; then
+  a="$(curl -s --noproxy '*' --max-time 20 "https://api.telegram.org/bot$TG_TOKEN/getMe" || echo '{}')"
+  if printf '%s' "$a" | grep -q '"ok":true'; then check "telegram bot token valid" 1 "$(printf '%s' "$a" | sed -n 's/.*"username":"\([^"]*\)".*/@\1/p')"
+  else check "telegram bot token valid" 0 "getMe failed"; fi
+  c="$(curl -s --noproxy '*' --max-time 20 "https://api.telegram.org/bot$TG_TOKEN/getChat?chat_id=$TG_CHAT" || echo '{}')"
+  if printf '%s' "$c" | grep -q '"ok":true'; then
+    ty="$(printf '%s' "$c" | sed -n 's/.*"type":"\([^"]*\)".*/\1/p')"
+    check "telegram owner chat reachable" 1 "$ty"
+    [ "$ty" = "private" ] && check "TELEGRAM_CHAT_ID is a private chat" 1 "$ty" \
+                          || check "TELEGRAM_CHAT_ID is a private chat" 0 "$ty"
+  else
+    check "telegram owner chat reachable" 0 "sign in with the SAME account, or update TELEGRAM_CHAT_ID"
+  fi
+else
+  printf '   (no TELEGRAM_* in .env, channel disabled)\n'
+fi
+
 echo; echo "=== n8n API ==="
 if [ -n "$N8N_KEY" ]; then
   n="$(curl -s -H "X-N8N-API-KEY: $N8N_KEY" --max-time 20 'http://localhost:5678/api/v1/workflows?limit=250' \

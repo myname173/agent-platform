@@ -317,9 +317,30 @@ n8n API 工作流数。
 - [ ] n8n 用自己的账号能登进去（用户表在 pg dump 里，已还原）
 - [ ] n8n 里 4 条 credentials 能打开且能解密
 - [ ] Kiranism 控制台 Clerk 登录正常（Clerk 是 SaaS，与机器无关）
-- [ ] Telegram bot / webhook 如果写死了旧机器地址，需要重新配
+- [ ] **Telegram 必须登同一个账号**（见下）
+- [ ] 重装 OpenVPN / 更新分流规则后，`searxng` 与
+      `api.deepseek.com` / `api.telegram.org` 要能通
 - [ ] Caddy 的 HTTPS 入口用**证书里的名字**访问（`https://<新IP>:8443`），
       不要用 `127.0.0.1` —— 路由按 Host 头匹配，IP 直连会得到空 200
+
+## Telegram：同账号就没问题（已实测确认）
+
+`TELEGRAM_CHAT_ID = 7020739140` 是一个**正数**，也就是你的 Telegram **用户 ID**（私聊），
+不是群组（群组是负数）。代码里它身兼两职：
+
+1. `telegram-bridge` 把它当 **owner 白名单** —— `OWNER = TELEGRAM_CHAT_ID`，
+   其它 chat 一律忽略（注释写着 "strangers are ignored"）。
+2. 它是**所有推送的目标**：告警（`chat-alerts`）、动态监控（`topic-watch`）、
+   周报（`weekly-review`）、文档分享（`platform-admin-api`）都发到这个 id。
+
+所以**只要新机器上 Telegram 登的是同一个账号，用户 ID 不变，网关照常工作**。
+
+代价是它只认这一个 id：换成别的账号，桥接会**静默忽略**你的每条消息，
+告警也发不出去，而且**不会报任何错**。要换人接管，得改
+`.env` 里的 `TELEGRAM_CHAT_ID` 然后重启 n8n。
+
+验收脚本里有两项会真的调 Telegram API 验证：`getMe`（bot token 有效）和
+`getChat`（这个 id 现在可达）。当前实测：bot `@No1MyAgentBot` → 私聊 `pigpig` ✅
 
 ## 已经在来源机器上实测过
 
@@ -337,6 +358,12 @@ n8n API 工作流数。
 - **paradedb 全新卷会起不来**：镜像的 `10_bootstrap_paradedb.sh` 要 `CREATE EXTENSION pg_cron`，
   不在 `shared_preload_libraries` 里就直接退出。compose 里已经改成
   `pg_search,pg_cron`。旧卷不受影响（bootstrap 只跑一次），所以这个问题只会在新机器上出现。
+- **`n8n-net` 网络也是 `external: true`**：新机器上不存在，`compose up` 直接报
+  "network n8n-net declared as external, but could not be found"。恢复脚本会先建网络。
+- **Telegram 绑的是账号不是机器**：`TELEGRAM_CHAT_ID` 既是 owner 白名单又是所有推送目标。
+  新机器上如果 Telegram 登的是**另一个账号**，这个 id 不再匹配 —— 桥接会
+  **静默忽略所有消息**（"陌生人一律忽略"），告警也发不出去，**不报错**。
+  必须在**同一个账号**登录。验收脚本会调 `getChat` 实际验证通路。
 - **`CREATE DATABASE lobechat` 必须带 `TEMPLATE template0`**：bootstrap 往 `template1`
   里塞了 `paradedb` schema，默认建库会继承，然后和 dump 里自己的
   `CREATE SCHEMA paradedb` 撞车（"already exists"，`ON_ERROR_STOP=1` 下整份灌不进去）。
