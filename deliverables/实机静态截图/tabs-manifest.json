@@ -1,0 +1,16 @@
+{
+  "captured_at": "2026-09-29T10:52:39+08:00",
+  "method": "驱动用户已登录的 Chrome（临时标签页导航 + PrintWindow 实拍）",
+  "window": "0x004f0ac0",
+  "items": [
+    {
+      "file": "10_console_overview.png",
+      "url": "http://localhost:3000/dashboard/overview",
+      "label": "Kiranism 控制台 · 总览",
+      "window_title": "Dashboard: Platform Overview - Google Chrome",
+      "contrast": 27.8,
+      "ok": true,
+      "bytes": 90157
+    }
+  ]
+}

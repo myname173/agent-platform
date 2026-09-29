@@ -123,7 +123,13 @@ services:
     # ParadeDB PG17: postgres + pgvector (kb) + pg_search (LobeHub 2.x full-text)
     image: paradedb/paradedb:latest-pg17
     container_name: postgres
-    command: postgres -c shared_preload_libraries=pg_search
+    # pg_cron must be preloaded too: on a FRESH volume paradedb's
+    # 10_bootstrap_paradedb.sh runs `CREATE EXTENSION IF NOT EXISTS pg_cron`
+    # and aborts with "pg_cron can only be loaded via shared_preload_libraries",
+    # taking the container down before the stack ever comes up. Existing volumes
+    # never hit this (the bootstrap only runs once), which is why it took a
+    # clean-machine dry run to surface.
+    command: postgres -c shared_preload_libraries=pg_search,pg_cron
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER}

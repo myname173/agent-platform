@@ -1,0 +1,47 @@
+{
+  "generated_at": "2026-09-29T12:04:19+08:00",
+  "source_host_lan_ip": "192.168.209.141",
+  "git_branch": "main",
+  "git_head": "3996b8cff499f3e8e7a44a84d1a9ecb7a3e73ece",
+  "backup_stamp": "20260929-014017",
+  "n8n_encryption_key": "XgBegHlcqxgM02km4DiUWgqVC0w87U+t",
+  "postgres_db": "n8n",
+  "postgres_user": "n8n",
+  "n8n_version": "2.37.7",
+  "counts": {
+    "workflows": 24,
+    "executions": 10181,
+    "credentials": 4,
+    "data_tables": 23
+  },
+  "data_tables": {
+    "admin_audit": 508,
+    "chat_executions": 2177,
+    "chat_messages": 2302,
+    "cron_runs": 16,
+    "daily_briefs": 10,
+    "documents": 3,
+    "gateway_keys": 1,
+    "heartbeats": 9,
+    "idempotency_records": 39,
+    "kb_usage": 1,
+    "mcp_servers": 1,
+    "ops_alerts": 4,
+    "ops_alert_silence": 0,
+    "people": 1,
+    "reminders": 25,
+    "sandbox_approvals": 2,
+    "selfcheck_runs": 102,
+    "telegram_state": 2,
+    "todos": 74,
+    "tool_contract": 1,
+    "topic_watch": 2,
+    "weekly_reviews": 1,
+    "workflow_tools": 4
+  },
+  "volumes": {
+    "n8n_data": "external:true — MUST be created by hand before compose up",
+    "postgres_data": "compose-managed, real name postgres_data_pg17",
+    "minio_data": "compose-managed"
+  }
+}
