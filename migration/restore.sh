@@ -20,7 +20,11 @@ die() { printf '\n   \033[31mFAIL\033[0m %s\n' "$1"; exit 1; }
 
 env_val() { # env_val <file> <name>
   [ -f "$1" ] || return 0
-  sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" "$1" | tail -1 | tr -d '"'"'"' | tr -d "'"
+  # Strip both quote styles. The previous form here was tr -d '"'"'"' which
+  # leaves a dangling single quote — bash then swallowed the rest of the file
+  # and the script refused to parse at all on Linux. Do not "simplify" this
+  # back: bash -n is the check that catches it.
+  sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" "$1" | tail -1 | tr -d "\"'"
 }
 compose() { docker compose "$@" 2>/dev/null || docker-compose "$@"; }
 
@@ -61,6 +65,17 @@ else
 fi
 PG_USER="$(env_val "$ENV_FILE" POSTGRES_USER)"; PG_USER="${PG_USER:-n8n}"
 PG_DB="$(env_val "$ENV_FILE" POSTGRES_DB)";     PG_DB="${PG_DB:-n8n}"
+
+# Every host port is a .env variable now. If this machine already owns one,
+# `compose up` dies with "port is already allocated" after a long build — so
+# probe first and move the busy ones. preflight.sh --fix-ports does the rewrite.
+say "2b/8  host ports (probe, and move the busy ones)"
+if [ -f "$TARGET/migration/preflight.sh" ]; then
+  chmod +x "$TARGET/migration/preflight.sh"
+  "$TARGET/migration/preflight.sh" --fix-ports || die "preflight found a blocking problem"
+else
+  warn "preflight.sh missing from the pack — skipping the port probe"
+fi
 
 # compose declares BOTH n8n-net (network) and n8n_data (volume) as
 # external: true, so it creates neither — `up` aborts on a fresh machine.
@@ -130,10 +145,24 @@ say "7/8  build and start the whole stack"
 ok "stack up"
 
 say "8/8  done"
+# Print what .env actually says: if preflight moved a port, the documented URL
+# is wrong and there is no way to guess the right one.
+p() { env_val "$ENV_FILE" "$1" | grep -q . && env_val "$ENV_FILE" "$1" || echo "$2"; }
 cat <<EOF
+    Ports this install is actually on:
+           console    http://$LAN_IP:$(p CONSOLE_PORT 3000)
+           lobechat   http://$LAN_IP:$(p LOBECHAT_PORT 3210)
+           n8n        http://$LAN_IP:$(p N8N_PORT 5678)
+           searxng    http://$LAN_IP:$(p SEARXNG_PORT 8080)
+           minio      http://$LAN_IP:$(p MINIO_API_PORT 9000)  (console $(p MINIO_CONSOLE_PORT 9001))
+           https      https://$LAN_IP:$(p CADDY_PORT_CONSOLE 8443) console
+                      https://$LAN_IP:$(p CADDY_PORT_LOBEHUB 8444) lobehub
+                      https://$LAN_IP:$(p CADDY_PORT_N8N 8445) n8n
+                      https://$LAN_IP:$(p CADDY_PORT_MINIO 8446) minio
+
     Next:
       1. watch:   cd $TARGET && docker compose ps
       2. accept:  $TARGET/migration/verify.sh
-      3. URLs:    http://$LAN_IP:3000  http://$LAN_IP:3210  http://$LAN_IP:5678
-                  https://$LAN_IP:8443 .. 8446
+      3. use the LAN IP from the certificate, not 127.0.0.1 — Caddy routes by
+         Host header, so an IP-literal request gets an empty 200.
 EOF

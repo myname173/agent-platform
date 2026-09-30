@@ -7,6 +7,15 @@
 #   docker compose up -d          # Start all services
 #   docker compose down           # Stop all services
 #   docker compose logs -f n8n    # Follow n8n logs
+#
+# Host ports
+# ----------
+# Every host-side port is overridable from .env (N8N_PORT, CONSOLE_PORT,
+# LOBECHAT_PORT, SEARXNG_PORT, MINIO_API_PORT, MINIO_CONSOLE_PORT,
+# STREAM_BRIDGE_PORT, CADDY_PORT_*). The container side never moves, so
+# inter-service URLs keep working no matter what the host side becomes.
+# restore.ps1 probes these on a new machine and rewrites .env when one is
+# already taken, so a machine that owns 3000 can still run the stack.
 # ============================================================================
 
 services:
@@ -18,8 +27,11 @@ services:
     image: docker.n8n.io/n8nio/n8n:${N8N_VERSION}
     container_name: n8n
     restart: unless-stopped
+    # Host side is overridable so a machine that already owns 5678 can still
+    # run the stack (restore.ps1 rewrites these when it finds a conflict).
+    # The container side stays 5678 — every internal URL below keeps working.
     ports:
-      - "5678:5678"
+      - "${N8N_PORT:-5678}:5678"
     environment:
       - N8N_RUNNERS_AUTH_TOKEN=${N8N_RUNNERS_AUTH_TOKEN}
       - N8N_RELEASE_TYPE=stable
@@ -66,7 +78,9 @@ services:
       - ALERT_WEBHOOK_FORMAT=${ALERT_WEBHOOK_FORMAT:-generic}
       # Console base URL used to build links pushed to phones (LAN-reachable).
       # Without it, workflow-generated links fall back to localhost and are dead on mobile.
-      - CONSOLE_URL=http://${PLATFORM_LAN_IP:-127.0.0.1}:3000
+      # Uses the HOST port, not the container port — this is the address a phone
+      # dials, so it has to follow N8N/CONSOLE_PORT when that gets remapped.
+      - CONSOLE_URL=http://${PLATFORM_LAN_IP:-127.0.0.1}:${CONSOLE_PORT:-3000}
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
@@ -80,7 +94,7 @@ services:
       # LobeHub was registered with a different address.
       - LOBEHUB_OWNER_EMAIL=${LOBEHUB_OWNER_EMAIL:-owner@agent-platform.local}
       # Fallback for link building when CONSOLE_URL is empty.
-      - APP_URL=http://${PLATFORM_LAN_IP:-127.0.0.1}:3000
+      - APP_URL=http://${PLATFORM_LAN_IP:-127.0.0.1}:${CONSOLE_PORT:-3000}
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
@@ -111,7 +125,7 @@ services:
     environment:
       - N8N_URL=http://n8n:5678
     ports:
-      - "3000:3000"
+      - "${CONSOLE_PORT:-3000}:3000"
     depends_on:
       - n8n
     networks:
@@ -153,7 +167,7 @@ services:
     container_name: searxng
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${SEARXNG_PORT:-8080}:8080"
     volumes:
       # Config extracted from the previous manual container; JSON format
       # enabled so n8n search tools can call it as an API
@@ -201,7 +215,7 @@ services:
     container_name: lobechat
     restart: unless-stopped
     ports:
-      - "3210:3210"
+      - "${LOBECHAT_PORT:-3210}:3210"
     environment:
       # Custom model provider pointing to n8n's OpenAI-compatible webhook
       - CUSTOM_MODELS=deepseek-agent,deepseek-chat,deepseek-reasoner,deepseek-v4-flash
@@ -215,14 +229,19 @@ services:
       - AUTH_SECRET=${AUTH_SECRET}
       - KEY_VAULTS_SECRET=${KEY_VAULTS_SECRET}
       - JWKS_KEY=${JWKS_KEY}
-      - APP_URL=http://${PLATFORM_LAN_IP:-127.0.0.1}:3210
+      # Host-facing: what a browser on the LAN actually dials.
+      - APP_URL=http://${PLATFORM_LAN_IP:-127.0.0.1}:${LOBECHAT_PORT:-3210}
+      # Server-side self reference — stays on the container port.
       - INTERNAL_APP_URL=http://localhost:3210
-      # LAN / phone access: extra trusted auth origins (comma-separated)
-      - AUTH_ADDITIONAL_TRUSTED_ORIGINS=http://localhost:3210,http://127.0.0.1:3210
+      # LAN / phone access: extra trusted auth origins (comma-separated).
+      # Better Auth rejects a session whose Origin is not in this list, so these
+      # have to track the HOST port too.
+      - AUTH_ADDITIONAL_TRUSTED_ORIGINS=http://localhost:${LOBECHAT_PORT:-3210},http://127.0.0.1:${LOBECHAT_PORT:-3210}
       # File storage: MinIO service below (Phase 4a). S3_ENDPOINT is the internal
       # container name; browsers resolve `minio` via the host hosts file (127.0.0.1).
-      - S3_ENDPOINT=http://${PLATFORM_LAN_IP:-127.0.0.1}:9000 # LAN-reachable host so browser/phone presigned uploads work
-      - S3_PUBLIC_DOMAIN=http://${PLATFORM_LAN_IP:-127.0.0.1}:9000
+      # LAN-reachable host so browser/phone presigned uploads work. Host port.
+      - S3_ENDPOINT=http://${PLATFORM_LAN_IP:-127.0.0.1}:${MINIO_API_PORT:-9000}
+      - S3_PUBLIC_DOMAIN=http://${PLATFORM_LAN_IP:-127.0.0.1}:${MINIO_API_PORT:-9000}
       - S3_ACCESS_KEY_ID=${MINIO_ROOT_USER}
       - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}
       - S3_BUCKET=lobechat-files
@@ -251,8 +270,8 @@ services:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
     networks:
@@ -278,7 +297,7 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
     ports:
-      - "127.0.0.1:3211:3211"
+      - "127.0.0.1:${STREAM_BRIDGE_PORT:-3211}:3211"
     restart: unless-stopped
     networks:
       - n8n-net
@@ -324,11 +343,13 @@ services:
     image: caddy:2-alpine
     container_name: caddy
     restart: unless-stopped
+    # Four separate vars because compose cannot do arithmetic — a single base
+    # port would need 8443+1, 8443+2 ... which there is no syntax for.
     ports:
-      - "8443:8443"
-      - "8444:8444"
-      - "8445:8445"
-      - "8446:8446"
+      - "${CADDY_PORT_CONSOLE:-8443}:8443"
+      - "${CADDY_PORT_LOBEHUB:-8444}:8444"
+      - "${CADDY_PORT_N8N:-8445}:8445"
+      - "${CADDY_PORT_MINIO:-8446}:8446"
     environment:
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}

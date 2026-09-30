@@ -1,8 +1,9 @@
 {
-  "generated_at": "2026-09-29T12:30:44+08:00",
+  "generated_at": "2026-09-30T18:18:58+08:00",
+  "counts_read_live_from_database": false,
   "source_host_lan_ip": "192.168.209.141",
   "git_branch": "main",
-  "git_head": "7cea2d32b0044dd01e14a7389d320eba48786e08",
+  "git_head": "4014b4eda0681f06389a068e26196c948a0ada54",
   "backup_stamp": "20260929-014017",
   "n8n_encryption_key": "XgBegHlcqxgM02km4DiUWgqVC0w87U+t",
   "postgres_db": "n8n",

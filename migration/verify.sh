@@ -16,7 +16,11 @@ check() { # check <name> <ok:0|1> <detail>
 jget() { python3 -c "import json,sys;d=json.load(open('$SOURCE'));print($1)" 2>/dev/null \
          || sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\?\([^\",}]*\)\"\?.*/\1/p" "$SOURCE" | head -1; }
 
-env_val() { sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" "$1" | tail -1 | tr -d '"'"'"' | tr -d "'"; }
+# Strip both quote styles. The old form here was tr -d '"'"'"' — the trailing
+# quote dangles, bash swallows the rest of the file and the script will not
+# parse at all. bash -n migration/*.sh is the check that catches this.
+env_val() { sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" "$1" | tail -1 | tr -d "\"'"; }
+port_of() { env_val "$ENV_FILE" "$1" | grep -q . && env_val "$ENV_FILE" "$1" || echo "$2"; }
 ENV_FILE="$PROJECT_DIR/.env"
 PG_USER="$(env_val "$ENV_FILE" POSTGRES_USER)"; PG_USER="${PG_USER:-n8n}"
 PG_DB="$(env_val "$ENV_FILE" POSTGRES_DB)";     PG_DB="${PG_DB:-n8n}"
@@ -41,7 +45,11 @@ psql1() { docker exec postgres psql -U "$PG_USER" -d "$PG_DB" -tAc "$1" 2>/dev/n
 echo; echo "=== postgres ==="
 WF="$(psql1 'select count(*) from workflow_entity')";  WANT="$(jget "d['counts']['workflows']")"
 [ "$WF" = "$WANT" ] && check "workflows = $WANT" 1 "got $WF" || check "workflows = $WANT" 0 "got $WF"
-EX="$(psql1 'select count(*) from execution_entity')"; WANT="$(jget "d['counts']['executions']')"
+# The argument is a Python expression, so the quoting has to be exactly right:
+# a stray ' here both breaks the expression AND leaves bash looking for a
+# matching ')' (it derails the $( ) scanner). It did, and the whole script
+# stopped parsing. Do not hand-edit these without running bash -n after.
+EX="$(psql1 'select count(*) from execution_entity')"; WANT="$(jget "d['counts']['executions']")"
 [ "${EX:-0}" -ge "${WANT:-0}" ] && check "executions >= $WANT" 1 "got $EX" || check "executions >= $WANT" 0 "got $EX"
 CR="$(psql1 'select count(*) from credentials_entity')"; WANT="$(jget "d['counts']['credentials']")"
 [ "$CR" = "$WANT" ] && check "credentials = $WANT" 1 "got $CR" || check "credentials = $WANT" 0 "got $CR"
@@ -58,14 +66,43 @@ done < <(docker exec postgres psql -U "$PG_USER" -d "$PG_DB" -tAc "select d.name
 echo; echo "=== HTTP endpoints ==="
 # --noproxy '*': an inherited http_proxy would send localhost probes off-box.
 # n8n 2.x also 404s a request with no Accept header, so send one explicitly.
+# Ports come from .env, NOT hardcoded — restore may have moved them.
 httpcode() { curl -s -o /dev/null -w '%{http_code}' --noproxy '*' -H 'Accept: */*' \
              --max-time 15 "$1" 2>/dev/null || echo 0; }
-for pair in "console:3000|http://localhost:3000/" "lobechat:3210|http://localhost:3210/" \
-            "n8n:5678|http://localhost:5678/signin" "minio:9001|http://localhost:9001/" \
-            "searxng:8080|http://localhost:8080/"; do
+CP="$(port_of CONSOLE_PORT 3000)";       LP="$(port_of LOBECHAT_PORT 3210)"
+NP="$(port_of N8N_PORT 5678)";            SP="$(port_of SEARXNG_PORT 8080)"
+MP="$(port_of MINIO_CONSOLE_PORT 9001)"
+for pair in "console:$CP|http://localhost:$CP/" "lobechat:$LP|http://localhost:$LP/" \
+            "n8n:$NP|http://localhost:$NP/signin" "minio:$MP|http://localhost:$MP/" \
+            "searxng:$SP|http://localhost:$SP/" "n8n healthz:$NP|http://localhost:$NP/healthz"; do
   n="${pair%%|*}"; u="${pair##*|}"; c="$(httpcode "$u")"
   [ "$c" = "200" ] || [ "$c" = "307" ] || [ "$c" = "302" ] && check "$n" 1 "HTTP $c" || check "$n" 0 "HTTP $c"
 done
+
+echo; echo "=== outbound (SearXNG / Telegram depend on this) ==="
+# The stack needs a working outbound path. On the machine this pack came from it
+# is Clash/mihomo in TUN mode, which answers DNS with a Fake-IP from
+# 198.18.0.0/15 and routes the traffic. Two consequences worth checking here:
+#   - if the container resolves to a Fake-IP, TUN was up before docker started;
+#   - if it resolves to nothing at all, containers have no egress and SearXNG
+#     will "succeed" while returning zero results.
+CIP="$(docker exec n8n getent hosts api.telegram.org 2>/dev/null | awk '{print $1}' | head -1)"
+if [ -z "$CIP" ]; then
+  check "container resolves api.telegram.org" 0 "no answer — container has no DNS/egress"
+else
+  case "$CIP" in
+    198.18.*) check "container resolves api.telegram.org" 1 "$CIP (Fake-IP: TUN proxy is carrying it)" ;;
+    *)        check "container resolves api.telegram.org" 1 "$CIP (real IP)" ;;
+  esac
+fi
+# SearXNG genuinely reaching a search engine, not just answering HTTP.
+SX="$(curl -s --noproxy '*' --max-time 25 -H 'Accept: application/json' \
+      "http://localhost:$SP/search?q=test&format=json" 2>/dev/null \
+      | python3 -c 'import json,sys
+try: print(len(json.load(sys.stdin).get("results",[])))
+except Exception: print(0)' 2>/dev/null || echo 0)"
+[ "${SX:-0}" -gt 0 ] && check "searxng returns results" 1 "$SX hits" \
+                      || check "searxng returns results" 0 "0 hits — no outbound path (TUN off?)"
 
 echo; echo "=== telegram channel ==="
 # The only channel tied to an ACCOUNT rather than a machine. getChat proves the
@@ -92,7 +129,8 @@ fi
 
 echo; echo "=== n8n API ==="
 if [ -n "$N8N_KEY" ]; then
-  n="$(curl -s -H "X-N8N-API-KEY: $N8N_KEY" --max-time 20 'http://localhost:5678/api/v1/workflows?limit=250' \
+  n="$(curl -s --noproxy '*' -H "X-N8N-API-KEY: $N8N_KEY" --max-time 20 \
+      "http://localhost:$NP/api/v1/workflows?limit=250" \
       | python3 -c 'import json,sys;print(len(json.load(sys.stdin).get("data",[])))' 2>/dev/null || echo 0)"
   WANT="$(jget "d['counts']['workflows']")"
   [ "$n" = "$WANT" ] && check "n8n API workflows = $WANT" 1 "got $n" || check "n8n API workflows = $WANT" 0 "got $n"

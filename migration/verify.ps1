@@ -35,14 +35,21 @@ function Check($name, $ok, $detail) {
     else     { Write-Host ("   FAIL  {0,-34} {1}" -f $name, $detail) -ForegroundColor Red;    $script:fail++ }
 }
 
-function Get-EnvValue([string]$path, [string]$name) {
-    if (-not (Test-Path $path)) { return "" }
+function Get-EnvValue([string]$path, [string]$name, [string]$default = "") {
+    if (-not (Test-Path $path)) { return $default }
     foreach ($line in [System.IO.File]::ReadAllLines($path)) {
-        if ($line -match "^\s*$name\s*=\s*(.*)$") { return $Matches[1].Trim().Trim('"').Trim("'") }
+        if ($line -match "^\s*$name\s*=\s*(.*)$") {
+            $v = $Matches[1].Trim().Trim('"').Trim("'")
+            if ($v) { return $v }
+        }
     }
-    return ""
+    return $default
 }
 $envFile = Join-Path $ProjectDir ".env"
+# Ports are read from .env, never hardcoded: restore.ps1 may have moved them
+# when the machine already owned one, and a check against the wrong port is a
+# false FAIL that sends you looking for a problem that isn't there.
+function Port([string]$name, [int]$def) { [int](Get-EnvValue $script:envFile $name "$def") }
 $pgUser  = Get-EnvValue $envFile "POSTGRES_USER"; if (-not $pgUser) { $pgUser = "n8n" }
 $pgDb    = Get-EnvValue $envFile "POSTGRES_DB";   if (-not $pgDb)   { $pgDb   = "n8n" }
 $n8nKey  = Get-EnvValue $envFile "N8N_API_KEY"
@@ -136,19 +143,55 @@ function HttpOk($url, $expect) {
         return @{ Code = 0; Ok = $false }
     }
 }
+$P_CONSOLE = Port "CONSOLE_PORT" 3000
+$P_LOBE    = Port "LOBECHAT_PORT" 3210
+$P_N8N     = Port "N8N_PORT" 5678
+$P_SEARX   = Port "SEARXNG_PORT" 8080
+$P_MINIO   = Port "MINIO_CONSOLE_PORT" 9001
 $eps = @(
     # A redirect is a healthy answer here — all three UIs bounce to a sign-in
     # page (307/302) when the probe has no session cookie.
-    @{ Name = "console   :3000";  Url = "http://localhost:3000/";                 Expect = @(200,302,307) },
-    @{ Name = "lobechat  :3210";  Url = "http://localhost:3210/";                 Expect = @(200,302,307) },
-    @{ Name = "n8n       :5678";  Url = "http://localhost:5678/signin";           Expect = @(200) },
-    @{ Name = "n8n healthz";      Url = "http://localhost:5678/healthz";          Expect = @(200) },
-    @{ Name = "minio     :9001";  Url = "http://localhost:9001/";                 Expect = @(200,302,307) },
-    @{ Name = "searxng   :8080";  Url = "http://localhost:8080/";                 Expect = @(200) }
+    @{ Name = "console   :$P_CONSOLE";  Url = "http://localhost:$P_CONSOLE/";         Expect = @(200,302,307) },
+    @{ Name = "lobechat  :$P_LOBE";     Url = "http://localhost:$P_LOBE/";            Expect = @(200,302,307) },
+    @{ Name = "n8n       :$P_N8N";      Url = "http://localhost:$P_N8N/signin";       Expect = @(200) },
+    @{ Name = "n8n healthz";            Url = "http://localhost:$P_N8N/healthz";      Expect = @(200) },
+    @{ Name = "minio     :$P_MINIO";    Url = "http://localhost:$P_MINIO/";           Expect = @(200,302,307) },
+    @{ Name = "searxng   :$P_SEARX";    Url = "http://localhost:$P_SEARX/";           Expect = @(200) }
 )
 foreach ($e in $eps) {
     $r = HttpOk $e.Url $e.Expect
     Check $e.Name ($r.Ok -or ($e.Expect -contains $r.Code)) ("HTTP " + $r.Code)
+}
+
+# ── outbound ────────────────────────────────────────────────────────────────
+# SearXNG and Telegram need a real outbound path. On the machine this pack came
+# from that is Clash/mihomo in TUN mode: it answers DNS with a Fake-IP out of
+# 198.18.0.0/15 and routes the traffic. Two things can go wrong and neither is
+# visible from the HTTP checks above, which is why they are here:
+#   - containers started before TUN was up keep the pre-TUN DNS answer;
+#   - with no egress at all, SearXNG still answers 200 and simply returns no
+#     results, so "searxng :8080 HTTP 200" is NOT proof that search works.
+Write-Host "`n=== outbound (SearXNG / Telegram depend on this) ===" -ForegroundColor Cyan
+$cip = (& docker exec n8n getent hosts api.telegram.org 2>$null | Select-Object -First 1)
+if (-not $cip) {
+    # getent is not in every image; fall back to node, which n8n definitely has.
+    $cip = (& docker exec n8n node -e "require('dns').lookup('api.telegram.org',(e,a)=>console.log(e?'':a))" 2>$null | Select-Object -First 1)
+}
+$cip = "$cip".Trim()
+if (-not $cip) {
+    Check "container resolves api.telegram.org" $false "no answer — container has no DNS/egress"
+} elseif ($cip -like "198.18.*") {
+    Check "container resolves api.telegram.org" $true "$cip (Fake-IP: TUN proxy is carrying it)"
+} else {
+    Check "container resolves api.telegram.org" $true "$cip (real IP)"
+}
+try {
+    $sx = Invoke-RestMethod -Uri "http://localhost:$P_SEARX/search?q=test&format=json" `
+          -Headers @{ Accept = "application/json" } -TimeoutSec 30
+    $hits = @($sx.results).Count
+    Check "searxng returns results" ($hits -gt 0) "$hits hits"
+} catch {
+    Check "searxng returns results" $false $("0 hits — " + $_.Exception.Message)
 }
 
 Write-Host "`n=== telegram channel ===" -ForegroundColor Cyan
@@ -194,7 +237,7 @@ if ($tgToken -and $tgChat) {
 Write-Host "`n=== n8n API ===" -ForegroundColor Cyan
 if ($n8nKey) {
     try {
-        $r = Invoke-RestMethod -Uri "http://localhost:5678/api/v1/workflows?limit=250" -Headers @{ "X-N8N-API-KEY" = $n8nKey } -TimeoutSec 30
+        $r = Invoke-RestMethod -Uri "http://localhost:$P_N8N/api/v1/workflows?limit=250" -Headers @{ "X-N8N-API-KEY" = $n8nKey } -TimeoutSec 30
         $n = @($r.data).Count
         Check "n8n API workflows = $($S.counts.workflows)" ($n -eq [int]$S.counts.workflows) "got $n"
     } catch { Check "n8n API reachable" $false $_.Exception.Message }

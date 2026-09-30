@@ -8,6 +8,8 @@
       0  preflight        docker / compose / pack layout
       1  copy project     -> $Target
       2  rewrite .env      PLATFORM_LAN_IP / LAN_IP -> this machine's LAN IP
+      2b host ports       probe every host port; move the busy ones and write
+                          the new values back into .env (preflight.ps1 -FixPorts)
       3  volumes          docker volume create n8n_data   (it is external:true,
                           compose will NOT create it and aborts without it)
       4  postgres only    up + wait for healthy
@@ -39,12 +41,15 @@ function Ok($msg)   { Write-Host "   OK   $msg" -ForegroundColor Green }
 function Warn($msg) { Write-Host "   WARN $msg" -ForegroundColor Yellow }
 function Die($msg)  { Write-Host "`n   FAIL $msg" -ForegroundColor Red; exit 1 }
 
-function Get-EnvValue([string]$path, [string]$name) {
-    if (-not (Test-Path $path)) { return "" }
+function Get-EnvValue([string]$path, [string]$name, [string]$default = "") {
+    if (-not (Test-Path $path)) { return $default }
     foreach ($line in [System.IO.File]::ReadAllLines($path)) {
-        if ($line -match "^\s*$name\s*=\s*(.*)$") { return $Matches[1].Trim().Trim('"').Trim("'") }
+        if ($line -match "^\s*$name\s*=\s*(.*)$") {
+            $v = $Matches[1].Trim().Trim('"').Trim("'")
+            if ($v) { return $v }
+        }
     }
-    return ""
+    return $default
 }
 
 function Invoke-DockerCompose([string]$workDir, [string[]]$composeArgs) {
@@ -141,6 +146,23 @@ if ($tgToken) {
 $pgUser = Get-EnvValue $envFile "POSTGRES_USER"; if (-not $pgUser) { $pgUser = "n8n" }
 $pgDb   = Get-EnvValue $envFile "POSTGRES_DB";   if (-not $pgDb)   { $pgDb   = "n8n" }
 
+# ── 2b. host ports ──────────────────────────────────────────────────────────
+# Every host port is now a .env variable (N8N_PORT, CONSOLE_PORT, ...). If this
+# machine already owns one — a stray dev server on 3000, another stack on 8080 —
+# compose up fails with "port is already allocated" after a five-minute build.
+# preflight.ps1 -FixPorts finds the busy ones and rewrites .env, so the stack
+# comes up somewhere instead of nowhere. Same script the human can run by hand.
+Say "2b/8  host ports (probe, and move the busy ones)"
+$pre = Join-Path $Target "migration\preflight.ps1"
+if (Test-Path $pre) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $pre -FixPorts -ProjectDir $Target
+    if ($LASTEXITCODE -ne 0) {
+        Die "preflight found a blocking problem — fix it, then re-run this script"
+    }
+} else {
+    Warn "preflight.ps1 missing from the pack — skipping the port probe"
+}
+
 # ── 3. external resources ───────────────────────────────────────────────────
 # compose declares BOTH `n8n-net` (network) and `n8n_data` (volume) as
 # external: true, so it creates neither. On a fresh machine `up` aborts with
@@ -236,14 +258,25 @@ Ok "stack up (console image build takes several minutes on first run)"
 
 # ── 8. hand off ─────────────────────────────────────────────────────────────
 Say "8/8  done"
+# Print what .env actually says, not the defaults — if preflight moved a port,
+# the URL in the docs is wrong and the user has no way to guess the right one.
+function P([string]$name, [string]$def) { Get-EnvValue (Join-Path $Target ".env") $name $def }
 Write-Host @"
+
+    Ports this install is actually on:
+           console    http://${LanIp}:$(P 'CONSOLE_PORT' 3000)
+           lobechat   http://${LanIp}:$(P 'LOBECHAT_PORT' 3210)
+           n8n        http://${LanIp}:$(P 'N8N_PORT' 5678)
+           searxng    http://${LanIp}:$(P 'SEARXNG_PORT' 8080)
+           minio      http://${LanIp}:$(P 'MINIO_API_PORT' 9000)  (console $(P 'MINIO_CONSOLE_PORT' 9001))
+           https      https://${LanIp}:$(P 'CADDY_PORT_CONSOLE' 8443) console
+                      https://${LanIp}:$(P 'CADDY_PORT_LOBEHUB' 8444) lobehub
+                      https://${LanIp}:$(P 'CADDY_PORT_N8N' 8445) n8n
+                      https://${LanIp}:$(P 'CADDY_PORT_MINIO' 8446) minio
 
     Next:
       1. wait for build:   docker compose -f $Target\docker-compose.yml ps
       2. accept:           powershell -File $Target\migration\verify.ps1
-      3. URLs (use the LAN IP in the certificate, not 127.0.0.1):
-           console   http://${LanIp}:3000
-           lobechat  http://${LanIp}:3210
-           n8n       http://${LanIp}:5678
-           https     https://${LanIp}:8443 .. 8446
+      3. use the LAN IP in the certificate, not 127.0.0.1 — Caddy routes by Host
+         header, and an IP-literal request gets an empty 200.
 "@ -ForegroundColor White
