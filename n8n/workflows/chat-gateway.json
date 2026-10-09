@@ -1,5 +1,5 @@
 {
-  "id": "Wqlclui2KUZFU3g2",
+  "id": "gK7XFvpbD6CAjutQ",
   "name": "Chat Gateway",
   "active": true,
   "nodes": [
@@ -211,7 +211,7 @@
       "onError": "continueErrorOutput",
       "credentials": {
         "deepSeekApi": {
-          "id": "vdF0C5ulfD4B9mup",
+          "id": "dscredV4flash01",
           "name": "DeepSeek account"
         }
       }

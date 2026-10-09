@@ -142,7 +142,7 @@
       "waitBetweenTries": 2000,
       "credentials": {
         "deepSeekApi": {
-          "id": "vdF0C5ulfD4B9mup",
+          "id": "dscredV4flash01",
           "name": "DeepSeek account"
         }
       }
@@ -367,5 +367,5 @@
     "executionOrder": "v1",
     "timezone": "Asia/Shanghai"
   },
-  "id": "3qJHUgstWxg6ljqz"
+  "id": "Orrq0phtWMqSvI5j"
 }

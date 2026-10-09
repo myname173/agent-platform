@@ -12,7 +12,8 @@
 #   https://localhost:8444       LobeHub 对话
 #   https://localhost:8445       n8n（自带登录）
 #   https://localhost:8446       MinIO 控制台
-#   把 localhost 换成 <LAN-IP>（当前 192.168.209.141）即可从手机/别的机器访问。
+#   把 localhost 换成 LAN_IP（取自 .env，当前值见 `grep ^LAN_IP= .env`）即可从手机/别的机器访问。
+#   注意：LAN_IP 会随路由器重新分配而变化，换网段后改 .env 再 `docker compose restart caddy`。
 
 {
 	# 不自作主张占用 80 去做 HTTP->HTTPS 跳转：那会影响将来挂别的站点

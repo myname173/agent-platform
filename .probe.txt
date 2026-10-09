@@ -1,0 +1,4 @@
+﻿arg count passed = 3
+OUT: Error response from daemon: No such container: probe-fake-a
+OUT: Error response from daemon: No such container: probe-fake-b
+OUT: Error response from daemon: No such container: probe-fake-c

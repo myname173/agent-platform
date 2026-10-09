@@ -63,6 +63,10 @@ services:
       - GENERIC_TIMEZONE=Asia/Shanghai
       - MCP_API_KEY=${MCP_API_KEY}
       - TZ=Asia/Shanghai
+      # Console host port — the selfcheck reaches the console via
+      # host.docker.internal:$CONSOLE_PORT (signed-doc link + "console up").
+      # Must track the published port, so it cannot be hardcoded.
+      - CONSOLE_PORT=${CONSOLE_PORT:-3000}
       - EMBEDDING_PROVIDER=dashscope/qwen3.7-text-embedding
       - EMBEDDING_DIM=1024      # Error-rate alerting (Chat Alerts workflow)
       - ALERT_WINDOW_MIN=${ALERT_WINDOW_MIN}
@@ -237,11 +241,22 @@ services:
       # Better Auth rejects a session whose Origin is not in this list, so these
       # have to track the HOST port too.
       - AUTH_ADDITIONAL_TRUSTED_ORIGINS=http://localhost:${LOBECHAT_PORT:-3210},http://127.0.0.1:${LOBECHAT_PORT:-3210}
-      # File storage: MinIO service below (Phase 4a). S3_ENDPOINT is the internal
-      # container name; browsers resolve `minio` via the host hosts file (127.0.0.1).
-      # LAN-reachable host so browser/phone presigned uploads work. Host port.
+      # File storage: RustFS service below (named `minio` for historical reasons).
+      #
+      # S3_ENDPOINT is what LobeHub builds its PRESIGN CLIENT from, so it is the
+      # host the BROWSER will PUT to — it has to be an address the browser can
+      # resolve, i.e. the LAN IP (or localhost for same-machine only). It is NOT
+      # the internal service name: the host does not resolve `minio`, so pointing
+      # S3_ENDPOINT at it would break the upload it is meant to fix.
       - S3_ENDPOINT=http://${PLATFORM_LAN_IP:-127.0.0.1}:${MINIO_API_PORT:-9000}
       - S3_PUBLIC_DOMAIN=http://${PLATFORM_LAN_IP:-127.0.0.1}:${MINIO_API_PORT:-9000}
+      # Server-side S3 calls (the object stat taken before signing, delete,
+      # multipart create) use this client instead. Keeping it on the stable
+      # Docker service name is what stops a LAN IP change from breaking them —
+      # leaving it unset is why a stale LAN IP surfaced as ECONNREFUSED on
+      # upload.createS3PreSignedUrl (2026-10-08). Verified from the lobechat
+      # container: http://minio:9000 answers 403, the old LAN IP does not answer.
+      - S3_INTERNAL_ENDPOINT=${S3_INTERNAL_ENDPOINT:-http://minio:9000}
       - S3_ACCESS_KEY_ID=${MINIO_ROOT_USER}
       - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}
       - S3_BUCKET=lobechat-files
@@ -261,14 +276,29 @@ services:
   # MinIO - S3-compatible object storage (LobeHub file/image uploads; Phase 4a)
   # --------------------------------------------------------------------------
   minio:
-    image: quay.io/minio/minio:latest
+    # NOTE (2026-10): MinIO's community image is gone — deleted from Docker Hub
+    # on 2026-09-11, gated behind auth on Quay on 2026-09-24. The drop-in
+    # successor `quay.io/minio/aistor/minio` (free tier) was tried first but
+    # refuses to serve: "No valid license found, running in offline mode. All S3
+    # operations are denied." So the S3 backend is RustFS (Apache-2.0, S3-
+    # compatible, MinIO-shaped: :9000 API, :9001 console, path-style + presigned
+    # URLs). The service is still called `minio` and still uses the `minio_data`
+    # volume so nothing else in the stack (or in lobechat's S3_* wiring) changes.
+    image: rustfs/rustfs:latest
     container_name: minio
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    # RustFS ships a non-root default user, but a docker volume is created
+    # root-owned — it then dies with "Io error: Permission denied (os error 13)"
+    # while initialising /data. Running as root is the simplest correct fix here
+    # (the previous MinIO image also ran as root, which is why it worked).
+    user: "0:0"
+    command: ["server", "--address", ":9000", "--console-enable", "--console-address", ":9001", "/data"]
     environment:
-      # Root credentials come from .env; must match the lobechat S3_* vars above
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      # Same credentials the lobechat S3_* vars use — must stay in sync
+      - RUSTFS_ACCESS_KEY=${MINIO_ROOT_USER}
+      - RUSTFS_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - RUSTFS_VOLUMES=/data
+      - RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS=*
     ports:
       - "${MINIO_API_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"

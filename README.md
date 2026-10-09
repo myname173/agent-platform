@@ -173,7 +173,9 @@ N8N_URL=http://localhost:5678 N8N_API_KEY=<key> node n8n/scripts/deploy.mjs
 
 1. **DeepSeek 凭据**：n8n（Settings → Credentials）新建 `DeepSeek account`，再跑一次 `deploy.mjs`。
    它会打印 `credential deepSeekApi: <旧id> -> <新id>` 并把新 id 写回 JSON；**没有这条凭据时部署不会失败**，只打一行提示。
-2. **MinIO 桶**：`docker exec minio mc mb local/lobechat-files`（或在 :9001 控制台建）。
+2. **对象存储桶 + CORS**：`bash scripts/provision-bucket.sh`（幂等：建桶 + 配 CORS + 复验浏览器预检）。
+   注意 `rustfs/rustfs` 镜像里**没有 `mc`**，老写法 `docker exec minio mc mb …` 跑不通；
+   而**不配 CORS 的桶会让浏览器上传静默失败**（预检回 200 但没有 `Access-Control-*` 头）。
 3. **LobeHub 接线**：`N8N_URL=… CHAT_API_KEY=… node n8n/scripts/lobehub-config.mjs`（`status` 看漂移，`apply` 修）。
 
 最后跑一遍 `node n8n/scripts/smoke-test.mjs`（71 项）。
@@ -616,7 +618,7 @@ Telegram 渲染成 inline keyboard，点完写回同一行并摘掉按钮（防�
 
 要点：
 - Windows 防火墙含入站规则（TCP 3210 / 3000 / 9000，以及 HTTPS 的 8443–8446，仅限本地子网，命名 `agent-platform LAN: *`）；重装或换机后以管理员运行 `add-lan-rules.cmd` 可重建。
-- `APP_URL` / `S3_ENDPOINT` / `S3_PUBLIC_DOMAIN` 均使用局域网地址（由 `.env` 的 `PLATFORM_LAN_IP` 控制；换网络时改这一处并重建 **n8n / lobechat**——`console` 不引用这个变量，不用重建）。
+- `APP_URL` / `S3_ENDPOINT` / `S3_PUBLIC_DOMAIN` 均使用局域网地址（由 `.env` 的 `PLATFORM_LAN_IP` 控制；换网络时改这一处并重建 **n8n / lobechat**——`console` 不引用这个变量，不用重建）。注意 `S3_ENDPOINT` 同时是**浏览器**拿到的预签名 URL 的主机名，所以必须填浏览器可达的地址；服务端的内部地址另有 `S3_INTERNAL_ENDPOINT`（详见「文件存储（对象存储）」）。
 - ⚠️ 别把 `PLATFORM_LAN_IP` 填成 **OpenVPN / Hyper-V / WSL 虚拟网卡**的 IP：那些地址只有本机可达，手机和其他 Wi-Fi 设备访问不到。查真实局域网 IP 用 `Get-NetIPAddress -AddressFamily IPv4`，认准 WLAN 那一条。
 - 手机可把两个页面「添加到主屏幕」，体验接近 App。
 - 已知限制：桌面休眠时手机不可达；出门在外访问属可选进阶（Tailscale）。
@@ -815,30 +817,40 @@ curl -X POST http://localhost:5678/webhook/admin/kb/ingest \
 - **登录**：首次打开注册即可（Better Auth 邮箱密码制；本机使用 `owner@agent-platform.local`）
 - 旧版（v1 客户端模式）的浏览器本地会话数据不在服务端；如需保留，临时移除 DATABASE_URL 重启可切回 v1 导出
 - 外观：PivotAI 主题 v2 已注入（见下节）；也可在设置 → 外观调整主题模式/强调色
-- 文件存储（S3）：已由 MinIO 承载（Phase 4a，2026-09-15 上线），图片/文件上传可用；浏览器直传需宿主机 hosts 解析 `minio`（见「文件存储（MinIO）」一节）
+- 文件存储（S3）：已由 **RustFS** 承载（S3 兼容；compose 服务名与容器名仍是 `minio`），图片/文件上传可用；预签名地址走局域网地址，浏览器与手机都能直传（见「文件存储（对象存储）」一节）
 
-### 文件存储（MinIO，Phase 4a）
+### 文件存储（对象存储，Phase 4a）
 
-LobeHub 的图片/文件上传由 **MinIO**（S3 兼容对象存储，compose 服务 `minio`）承载；2026-09-15 已端到端联调通过（图片 + 文本真实上传成功）。
+LobeHub 的图片/文件上传由 **RustFS**（S3 兼容对象存储；compose 服务名与容器名仍是 `minio`，卷仍是 `minio_data`）承载。
+2026-10-08 复验：真从对话前台上传一份 100 KB 文档 → `files` 落行、对象落盘、**取回字节与本地 SHA-256 一致**。
 
-- API：http://localhost:9000（健康检查 `/minio/health/live`）；控制台：http://localhost:9001
+- API：http://localhost:9000；控制台：http://localhost:9002（宿主端口由 `.env` 的 `MINIO_CONSOLE_PORT` 决定）
 - Bucket：`lobechat-files`；凭据与 lobechat 的 `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` 完全一致（见 docker-compose.yml）
-- 镜像源：`quay.io/minio/minio`（Docker Hub 的 `minio/minio` 匿名拉取被拒）
-- 接线：`S3_ENDPOINT=http://minio:9000`（容器网络内可达）；`S3_PUBLIC_DOMAIN=http://localhost:9000` 保留备用；`S3_SET_ACL=0` 维持私桶 + 预签名 URL 读取
+- 镜像源：`rustfs/rustfs:latest`。**原 MinIO 社区镜像已下架**（Docker Hub 2026-09-11 删除、Quay 2026-09-24 起需登录）；
+  `quay.io/minio/aistor/minio` 无 license 时会拒绝所有 S3 操作，故换 RustFS
+- 接线（**以 `docker-compose.yml` 为准** —— 本节曾与代码不一致，2026-10-08 修正）：
+  - `S3_ENDPOINT=http://${PLATFORM_LAN_IP}:9000` —— 注意它**同时决定浏览器拿到的预签名 URL 的主机名**
+  - `S3_PUBLIC_DOMAIN` 同上。它只在 `S3_SET_ACL=1` 时用于拼直链；本项目 `S3_SET_ACL=0`，一律走预签名
+  - `S3_INTERNAL_ENDPOINT` —— **服务端** S3 调用（stat / delete / multipart）专用，建议设为容器内名 `http://minio:9000`
+  - `S3_SET_ACL=0` 维持私桶 + 预签名 URL 读取
 
-**必要前提（宿主机 hosts，一次性，需管理员）**：LobeHub 生成的预签名上传地址直接使用容器名 `minio`（应用代码不做 host 改写），宿主浏览器必须能解析它才能直传文件。在 Windows hosts 文件添加：
+> **不要把 `S3_ENDPOINT` 改成 `minio:9000`。** 读 LobeChat 的 `FileS3` 可知，它用 `S3_ENDPOINT` 构建
+> **presignClient**，也就是浏览器要访问的那个地址；而宿主机并不解析容器名 `minio`（hosts 里没有该条目）。
+> 改了只会让浏览器拿到一个解析不了的主机名，把上传弄坏。要让服务端不再依赖 LAN IP，用 `S3_INTERNAL_ENDPOINT`。
 
+**必要前提：桶必须先存在，且必须带 CORS 策略。** 两件事都由一个幂等脚本完成：
+
+```bash
+bash scripts/provision-bucket.sh          # 建桶 + 配 CORS + 复验浏览器预检
+bash scripts/provision-bucket.sh --check  # 只体检，不写任何东西
 ```
-127.0.0.1 minio
-```
 
-- 检查：`Resolve-DnsName minio`（应返回 127.0.0.1）；或 `curl.exe -s -o NUL -w "%{http_code}" http://minio:9000/minio/health/live`（应返回 200）
-- 换机 / 重建环境时需重新添加；容器侧不受影响（Docker DNS 直接解析服务名）
-
-```powershell
-# 桶与对象检查
-docker exec minio mc ls --recursive local/lobechat-files
-```
+- 镜像里**没有 `mc`**，所以老命令 `docker exec minio mc mb local/lobechat-files` 在当前镜像上根本跑不通；
+  脚本改用镜像自带的 `curl --aws-sigv4` 直连 S3 API —— 宿主机除了 docker 不需要装任何东西。
+- **不配 CORS 的桶会让浏览器上传静默失败**：预检 `OPTIONS` 回 `200 OK` 却没有任何 `Access-Control-*` 头，
+  浏览器因此不发真正的 `PUT`，应用只能 `abortS3Upload`（2026-10-08 实际踩到，见 `DEPLOY-NOTES.md`）。
+  `curl` 没有 CORS 概念，所以**只验存储层永远发现不了这个坑**。
+- 复验：`--check` 会重放浏览器预检，并确认响应里带 `Access-Control-Allow-Origin`。
 
 ### PivotAI 主题（LobeHub 2.x 版）
 

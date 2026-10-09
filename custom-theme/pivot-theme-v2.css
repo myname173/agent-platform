@@ -1,7 +1,7 @@
 /* ==========================================================================
    PivotAI Cyber Glassmorphism & Aurora Fluid Theme — LobeHub 2.x Edition
    Brand: PivotAI   |   Slogan: 从对话到执行 / Chat less. Ship more.
-   Colors: Primary #3B82F6 (Electric Blue) · Accent #06B6D4 (Cyber Cyan)
+   Colors: Primary #16A34A (Vivid Green) · Accent #34D399 (Fresh Mint)
            Background #030712 (Cyber Deep Black)
    Ported from the LobeChat v1 theme for LobeHub 2.x.
    Injected by apply-theme-v2.ps1 (managed block — edit the repo copy only).
@@ -11,53 +11,56 @@
    1. Design tokens + antd cssVar overrides (both naming families)
    -------------------------------------------------------------------------- */
 :root, html, html[data-theme], html[data-theme='dark'], html[data-theme='light'] {
-  --pivot-primary: #3b82f6;
-  --pivot-accent: #06b6d4;
+  --pivot-primary: #16a34a;
+  --pivot-accent: #34d399;
   --pivot-bg-black: #030712;
   --pivot-glass-surface: rgba(10, 16, 31, 0.68);
   --pivot-glass-card: rgba(15, 23, 42, 0.62);
-  --pivot-glass-border: rgba(59, 130, 246, 0.22);
-  --pivot-glow-blue: rgba(59, 130, 246, 0.35);
-  --pivot-glow-cyan: rgba(6, 182, 212, 0.4);
+  --pivot-glass-border: rgba(34, 197, 94, 0.22);
+  --pivot-glow-green: rgba(34, 197, 94, 0.35);
+  --pivot-glow-mint: rgba(52, 211, 153, 0.4);
 
   /* antd v5 cssVar token family (v2 uses --colorXxx) */
-  --colorPrimary: #3b82f6 !important;
-  --colorPrimaryHover: #60a5fa !important;
-  --colorPrimaryActive: #2563eb !important;
-  --colorPrimaryBg: rgba(59, 130, 246, 0.12) !important;
-  --colorPrimaryBgHover: rgba(6, 182, 212, 0.2) !important;
-  --colorPrimaryBorder: rgba(59, 130, 246, 0.35) !important;
-  --colorPrimaryBorderHover: rgba(6, 182, 212, 0.6) !important;
-  --colorInfo: #38bdf8 !important;
-  --colorLink: #38bdf8 !important;
+  --colorPrimary: #16a34a !important;
+  --colorPrimaryHover: #22c55e !important;
+  --colorPrimaryActive: #15803d !important;
+  --colorPrimaryBg: rgba(34, 197, 94, 0.12) !important;
+  --colorPrimaryBgHover: rgba(52, 211, 153, 0.2) !important;
+  --colorPrimaryBorder: rgba(34, 197, 94, 0.35) !important;
+  --colorPrimaryBorderHover: rgba(52, 211, 153, 0.6) !important;
+  /* 链接/信息色：原为 sky-400 #38bdf8，随主色改为绿。
+     取 emerald-500 而非更浅的 emerald-300 —— 浅绿在浅底上读不出来，
+     而本主题的底色无论 app 处于哪个主题都是 #030712（见第 2 节）。 */
+  --colorInfo: #10b981 !important;
+  --colorLink: #10b981 !important;
   --colorBgBase: #030712 !important;
   --colorBgLayout: #030712 !important;
   --colorBgContainer: rgba(13, 20, 36, 0.65) !important;
   --colorBgElevated: rgba(15, 23, 42, 0.88) !important;
   --colorBgSpotlight: rgba(15, 23, 42, 0.92) !important;
-  --colorBorder: rgba(59, 130, 246, 0.22) !important;
-  --colorBorderSecondary: rgba(6, 182, 212, 0.16) !important;
-  --colorSplit: rgba(59, 130, 246, 0.16) !important;
+  --colorBorder: rgba(34, 197, 94, 0.22) !important;
+  --colorBorderSecondary: rgba(52, 211, 153, 0.16) !important;
+  --colorSplit: rgba(34, 197, 94, 0.16) !important;
   --colorTextBase: #f8fafc !important;
   --colorText: #f1f5f9 !important;
   --colorTextSecondary: #94a3b8 !important;
   --colorTextTertiary: #7d8aa0 !important;
   --colorTextQuaternary: #64748b !important;
-  --colorFill: rgba(59, 130, 246, 0.12) !important;
-  --colorFillSecondary: rgba(6, 182, 212, 0.1) !important;
+  --colorFill: rgba(34, 197, 94, 0.12) !important;
+  --colorFillSecondary: rgba(52, 211, 153, 0.1) !important;
   --colorFillTertiary: rgba(15, 23, 42, 0.6) !important;
   --colorFillQuaternary: rgba(15, 23, 42, 0.4) !important;
 
   /* legacy --ant-* family (v1 compatibility) */
-  --ant-color-primary: #3b82f6 !important;
-  --ant-color-primary-hover: #60a5fa !important;
-  --ant-color-primary-active: #2563eb !important;
-  --ant-color-primary-bg: rgba(59, 130, 246, 0.12) !important;
+  --ant-color-primary: #16a34a !important;
+  --ant-color-primary-hover: #22c55e !important;
+  --ant-color-primary-active: #15803d !important;
+  --ant-color-primary-bg: rgba(34, 197, 94, 0.12) !important;
   --ant-color-bg-base: #030712 !important;
   --ant-color-bg-layout: #030712 !important;
   --ant-color-bg-container: rgba(13, 20, 36, 0.65) !important;
   --ant-color-bg-elevated: rgba(15, 23, 42, 0.88) !important;
-  --ant-color-border: rgba(59, 130, 246, 0.22) !important;
+  --ant-color-border: rgba(34, 197, 94, 0.22) !important;
   --ant-color-text: #f1f5f9 !important;
   --ant-color-text-secondary: #94a3b8 !important;
 }
@@ -77,9 +80,9 @@ html, body {
 body {
   overflow-x: hidden !important;
   background-image:
-    radial-gradient(circle at 10% 15%, rgba(6, 182, 212, 0.22) 0%, transparent 48%),
-    radial-gradient(circle at 85% 85%, rgba(59, 130, 246, 0.24) 0%, transparent 52%),
-    radial-gradient(circle at 50% 40%, rgba(99, 102, 241, 0.15) 0%, transparent 62%) !important;
+    radial-gradient(circle at 10% 15%, rgba(52, 211, 153, 0.22) 0%, transparent 48%),
+    radial-gradient(circle at 85% 85%, rgba(34, 197, 94, 0.24) 0%, transparent 52%),
+    radial-gradient(circle at 50% 40%, rgba(16, 185, 129, 0.15) 0%, transparent 62%) !important;
   background-attachment: fixed !important;
 }
 
@@ -94,8 +97,13 @@ body {
   z-index: 0;
 }
 
-/* Make intermediate wrappers transparent so the cosmos shows through */
-html, body, #__next, #root,
+/* Make intermediate wrappers transparent so the cosmos shows through.
+   ⚠️ 不要把 html / body 写进这条选择器。
+   上面 `html, body { background-color: #030712 !important }` 与本条**同特异性**，
+   同特异性下「后者胜」—— 一旦把 html/body 也置成 transparent，整页底色就没了，
+   回落到浏览器默认白底，星场于是画在一张白纸上（人脸/光点「注进去了却看不见」的根因之一，
+   详见 DEPLOY-NOTES §9.2）。让 html/body 自己负责深色底，只把中间容器打通。 */
+#__next, #root,
 [class*="layout__app"], [class*="AppLayout"], [class*="app-layout"] {
   background: transparent !important;
 }
@@ -107,7 +115,7 @@ html, body, #__next, #root,
 }
 
 ::selection {
-  background: rgba(6, 182, 212, 0.35) !important;
+  background: rgba(52, 211, 153, 0.35) !important;
   color: #f8fafc !important;
 }
 
@@ -119,7 +127,7 @@ nav, aside,
   background: var(--pivot-glass-surface) !important;
   backdrop-filter: blur(24px) saturate(190%) !important;
   -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
-  border-right: 1px solid rgba(59, 130, 246, 0.18) !important;
+  border-right: 1px solid rgba(34, 197, 94, 0.18) !important;
   box-shadow: 4px 0 32px -4px rgba(0, 0, 0, 0.5) !important;
 }
 
@@ -140,8 +148,8 @@ nav, aside,
 
 [class*="card"]:hover {
   transform: translateY(-2px) !important;
-  border-color: rgba(6, 182, 212, 0.45) !important;
-  box-shadow: 0 12px 36px -4px rgba(6, 182, 212, 0.2), 0 0 0 1px rgba(59, 130, 246, 0.35) !important;
+  border-color: rgba(52, 211, 153, 0.45) !important;
+  box-shadow: 0 12px 36px -4px rgba(52, 211, 153, 0.2), 0 0 0 1px rgba(34, 197, 94, 0.35) !important;
 }
 
 /* Modals, drawers, popovers, dropdowns */
@@ -150,8 +158,8 @@ nav, aside,
   background: rgba(13, 20, 36, 0.9) !important;
   backdrop-filter: blur(30px) saturate(200%) !important;
   -webkit-backdrop-filter: blur(30px) saturate(200%) !important;
-  border: 1px solid rgba(59, 130, 246, 0.28) !important;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(6, 182, 212, 0.2) !important;
+  border: 1px solid rgba(34, 197, 94, 0.28) !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(52, 211, 153, 0.2) !important;
 }
 
 /* --------------------------------------------------------------------------
@@ -172,11 +180,11 @@ nav, aside,
 [data-role='user'] [class*="message-body"],
 .message-wrapper[data-role='user'],
 [class*="bubble"][data-role='user'] {
-  background: linear-gradient(135deg, rgba(29, 78, 216, 0.88) 0%, rgba(2, 132, 199, 0.88) 100%) !important;
+  background: linear-gradient(135deg, rgba(21, 128, 61, 0.88) 0%, rgba(5, 150, 105, 0.88) 100%) !important;
   backdrop-filter: blur(14px) !important;
   -webkit-backdrop-filter: blur(14px) !important;
-  border: 1px solid rgba(96, 165, 250, 0.4) !important;
-  box-shadow: 0 4px 24px -2px rgba(37, 99, 235, 0.4) !important;
+  border: 1px solid rgba(74, 222, 128, 0.4) !important;
+  box-shadow: 0 4px 24px -2px rgba(22, 163, 74, 0.4) !important;
   color: #ffffff !important;
   border-radius: 18px 18px 4px 18px !important;
 }
@@ -188,16 +196,16 @@ nav, aside,
   background: rgba(15, 23, 42, 0.72) !important;
   backdrop-filter: blur(18px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(18px) saturate(180%) !important;
-  border: 1px solid rgba(59, 130, 246, 0.24) !important;
+  border: 1px solid rgba(34, 197, 94, 0.24) !important;
   border-radius: 18px !important;
   box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5) !important;
   animation: pivotAiPulse 5s ease-in-out infinite alternate !important;
 }
 
 @keyframes pivotAiPulse {
-  0%   { border-color: rgba(59, 130, 246, 0.24); box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 16px -4px rgba(6, 182, 212, 0.12); }
-  50%  { border-color: rgba(6, 182, 212, 0.42); box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 28px 2px rgba(59, 130, 246, 0.25); }
-  100% { border-color: rgba(59, 130, 246, 0.28); box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 18px -3px rgba(6, 182, 212, 0.18); }
+  0%   { border-color: rgba(34, 197, 94, 0.24); box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 16px -4px rgba(52, 211, 153, 0.12); }
+  50%  { border-color: rgba(52, 211, 153, 0.42); box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 28px 2px rgba(34, 197, 94, 0.25); }
+  100% { border-color: rgba(34, 197, 94, 0.28); box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 18px -3px rgba(52, 211, 153, 0.18); }
 }
 
 /* --------------------------------------------------------------------------
@@ -210,10 +218,10 @@ nav, aside,
 
 [class*="chat-input"]:focus-within, [class*="bottom-input"]:focus-within,
 [class*="home-input"]:focus-within, [class*="chatInput"]:focus-within {
-  border-color: #06b6d4 !important;
+  border-color: #34d399 !important;
   box-shadow:
-    0 0 35px -2px rgba(6, 182, 212, 0.4),
-    0 0 0 1.5px rgba(59, 130, 246, 0.65),
+    0 0 35px -2px rgba(52, 211, 153, 0.4),
+    0 0 0 1.5px rgba(34, 197, 94, 0.65),
     0 16px 44px rgba(0, 0, 0, 0.65) !important;
   transform: translateY(-1px) !important;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
@@ -242,15 +250,15 @@ button:active, .ant-btn:active {
 
 /* Primary gradient buttons */
 .ant-btn-primary, button[class*='primary'], button[type='submit'] {
-  background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%) !important;
+  background: linear-gradient(135deg, #16a34a 0%, #34d399 100%) !important;
   border: none !important;
-  box-shadow: 0 4px 18px rgba(6, 182, 212, 0.38) !important;
+  box-shadow: 0 4px 18px rgba(52, 211, 153, 0.38) !important;
   color: #ffffff !important;
   font-weight: 600 !important;
 }
 
 .ant-btn-primary:hover, button[class*='primary']:hover, button[type='submit']:hover {
-  box-shadow: 0 6px 26px rgba(6, 182, 212, 0.65), 0 0 16px rgba(59, 130, 246, 0.5) !important;
+  box-shadow: 0 6px 26px rgba(52, 211, 153, 0.65), 0 0 16px rgba(34, 197, 94, 0.5) !important;
   transform: scale(1.04) translateY(-1.5px) !important;
 }
 
@@ -264,16 +272,16 @@ button:active, .ant-btn:active {
 }
 
 [class*='topic-item']:hover, [class*='topic-row']:hover, [class*='session-row']:hover, [data-session-row]:hover {
-  background: rgba(59, 130, 246, 0.14) !important;
-  border-color: rgba(6, 182, 212, 0.3) !important;
+  background: rgba(34, 197, 94, 0.14) !important;
+  border-color: rgba(52, 211, 153, 0.3) !important;
   transform: translateX(4px) !important;
 }
 
 [class*='topic-item'][data-active], [class*='topic-item'][class*='active'],
 [class*='topic-row'][data-active], [data-session-row][data-active] {
-  background: linear-gradient(90deg, rgba(59, 130, 246, 0.25) 0%, rgba(6, 182, 212, 0.14) 100%) !important;
-  border-color: rgba(6, 182, 212, 0.5) !important;
-  box-shadow: inset 3.5px 0 0 #06b6d4, 0 4px 20px rgba(0, 0, 0, 0.35) !important;
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.25) 0%, rgba(52, 211, 153, 0.14) 100%) !important;
+  border-color: rgba(52, 211, 153, 0.5) !important;
+  box-shadow: inset 3.5px 0 0 #34d399, 0 4px 20px rgba(0, 0, 0, 0.35) !important;
 }
 
 /* --------------------------------------------------------------------------
@@ -282,14 +290,14 @@ button:active, .ant-btn:active {
 ::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
 ::-webkit-scrollbar-track { background: transparent !important; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.28) !important;
+  background: rgba(34, 197, 94, 0.28) !important;
   border-radius: 10px !important;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(6, 182, 212, 0.55) !important;
-  box-shadow: 0 0 12px rgba(6, 182, 212, 0.6) !important;
+  background: rgba(52, 211, 153, 0.55) !important;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.6) !important;
 }
-* { scrollbar-width: thin; scrollbar-color: rgba(59, 130, 246, 0.35) transparent; }
+* { scrollbar-width: thin; scrollbar-color: rgba(34, 197, 94, 0.35) transparent; }
 
 /* --------------------------------------------------------------------------
    9. PivotAI brand accents (badge widget lives top-right, injected by JS)
@@ -302,9 +310,9 @@ button:active, .ant-btn:active {
   background: rgba(10, 16, 31, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(59, 130, 246, 0.25);
+  border: 1px solid rgba(34, 197, 94, 0.25);
   border-radius: 24px;
-  color: #38bdf8;
+  color: #6ee7b7;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -321,8 +329,8 @@ button:active, .ant-btn:active {
 }
 
 .pivot-brand-header:hover {
-  border-color: rgba(6, 182, 212, 0.5);
-  box-shadow: 0 6px 24px rgba(6, 182, 212, 0.25);
+  border-color: rgba(52, 211, 153, 0.5);
+  box-shadow: 0 6px 24px rgba(52, 211, 153, 0.25);
   transform: translateY(-1px);
 }
 
@@ -330,8 +338,8 @@ button:active, .ant-btn:active {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #06b6d4;
-  box-shadow: 0 0 10px #06b6d4;
+  background: #34d399;
+  box-shadow: 0 0 10px #34d399;
   animation: pivotDotPulse 3s ease-in-out infinite;
 }
 
@@ -364,6 +372,36 @@ button:active, .ant-btn:active {
 
 #pivot-face-mat.pivot-face-on {
   opacity: 0.28;
+}
+
+/* Light-backdrop fallback.
+   `screen` is a LIGHTENING blend: on a light page it washes the face out to
+   invisible. The page goes light when the app resolves its theme to light —
+   i.e. the user explicitly picked Light, or (before §9.6) nothing was stored
+   and LobeChat's own default is light. The auth SPA carries its own light antd
+   scope, so its surfaces paint over our dark base.
+
+   On a light backdrop we switch to `multiply`, which DARKENS instead. Note the
+   consequence: `multiply` can only ever darken, so what becomes visible is the
+   image's darker structure (hair, the shadowed side of the profile) rather than
+   its lit side. That is why the light-mode filter raises `contrast` and pulls
+   `brightness` down a little — it deepens that structure so the profile still
+   reads as a watermark at a low opacity.
+
+   Opacity is tuned by the arithmetic, not by taste: on white, multiply+opacity
+   a leaves a pixel p at  255*(1-a) + p*a . At the old a=0.20 with a mask peak
+   of 0.78 the effective a was ~0.16, i.e. only ~17/255 levels of darkening —
+   present in the DOM, invisible to a human. 0.34 x 0.92 ~= 0.31 gives roughly
+   double that, which is the point at which the profile actually reads. */
+#pivot-face-mat.pivot-face-light {
+  mix-blend-mode: multiply;
+  filter: saturate(0.50) contrast(1.34) brightness(0.94) blur(2.6px);
+  -webkit-mask-image: linear-gradient(96deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.14) 44%, rgba(0, 0, 0, 0.52) 68%, rgba(0, 0, 0, 0.92) 100%);
+  mask-image: linear-gradient(96deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.14) 44%, rgba(0, 0, 0, 0.52) 68%, rgba(0, 0, 0, 0.92) 100%);
+}
+
+#pivot-face-mat.pivot-face-on.pivot-face-light {
+  opacity: 0.34;
 }
 
 @media (max-width: 768px) {
