@@ -20,7 +20,7 @@ five artefacts, so a half-finished run is never shipped as if it were full.
 """
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-import hashlib, json, os, re, shutil, subprocess, sys
+import hashlib, json, os, re, shutil, subprocess, sys, gzip
 
 ROOT = Path(__file__).resolve().parent.parent
 BACKUPS = ROOT / "backups"
@@ -28,19 +28,25 @@ DIST = ROOT / "dist"
 MIGRATION_SRC = ROOT / "migration"
 
 # Directories never worth shipping to another machine.
+# NOTE: custom-theme used to be here. It is NOT build junk — the theme is
+# injected into the RUNNING lobechat container by custom-theme/apply-theme-v2.ps1
+# (compose and the Dockerfile never reference it), so a pack without it restores
+# a light-theme stack and the black PivotAI theme is simply gone.
 EXCLUDE_DIRS = {
     "node_modules", ".next", "dist", "backups", "backend", "lobechat",
-    "custom-theme", ".workbuddy-ai", "__pycache__", ".pytest_cache",
+    ".workbuddy-ai", "__pycache__", ".pytest_cache",
     "demo-assets/_tmp", "deliverables/_verify", ".venv", "venv",
 }
 EXCLUDE_FILE_SUFFIX = {".log", ".tmp", ".swp"}
-EXCLUDE_FILE_NAMES = {"kiranism-dev.log", ".last-ok"}
+EXCLUDE_FILE_NAMES = {"kiranism-dev.log", ".last-ok", ".theme-keeper-misses"}
 
 REQUIRED = [
     "docker-compose.yml", ".env", ".env.example",
     "frontent/bun.lock", "frontent/package.json", "frontent/Dockerfile",
     "n8n/sandbox.Dockerfile", "backup/Dockerfile", "backup/backup.sh",
     "searxng/settings.yml", "stream-bridge/server.js",
+    "custom-theme/apply-theme-v2.ps1", "custom-theme/pivot-apply.js",
+    "custom-theme/pivot-theme-v2.css", "custom-theme/pivot-theme-v2.js",
     "migration/restore.ps1", "migration/restore.sh",
     "migration/verify.ps1", "migration/verify.sh",
     "migration/preflight.ps1", "migration/preflight.sh",
@@ -237,6 +243,74 @@ def collect_counts():
     return counts, tables
 
 
+# COPY data_table (id, name, ...) FROM stdin;   — header lists columns in order
+COPY_HDR = re.compile(r"^COPY\s+(?:[\w\"]+\.)?([\w\"]+)\s+\(([^)]*)\)\s+FROM\s+stdin;")
+
+
+def _unescape_cell(v):
+    """COPY text escapes: \\t \\n \\r \\\\ and \\N for NULL. Table names are plain
+    identifiers in practice, so unescaping fully is not required — but do it
+    properly rather than shipping a name that grew a literal backslash."""
+    if v == "\\N":
+        return None
+    return v.replace("\\t", "\t").replace("\\n", "\n").replace("\\r", "\r").replace("\\\\", "\\")
+
+
+def collect_counts_from_dump(dump: Path):
+    """Count rows straight out of a plain-SQL pg_dump, with no database.
+
+    Used when the Docker daemon is down. Reusing the previous SOURCE.json there
+    is a trap: the backup service keeps producing NEWER dump sets, and verify.*
+    compares with >=. An old baseline then fails a fresh restore that used the
+    newer, smaller dumps (executions drop when the retention workflow prunes),
+    which reads like a broken migration rather than a stale baseline.
+
+    Table names for `data_table_user_<id>` come from the dump's own `data_table`
+    COPY block, so the result matches what the live query would have returned.
+    """
+    targets = ("workflow_entity", "execution_entity", "credentials_entity", "data_table")
+    counts = {k: 0 for k in ("workflows", "executions", "credentials", "data_tables")}
+    per_id = {}
+    id2name = {}
+    table = None
+    cols = None
+    with gzip.open(dump, "rt", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if table is None:
+                m = COPY_HDR.match(line)
+                if not m:
+                    continue
+                table = m.group(1).strip('"')
+                cols = [c.strip().strip('"') for c in m.group(2).split(",")]
+                continue
+            # In COPY text format a literal backslash is doubled, so a lone
+            # "\." line is unambiguously the block terminator.
+            if line.rstrip("\n") == "\\.":
+                table, cols = None, None
+                continue
+            if table in targets:
+                if table == "data_table":
+                    cells = line.rstrip("\n").split("\t")
+                    if len(cells) >= len(cols):
+                        d = {c: _unescape_cell(v) for c, v in zip(cols, cells)}
+                        if d.get("id") and d.get("name"):
+                            id2name[d["id"]] = d["name"]
+                elif table == "workflow_entity":
+                    counts["workflows"] += 1
+                elif table == "execution_entity":
+                    counts["executions"] += 1
+                elif table == "credentials_entity":
+                    counts["credentials"] += 1
+            elif table.startswith("data_table_user_"):
+                per_id[table[len("data_table_user_"):]] = per_id.get(table[len("data_table_user_"):], 0) + 1
+    counts["data_tables"] = len(id2name)
+    tables = {}
+    for tid, name in id2name.items():
+        if tid in per_id:
+            tables[name] = per_id[tid]
+    return counts, tables
+
+
 def sha256(path, chunk=1 << 20):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -275,26 +349,43 @@ def main():
             shutil.copy2(f, pack / "migration" / f.name)
 
     print("collecting source-of-truth counts ...")
-    # The counts are what verify.* compares against, so they must come from the
-    # live database. If the daemon is down we cannot read it — reusing the last
-    # SOURCE.json is honest only if the pack says so, because otherwise a stale
-    # baseline ships looking authoritative.
+    # The counts are what verify.* compares against, so they must describe the
+    # data actually inside the dumps being shipped. Preferred source is the live
+    # database; with the daemon down we read the dump itself (see
+    # collect_counts_from_dump) and only fall back to the previous SOURCE.json
+    # as a last resort. `counts_source` records which one was used, so a
+    # non-live baseline never ships looking authoritative.
     live = docker_up()
     if live:
         counts, tables = collect_counts()
+        counts_source = "live"
     else:
-        print("  WARN docker daemon is down — reusing counts from the previous SOURCE.json")
-        prev = MIGRATION_SRC / "SOURCE.json"
-        old = json.loads(prev.read_text(encoding="utf-8")) if prev.exists() else {}
-        counts, tables = old.get("counts") or {}, old.get("data_tables") or {}
+        # Daemon down. Prefer deriving from the dump actually being shipped —
+        # that keeps the baseline in lockstep with the data verify.* will read.
+        n8n_dump = next((f for f in files if f.name.startswith("pg-n8n-")), None)
+        counts, tables = ({}, {})
+        counts_source = "cached"
+        if n8n_dump is not None:
+            try:
+                counts, tables = collect_counts_from_dump(n8n_dump)
+                counts_source = "dump"
+                print("  counts derived from %s (%s)" % (n8n_dump.name, counts))
+            except Exception as e:                                   # noqa: BLE001
+                print("  WARN could not read %s: %s" % (n8n_dump.name, e))
         if not counts:
-            print("  FAIL no previous SOURCE.json to fall back on")
-            return 1
+            print("  WARN falling back to the previous SOURCE.json counts")
+            prev = MIGRATION_SRC / "SOURCE.json"
+            old = json.loads(prev.read_text(encoding="utf-8")) if prev.exists() else {}
+            counts, tables = old.get("counts") or {}, old.get("data_tables") or {}
+            if not counts:
+                print("  FAIL no previous SOURCE.json to fall back on")
+                return 1
     head = run(["git", "rev-parse", "HEAD"]).stdout.strip()
     branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
     src = {
         "generated_at": ts.isoformat(timespec="seconds"),
         "counts_read_live_from_database": live,
+        "counts_source": counts_source,
         "source_host_lan_ip": env_value("PLATFORM_LAN_IP"),
         "git_branch": branch,
         "git_head": head,
@@ -494,6 +585,20 @@ n8n API 工作流数。
 
 ## 手工确认（脚本查不到的）
 
+- [ ] **注入 PivotAI 黑底主题（必做，不注入就是浅色旧界面）**
+      主题不是打进镜像的——compose 和 Dockerfile 都不引用 `custom-theme/`，
+      它由脚本注入**运行中的** lobechat 容器。新机器装完执行：
+
+      ```powershell
+      cd C:\\agent-platform\\custom-theme
+      powershell -ExecutionPolicy Bypass -File .\\apply-theme-v2.ps1 -Restart
+      powershell -ExecutionPolicy Bypass -File .\\apply-theme-v2.ps1 -Check   # exit 0 = applied
+      ```
+
+      容器**每次被重建**（compose down/up、镜像更新）都会丢掉注入，
+      所以 `-Restart` 不能省——lobechat 的静态文件列表是容器启动时快照的，
+      新文件不重启不对外提供。想让它在来源机器那样自动恢复，就照
+      `custom-theme/theme-keeper.ps1` 的计划任务在新机器上配一份看门狗。
 - [ ] n8n 用自己的账号能登进去（用户表在 pg dump 里，已还原）
 - [ ] n8n 里 4 条 credentials 能打开且能解密
 - [ ] Kiranism 控制台 Clerk 登录正常（Clerk 是 SaaS，与机器无关）

@@ -277,6 +277,10 @@ Write-Host @"
     Next:
       1. wait for build:   docker compose -f $Target\docker-compose.yml ps
       2. accept:           powershell -File $Target\migration\verify.ps1
-      3. use the LAN IP in the certificate, not 127.0.0.1 — Caddy routes by Host
+      3. inject the theme (otherwise LobeHub stays light-themed):
+                            cd $Target\custom-theme
+                            powershell -ExecutionPolicy Bypass -File .\apply-theme-v2.ps1 -Restart
+                            powershell -ExecutionPolicy Bypass -File .\apply-theme-v2.ps1 -Check
+      4. use the LAN IP in the certificate, not 127.0.0.1 — Caddy routes by Host
          header, and an IP-literal request gets an empty 200.
 "@ -ForegroundColor White
