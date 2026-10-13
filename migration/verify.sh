@@ -86,7 +86,13 @@ echo; echo "=== outbound (SearXNG / Telegram depend on this) ==="
 #   - if the container resolves to a Fake-IP, TUN was up before docker started;
 #   - if it resolves to nothing at all, containers have no egress and SearXNG
 #     will "succeed" while returning zero results.
-CIP="$(docker exec n8n getent hosts api.telegram.org 2>/dev/null | awk '{print $1}' | head -1)"
+# The n8n image has node but NOT getent, so ask node. Accept only something
+# shaped like an IPv4 address: otherwise a docker-exec error message reads as a
+# plausible "real IP" and the check passes on nothing.
+CIP="$(docker exec n8n node -e "require('dns').lookup('api.telegram.org',(e,a)=>console.log(e?'':a))" 2>/dev/null | tr -d '[:space:]')"
+case "$CIP" in
+  *[!0-9.]*|"") CIP="" ;;
+esac
 if [ -z "$CIP" ]; then
   check "container resolves api.telegram.org" 0 "no answer — container has no DNS/egress"
 else

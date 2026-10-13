@@ -172,14 +172,16 @@ foreach ($e in $eps) {
 #   - with no egress at all, SearXNG still answers 200 and simply returns no
 #     results, so "searxng :8080 HTTP 200" is NOT proof that search works.
 Write-Host "`n=== outbound (SearXNG / Telegram depend on this) ===" -ForegroundColor Cyan
-$cip = (& docker exec n8n getent hosts api.telegram.org 2>$null | Select-Object -First 1)
+# Resolve from inside the container. The n8n image ships node but NOT getent,
+# and `docker exec` writes its error to stderr in a way 2>$null does not always
+# swallow — so anything that is not shaped like an IPv4 address is treated as
+# "no answer". Without that guard an error message sails through as a plausible
+# "real IP" and the check passes on nothing (it did, on the first live run).
+$cip = ""
+$raw = (& docker exec n8n node -e "require('dns').lookup('api.telegram.org',(e,a)=>console.log(e?'':a))" 2>$null | Out-String).Trim()
+if ($raw -match "^\d{1,3}(\.\d{1,3}){3}$") { $cip = $raw }
 if (-not $cip) {
-    # getent is not in every image; fall back to node, which n8n definitely has.
-    $cip = (& docker exec n8n node -e "require('dns').lookup('api.telegram.org',(e,a)=>console.log(e?'':a))" 2>$null | Select-Object -First 1)
-}
-$cip = "$cip".Trim()
-if (-not $cip) {
-    Check "container resolves api.telegram.org" $false "no answer — container has no DNS/egress"
+    Check "container resolves api.telegram.org" $false "no usable answer — container has no DNS/egress"
 } elseif ($cip -like "198.18.*") {
     Check "container resolves api.telegram.org" $true "$cip (Fake-IP: TUN proxy is carrying it)"
 } else {
