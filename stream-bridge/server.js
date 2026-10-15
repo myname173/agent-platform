@@ -28,6 +28,7 @@ const SERVER_TOOLS = [
   { type: 'function', function: { name: 'list_reminders', description: 'List upcoming (pending) and recent reminders. Pass owner to filter by assignee ("mine" for own).', parameters: { type: 'object', properties: { owner: { type: 'string', description: 'Optional person name, or "mine"' } } } } },
   { type: 'function', function: { name: 'cancel_reminder', description: 'Cancel a pending reminder by id.', parameters: { type: 'object', properties: { id: { type: 'integer', description: 'Reminder id' } }, required: ['id'] } } },
   { type: 'function', function: { name: 'todo_add', description: 'Save an open-loop item (todo). Optional due_date YYYY-MM-DD and optional owner (a name from the people directory) to assign it to someone.', parameters: { type: 'object', properties: { text: { type: 'string' }, due_date: { type: 'string' }, owner: { type: 'string', description: 'Optional assignee name from the people directory' } }, required: ['text'] } } },
+  { type: 'function', function: { name: 'meeting_actions', description: 'Extract and SAVE up to eight action items from pasted meeting notes when the user explicitly asks to register meeting actions. Reports unsaved items and missing owner/due; do not claim an unassigned item will be chased. Forwarded Telegram text requires /meeting confirmation.', parameters: { type: 'object', properties: { text: { type: 'string', description: 'Original meeting notes, not an invented summary; maximum 6000 characters' }, default_owner: { type: 'string', description: 'Use only if the user explicitly supplied this assignee for all otherwise unassigned actions' } }, required: ['text'] } } },
   { type: 'function', function: { name: 'todo_list', description: 'List open todos with overdue / due-today flags. Pass owner to filter by assignee ("mine" for own unassigned todos).', parameters: { type: 'object', properties: { owner: { type: 'string', description: 'Optional person name, or "mine"' } } } } },
   { type: 'function', function: { name: 'todo_done', description: 'Complete a todo by id.', parameters: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } } },
   { type: 'function', function: { name: 'run_python', description: 'Run a short Python snippet in an isolated sandbox and read back its stdout. Use for arithmetic, statistics, CSV/JSON processing, parsing, formatting, date maths - anything easier to compute than to write. Standard library only (no numpy/pandas). Network access, subprocesses and file writes are GATED, not impossible: when a snippet needs them the platform parks it and asks the owner to approve; once approved the run goes through with that access granted. Print what you want returned; return values are not captured. 15s timeout, 8KB output cap.', parameters: { type: 'object', properties: { code: { type: 'string', description: 'Python code. It must print() whatever you want to see.' }, why: { type: 'string', description: 'One line: what this computes and why.' } }, required: ['code'] } } },
@@ -59,6 +60,7 @@ const TOOL_LABELS = {
   list_reminders: '📋 查看提醒事项',
   cancel_reminder: '❌ 取消提醒',
   todo_add: '📝 登记待办事项',
+  meeting_actions: '📋 登记会议行动项',
   todo_list: '📋 查询待办清单',
   todo_done: '✅ 完成待办事项',
 };
@@ -111,7 +113,7 @@ const sseSend = (res, obj) => { try { res.write('data: ' + JSON.stringify(obj) +
 const sseEnd = (res) => { try { res.write('data: [DONE]\n\n'); res.end(); } catch (e) {} };
 const chunkMsg = (id, model, delta, finish) => ({ id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, delta, finish_reason: finish || null }] });
 
-const directiveNow = () => 'Current server time: ' + new Date().toISOString() + ' (UTC; user timezone Asia/Shanghai = UTC+8). You can call the provided tools (platform_status, run_brief, list_alerts, kb_save, create_reminder, list_reminders, cancel_reminder, todo_add, todo_list, todo_done, web_search, kb_search) when the user asks about the platform, reminders, search or the knowledge base. Prefer acting over asking clarifying questions. 自建流程工具（wf_ 前缀）可直接触发：用户说「跑一下 X」时调用对应 wf_ 工具。';
+const directiveNow = () => 'Current server time: ' + new Date().toISOString() + ' (UTC; user timezone Asia/Shanghai = UTC+8). You can call the provided tools (platform_status, run_brief, list_alerts, kb_save, create_reminder, list_reminders, cancel_reminder, todo_add, meeting_actions, todo_list, todo_done, web_search, kb_search) when the user asks about the platform, reminders, search or the knowledge base. Prefer acting over asking clarifying questions. 自建流程工具（wf_ 前缀）可直接触发：用户说「跑一下 X」时调用对应 wf_ 工具。';
 
 function logTurn(payload) {
   fetch(LOG_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: AUTH_PREFIX + CHAT_KEY }, body: JSON.stringify(payload), signal: AbortSignal.timeout(15000) }).catch(() => {});
