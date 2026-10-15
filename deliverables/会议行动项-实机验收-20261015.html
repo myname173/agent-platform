@@ -44,7 +44,7 @@
 <div class="wrap">
 
   <h1>会议行动项 · 实机验收</h1>
-  <div class="sub">agent-platform（PivotAI） · 2026-10-15 · 提交 <code>2b2bc9b</code> · 24 个工作流全部在线 · 自检 47 项 0 失败</div>
+  <div class="sub">agent-platform（PivotAI） · 2026-10-15 · 提交 <code>40eeb5e</code> · 24 个工作流全部在线 · 自检 47 项 0 失败 · <strong>第 6 节有一条待你拍板</strong></div>
 
   <div class="lead">
     <strong>要解决的问题</strong>：会议定的事散在群消息、Notion、脑子里 → 没人认领、没人追。<br>
@@ -159,7 +159,43 @@
     </ul>
   </div>
 
-  <h2>六、遗留（需要你决定）</h2>
+  <h2>六、⚠️ 安全：仓库是 public，加密密钥曾进 git</h2>
+  <div class="card" style="border-color:#cf222e;background:#ffebe9">
+    <strong>这一条需要你拍板 —— 我没有动真密钥。</strong>
+  </div>
+  <table>
+    <tr><th style="width:200px">项</th><th style="width:130px">状态</th><th>说明</th></tr>
+    <tr>
+      <td><code>N8N_ENCRYPTION_KEY</code><br><span style="color:var(--muted);font-size:13px">32 位高熵</span></td>
+      <td><span class="pill p-bad">已泄露</span></td>
+      <td><code>migration/SOURCE.json</code> 被 git 跟踪且明文带着它，仓库 <code>visibility=public</code>（已用 API 查证）。它是 n8n dump 里凭据能否解密的关键。<strong>已修的是「不再继续泄」，不是「已解决」</strong> —— 历史提交里仍有。</td>
+    </tr>
+    <tr>
+      <td>硬编码的 n8n JWT</td>
+      <td><span class="pill p-ok">已清理</span></td>
+      <td><code>scripts/fetch-demo-data.py</code> 里那把 JWT 的 <code>exp</code> 是 <code>2026-10-03 04:00 UTC</code> —— <strong>正是造成 12 天静默停机的那把死钥匙</strong>（已比对 sha，与现役 key 不同）。已改为读 <code>.env</code>，改完实跑仍取到 24 个工作流的活数据。</td>
+    </tr>
+    <tr>
+      <td>扫描器扫不到它</td>
+      <td><span class="pill p-ok">已修</span></td>
+      <td>根因：<code>secret-scan.sh</code> 只扫<strong>暂存区</strong>，所以「早已提交进去的秘密」永远扫不到。已改为同时扫 <strong>HEAD 树</strong>。另修掉脚本里写死的别的机器路径。</td>
+    </tr>
+    <tr>
+      <td><code>CHAT_API_KEY</code> / <code>LOBECHAT_ACCESS_CODE</code></td>
+      <td><span class="pill p-warn">弱值</span></td>
+      <td>12 / 14 位手填弱值，散在约 30 个跟踪文件（多为 <code>interview-demo/</code>、<code>migration/restore.*</code>）。弱，但不是高熵秘密。<code>POSTGRES_PASSWORD</code> 未泄露。</td>
+    </tr>
+  </table>
+  <div class="card">
+    <strong>待你决定（我一条都没做）</strong>
+    <ul>
+      <li><strong>轮换 <code>N8N_ENCRYPTION_KEY</code>？</strong> 换完 n8n 里已存的凭据会无法解密，要重新录入 —— 所以我不擅自动。</li>
+      <li><strong>重写 git 历史清掉那把 key？</strong> 需要 force push，而铁律是「绝不覆盖别人的提交」，必须你明确点头。</li>
+      <li><strong>两个弱值一并换掉？</strong> 影响面约 30 个文件。</li>
+    </ul>
+  </div>
+
+  <h2>七、遗留（需要你决定）</h2>
   <table>
     <tr><th style="width:210px">问题</th><th style="width:120px">影响</th><th>说明</th></tr>
     <tr>
