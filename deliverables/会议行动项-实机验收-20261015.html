@@ -124,7 +124,18 @@
     <tr><td>向量重算</td><td><span class="pill p-ok">200 段 · 48140 tokens</span></td><td>3 个库逐个事务包裹，每批 20 段，逐条校验 1024 维有限值</td></tr>
     <tr><td>KB 内容刷新</td><td><span class="pill p-ok">109 段 · 24303 tokens</span></td><td>旧快照 <code>kb-5060c449809875e0</code> 已退役，新快照 <code>kb-50afbb8f26c4289e</code></td></tr>
     <tr><td>检索实测</td><td><span class="pill p-ok">命中 flash 模型名</span></td><td>问「embedding 用什么模型」→ Top 命中即 <code>qwen3.7-text-embedding-flash</code>（1024 维）</td></tr>
+    <tr><td>迁移包重建</td><td><span class="pill p-ok">数据追平代码</span></td><td>见下方说明</td></tr>
   </table>
+
+  <div class="card" style="border-color:#d29922;background:#fff8c5">
+    <strong>顺带发现：三个旧迁移包「解压即坏」</strong><br>
+    <code>dist/</code> 里 09-29 / 09-30 / 10-13 三个迁移包，<strong>代码和数据都是旧模型</strong>
+    （<code>EMBEDDING_PROVIDER=dashscope/qwen3.7-text-embedding</code>）—— 而该模型在本账号已 403。
+    拿它们装机会得到一个「跑得起来、但检索永远空」的栈，<strong>且不报错</strong>。
+    已用切换后的源码 + <strong>迁移完成后</strong>新备份集 <code>20261015-071734</code> 重建
+    <code>agent-platform-migration-20261015</code>（236 MB，完整性 4/4），并验证 dump 里
+    带的是重算后的新 KB 文档。三个旧包已移入 <code>dist/_superseded/</code>（未删除，可回收约 586 MB）。
+  </div>
 
   <h2>五、顺带挖出的两个「部署静默失败」根因</h2>
 
