@@ -34,7 +34,7 @@ const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings
       method: 'POST',
       headers: { Authorization: ['Bear', 'er'].join('') + ' ' + key, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'qwen3.7-text-embedding',
+        model: 'qwen3.7-text-embedding-flash',
         input: { texts: [text] },
         parameters: {
           dimension: 1024,

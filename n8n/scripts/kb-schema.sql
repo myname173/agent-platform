@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
   seq        int  NOT NULL,                 -- chunk order (restores reading flow)
   content    text NOT NULL,                 -- chunk body (what the model sees)
   n_tokens   int,
-  embedding  vector(1024) NOT NULL,         -- qwen3.7-text-embedding, dim 1024
+  embedding  vector(1024) NOT NULL,         -- qwen3.7-text-embedding-flash, dim 1024
   created_at timestamptz DEFAULT now()
 );
 

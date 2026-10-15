@@ -796,7 +796,7 @@ curl -X POST http://localhost:5678/webhook/admin/tools \
 ### 知识库（KB-DESIGN v1.1）
 
 私域知识库：Postgres + pgvector（`kb_documents` / `kb_chunks` 表，HNSW 索引），
-embedding 用阿里百炼 `qwen3.7-text-embedding`（1024 维，text_type 区分 query/document）。
+embedding 用阿里百炼 `qwen3.7-text-embedding-flash`（1024 维，text_type 区分 query/document）。更换模型前必须用 `n8n/scripts/reembed-flash.mjs` 重算已存的 KB 与记忆向量；同维度不代表向量空间相同。
 检索经网关 `kb_search` 工具进入 Agent 循环，回答强制标注 [来源: 文档标题]。
 
 ```bash

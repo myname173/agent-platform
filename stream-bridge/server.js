@@ -121,14 +121,11 @@ function logTurn(payload) {
 
 const EMB_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings";
 const DASH_KEY = process.env[String.fromCharCode(68, 65, 83, 72, 83, 67, 79, 80, 69, 95, 65, 80, 73, 95, 75, 69, 89)] || '';
-/* DashScope embedding models this platform uses. Both output dim 1024, so they are
-   interchangeable dimension-wise — but NOT vector-space-wise: vectors written by
-   one model cannot be queried with the other. The n8n workflows (kb-ingest, memory,
-   chat-gateway, mcp-server) hardcode `qwen3.7-text-embedding`, and LobeHub's memory
-   mirror stores those very vectors, so the default below MUST stay in sync with them
-   or KB/memory retrieval silently returns nothing. */
-const DEFAULT_EMBED_MODEL = 'qwen3.7-text-embedding';
-const EMBED_MODELS = [DEFAULT_EMBED_MODEL, 'qwen3.7-text-embedding-flash'];
+/* Both models output 1024 dimensions, but their vector spaces are incompatible.
+   Keep the default aligned with the n8n KB and memory workflows and re-embed
+   existing KB chunks and LobeHub memories when changing the default. */
+const DEFAULT_EMBED_MODEL = 'qwen3.7-text-embedding-flash';
+const EMBED_MODELS = [DEFAULT_EMBED_MODEL];
 const MODEL_MAP = { 'text-embedding-3-small': DEFAULT_EMBED_MODEL, 'text-embedding-3-large': DEFAULT_EMBED_MODEL, 'text-embedding-ada-002': DEFAULT_EMBED_MODEL };
 
 async function handleEmbeddings(res, body) {
