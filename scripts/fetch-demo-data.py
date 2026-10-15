@@ -1,13 +1,38 @@
 #!/usr/bin/env python3
 """Fetch live platform data via n8n APIs into a single JSON bundle.
 This becomes the data backbone for the demo deck + renderings.
+
+Keys come from the environment or the repo's gitignored .env -- NEVER hardcoded
+here. This file used to carry a real n8n JWT in git; that token has since
+expired and been rotated, but the repo is public on GitHub, so any
+credential-shaped string belongs in .env (gitignored), not in a tracked file.
 """
-import json, urllib.request, urllib.parse
+import json, os, re, urllib.request, urllib.parse
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
-N8N_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYTIzNzhjMC1mMWI5LTRkMjMtYjhmNy01MTVlZDFmZGY3NTIiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiMmYyZDliNGYtZTc4Ny00YzljLWIzMTktZjg3YWFiMjVkZGUyIiwiaWF0IjoxNzg4NDM2NTI2LCJleHAiOjE3OTEwMDAwMDB9.U8X2pv2LR-sLeR8YPhIDQAdXCNE5tQEkxTVKNug4pWA"
-CHAT_KEY = "sk-n8n-agent"
+
+def env(name, default=None):
+    """Read from the environment, falling back to the repo's gitignored .env."""
+    v = os.environ.get(name)
+    if v:
+        return v.strip().strip('"').strip("'")
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if env_file.exists():
+        m = re.search(rf"^{name}=(.*)$", env_file.read_text(encoding="utf-8"), re.M)
+        if m:
+            return m.group(1).strip().strip('"').strip("'")
+    return default
+
+
+N8N_KEY = env("N8N_API_KEY")
+CHAT_KEY = env("CHAT_API_KEY")
+if not N8N_KEY or not CHAT_KEY:
+    raise SystemExit(
+        "缺少 N8N_API_KEY / CHAT_API_KEY：请从仓库根目录的 .env（已被 .gitignore）"
+        "读取，或以环境变量提供。不要把密钥写进这个文件。"
+    )
+
 BASE = "http://localhost:5678"
 H_N8N = {"X-N8N-API-KEY": N8N_KEY, "Accept": "application/json"}
 H_ADM = {"Authorization": "Bearer " + CHAT_KEY, "Accept": "application/json"}

@@ -407,8 +407,18 @@ def main():
     shutil.copy2(pack / "migration" / "SOURCE.json", pack / "SOURCE.json")
     # Keep a copy in the repo too, so verify.ps1 can be run against the live
     # stack on this machine and not only inside the pack.
+    # !! REDACTED: the repo copy must never carry N8N_ENCRYPTION_KEY. This repo
+    # is public on GitHub, and the key is what makes the credentials stored in
+    # an n8n dump decryptable -- it is not a value that belongs in git history.
+    # The pack keeps the real value (dist/ is gitignored) because verify.sh /
+    # verify.ps1 compare it to fail loudly on a mismatch. If the repo copy is
+    # ever used directly, verify.* will report "DIFFERENT" spuriously rather
+    # than leak a key; that is the safe failure.
+    repo_src = dict(src)
+    repo_src["n8n_encryption_key"] = "<redacted-in-repo; real value lives in the pack and .env>"
     MIGRATION_SRC.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(pack / "migration" / "SOURCE.json", MIGRATION_SRC / "SOURCE.json")
+    (MIGRATION_SRC / "SOURCE.json").write_text(
+        json.dumps(repo_src, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print("checksums ...")
     lines = []
