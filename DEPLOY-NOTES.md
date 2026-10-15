@@ -126,6 +126,13 @@ const model = MODEL_MAP[reqModel] || (EMBED_MODELS.includes(reqModel) ? reqModel
 > 改动只在侧车源码，工作流 JSON 没动 → 生效只需
 > `docker compose up -d --build stream-bridge`，**不用重跑 deploy.mjs**。
 
+> **⚠️ 本节已被 2026-10-15 的迁移取代（保留作历史记录）**：`qwen3.7-text-embedding`
+> 的免费额度用尽后返回 403 `AllocationQuota.FreeTierOnly`，全平台嵌入不可用。现已
+> **统一改为 `qwen3.7-text-embedding-flash`** —— 侧车 `DEFAULT_EMBED_MODEL` 与
+> `MODEL_MAP` 的目标值、n8n 那 4 个工作流、`docker-compose.yml` 的 `EMBEDDING_PROVIDER`
+> 全部指向 flash；已存的 KB / 记忆向量用 `n8n/scripts/reembed-flash.mjs` 重算过
+> （同维度 ≠ 同向量空间，必须重算）。上面的"默认落到非 flash"已不成立。
+
 ### 1.4 `n8n/workflows/lobehub-config.json` — 修掉一个不存在的列（重要）
 
 **症状**：`node n8n/scripts/lobehub-config.mjs apply` 返回 200 但**响应体是空的**，退出码 2。

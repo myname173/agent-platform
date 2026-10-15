@@ -44,11 +44,13 @@
 <div class="wrap">
 
   <h1>会议行动项 · 实机验收</h1>
-  <div class="sub">agent-platform（PivotAI） · 2026-10-15 · 提交 <code>cb9944b</code> · 24 个工作流全部在线</div>
+  <div class="sub">agent-platform（PivotAI） · 2026-10-15 · 提交 <code>2b2bc9b</code> · 24 个工作流全部在线 · 自检 47 项 0 失败</div>
 
   <div class="lead">
     <strong>要解决的问题</strong>：会议定的事散在群消息、Notion、脑子里 → 没人认领、没人追。<br>
-    本批次把<strong>入口</strong>补上，并修掉两个让部署「看起来成功、其实没生效」的根因。
+    本批次把<strong>入口</strong>补上，并修掉三个「看起来没坏、其实已经不能用」的根因：
+    <strong>API key 过期</strong>（平台静默降级 12 天）、<strong>工作流 id 被换</strong>（每次部署都翻倍）、
+    <strong>嵌入额度耗尽</strong>（记忆 / 知识库静默失效）。
   </div>
 
   <h2>一、链路（现在真的能跑通）</h2>
@@ -105,9 +107,26 @@
     <tr><td>Telegram 桥</td><td><span class="pill p-ok">15 / 15</span></td><td>对<strong>已部署代码</strong>跑 VM：inline、转发确认、回复落库、陌生人忽略、非机主越权拦截</td></tr>
     <tr><td>逾期扫描</td><td><span class="pill p-ok">17 / 17</span></td><td>对<strong>已部署代码</strong>跑 VM：首次/二次/三次升级、超限不动、未指派不催、已回执不催、失败不计次</td></tr>
     <tr><td>扫描真实投递</td><td><span class="pill p-ok">收到 + 计数 0→1</span></td><td>测试角色挂本地 sink，验证完整投递链</td></tr>
+    <tr><td>平台自检</td><td><span class="pill p-ok">47 项 · 0 失败</span></td><td>修 key 前 8 项失败；修好后仅剩 2 项 warn（SearXNG 引擎、刚刚跑过自检）</td></tr>
   </table>
 
-  <h2>四、顺带挖出的两个「部署静默失败」根因</h2>
+  <h2>四、修复的第三件事：嵌入模型额度耗尽 → 全平台静默降级</h2>
+  <div class="card">
+    <ul>
+      <li>根因：<code>qwen3.7-text-embedding</code> 免费额度用尽，DashScope 返 <code>403 AllocationQuota.FreeTierOnly</code> → 记忆、知识库<strong>全部不可用</strong>，但报错看起来像别的问题。</li>
+      <li>已切换到 <code>qwen3.7-text-embedding-flash</code>（5 处：侧车默认值、4 个工作流、<code>EMBEDDING_PROVIDER</code>），并保持 1024 维不变。</li>
+      <li><strong>同维度 ≠ 同向量空间</strong>：不重算已存向量的话，检索会<strong>静默返回空</strong>，比报错更糟。已用 <code>n8n/scripts/reembed-flash.mjs</code> 重算 <code>kb_chunks</code> / <code>agent_memories</code> / <code>user_memories</code> 三份向量。</li>
+      <li>知识库内容也刷新了：旧 README 快照还在写<strong>非 flash</strong> 的模型名，重新摄取 109 段并<strong>下架旧快照</strong>，现在检索返回的是 <code>qwen3.7-text-embedding-flash</code>。</li>
+    </ul>
+  </div>
+  <table>
+    <tr><th>迁移项</th><th style="width:170px">结果</th><th>说明</th></tr>
+    <tr><td>向量重算</td><td><span class="pill p-ok">200 段 · 48140 tokens</span></td><td>3 个库逐个事务包裹，每批 20 段，逐条校验 1024 维有限值</td></tr>
+    <tr><td>KB 内容刷新</td><td><span class="pill p-ok">109 段 · 24303 tokens</span></td><td>旧快照 <code>kb-5060c449809875e0</code> 已退役，新快照 <code>kb-50afbb8f26c4289e</code></td></tr>
+    <tr><td>检索实测</td><td><span class="pill p-ok">命中 flash 模型名</span></td><td>问「embedding 用什么模型」→ Top 命中即 <code>qwen3.7-text-embedding-flash</code>（1024 维）</td></tr>
+  </table>
+
+  <h2>五、顺带挖出的两个「部署静默失败」根因</h2>
 
   <h3>① n8n 公共 API key 已过期 —— 平台静默降级 12 天</h3>
   <div class="card">
@@ -129,18 +148,18 @@
     </ul>
   </div>
 
-  <h2>五、遗留（需要你决定）</h2>
+  <h2>六、遗留（需要你决定）</h2>
   <table>
     <tr><th style="width:210px">问题</th><th style="width:120px">影响</th><th>说明</th></tr>
     <tr>
-      <td>DashScope 嵌入额度用尽</td>
-      <td><span class="pill p-bad">记忆 / 知识库不可用</span></td>
-      <td>模型 <code>qwen3.7-text-embedding</code> 返回 403 <code>AllocationQuota.FreeTierOnly</code>。需充值或关闭「仅免费额度」。这是 <code>memory api</code> 自检失败的真正原因。</td>
+      <td><s>DashScope 嵌入额度用尽</s></td>
+      <td><span class="pill p-ok">已修复</span></td>
+      <td>已切 <code>qwen3.7-text-embedding-flash</code> 并重算全部存量向量，见第四节。当前累计 107,508 tokens / 100 万，<code>kb_usage</code> 到 80% 会告警。</td>
     </tr>
     <tr>
       <td>定时自检 / 备份心跳陈旧</td>
-      <td><span class="pill p-warn">2 项自检失败</span></td>
-      <td>最后一次<strong>定时</strong>自检 2026-10-02、最后备份心跳 2026-10-03 —— 桌面机长时间关机所致，属老坑，非本次改动。</td>
+      <td><span class="pill p-warn">根因未除</span></td>
+      <td>本次已把心跳证据补回，<strong>手动</strong>自检 47 项 0 失败。但<strong>定时</strong>触发仍依赖宿主机常开机（桌面机半夜关机 → 自检 85.8h 没跑、备份静默 65h）。已改成多时间点 + 每周期一次守卫，本机环境改不了 Windows 计划任务，<strong>根治要靠常开机宿主</strong>。</td>
     </tr>
     <tr>
       <td>SearXNG 引擎</td>
@@ -151,7 +170,8 @@
 
   <div class="meta">
     测试数据：<code>people</code> 保留假角色「测试员-不推送」（无有效推送通道，不会打扰任何人）；测试产生的 5 条待办已删净。<br>
-    过程日志：<code>.workbuddy-ai/memory/2026-10-15.md</code> · 铁律索引：<code>.workbuddy-ai/memory/MEMORY.md</code> · 交接文档已更新（第十七批）。
+    提交：<code>cb9944b</code>（会议行动项）→ <code>2b2bc9b</code>（嵌入切换 + 向量迁移）→ 文档与 KB 内容刷新。<br>
+    过程日志：<code>.workbuddy-ai/memory/2026-10-15.md</code> · 铁律索引：<code>.workbuddy-ai/memory/MEMORY.md</code> · 交接文档已更新（第十七 / 第十八批）。
   </div>
 
 </div>

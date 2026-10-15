@@ -696,9 +696,9 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 
 记忆系统已开启：LobeHub + Telegram 双入口，跨话题记住稳定偏好与身份事实。
 
-- 原理：LobeHub 自动提取（偏好 / 身份 / 经历 / 活动）→ 经 `stream-bridge` 转发嵌入（DashScope `text-embedding-v4`，OpenAI 风格模型名自动映射）→ 存本机 lobechat 库（pgvector）；回答时自动检索相关记忆注入上下文。
+- 原理：LobeHub 自动提取（偏好 / 身份 / 经历 / 活动）→ 经 `stream-bridge` 转发嵌入（DashScope `qwen3.7-text-embedding-flash`，OpenAI 风格模型名如 `text-embedding-3-small` 一律映射到该模型）→ 存本机 lobechat 库（pgvector）；回答时自动检索相关记忆注入上下文。
 - 覆盖范围：LobeHub 全端（自动提取，DashScope 嵌入）。
-- Telegram 侧：桥接回复前调 `POST /webhook/internal/memory {action: 'retrieve'}` 注入上下文（并一并参考 LobeHub 记忆），回复后 `{action: 'extract'}` 保守提取入库（`agent_memories`，pgvector + qwen3.7 嵌入）。
+- Telegram 侧：桥接回复前调 `POST /webhook/internal/memory {action: 'retrieve'}` 注入上下文（并一并参考 LobeHub 记忆），回复后 `{action: 'extract'}` 保守提取入库（`agent_memories`，pgvector + `qwen3.7-text-embedding-flash` 嵌入）。
 - 双库说明：TG 可读 LobeHub 记忆，LobeHub 暂不读本机库（单向互通，v2 计划同步）；控制台「记忆」卡可查看两边记忆（只读）。
 ### 语音（Telegram 双向语音，2026-09-16）
 
