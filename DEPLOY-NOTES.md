@@ -221,19 +221,23 @@ String(s.data.url).replace(/^https?:\/\/[^/]+/, 'http://host.docker.internal:300
 **注入不持久**：`up -d` 重建容器会清掉注入，必须重做（步骤见 §7.3）。
 `docker restart` 不会清掉，但重建会。一键启动脚本的 `[6]` 步已自动补刷。
 
-`custom-theme/` 现存文件与引用情况（2026-10-09 盘点）：
+`custom-theme/` 文件与引用情况（**2026-10-27 重新盘点，已收敛为单一活版**）：
 
 | 文件 | 用途 | 被谁引用 |
 |---|---|---|
-| `pivot-theme-v2.css` / `pivot-theme-v2.js` | **当前在用**的主题（v2） | `pivot-apply.js`、`apply-theme-v2.ps1`、一键启动脚本 |
-| `pivot-apply.js` | 容器内注入器 | §7.3 / 一键启动脚本 |
+| `pivot-theme-v2.css` / `pivot-theme-v2.js` | **唯一在用的主题**（v2，绿 `#16a34a` + 黑底 + 人脸 + 星空） | `pivot-apply.js`、`apply-theme-v2.ps1`、一键启动脚本 |
+| `pivot-apply.js` | 容器内注入器；写入 `PIVOTAI-THEME-V2:VER=<sha256(css)[0:16]>` 版本指纹 | `apply-theme-v2.ps1` |
 | `pivot-face.jpg` | 品牌人脸图（7680×4056） | 由 `pivot-theme-v2.js` 引用 |
-| `apply-theme-v2.ps1` | 宿主侧包装（带 `-Check` / `-Restart`） | 一键启动脚本 `[6]` |
-| `pivot-theme.css` / `pivot-theme.js` | **v1 旧版** | 仅 `apply-theme.ps1` / `inject-pivot.js` |
-| `inject-pivot.js` / `theme-keeper.cmd` | **无人引用** | — |
+| `apply-theme-v2.ps1` | 宿主侧包装（`-Check` / `-Restart` / `-Remove`；内置 `Resolve-Docker`） | 一键启动脚本 `[6]`、`theme-keeper.ps1` |
+| `theme-keeper.ps1` / `.cmd` | 看门狗：**版本指纹不一致**或块被抹就重装 | Windows 计划任务 |
+| `legacy/` | **已废弃**：v1 主题、根目录旧 apply 脚本、`inject-pivot.js` | 无人引用，见 `legacy/README.md` |
 
-> ⚠️ **本仓库不是 git 仓库**（`git status` → `fatal: not a git repository`），
-> 所以删文件**不可恢复**。上面标注的 v1 残留与无人引用文件是否清理，需单独确认后再动。
+> 2026-10-27 之前这里同时存在 **三份** apply 脚本（md5 全不同）和两代主题文件，跑错哪份都不报错、
+> 只会静默得到旧主题 —— 实测容器停在 10-09 之前的蓝色版上 **18 天**，而看门狗的探针一直报"已就位"
+> （它只验块存在、不验版本）。现已全部归档到 `legacy/`，探针改为比对版本指纹。
+>
+> ⚠️ 旧版本此处写着「本仓库不是 git 仓库」——**已过时**：现在是 git 仓库（`origin` = GitHub `myname173/agent-platform`），
+> 但 `.env` 与 `backend/` `lobechat/` 不进 git，删本地文件仍不可从远端恢复。
 
 #### 1.6.1 配色：2026-10-09 从「电光蓝 + 赛博青」改成「鲜艳清新的浅绿」
 

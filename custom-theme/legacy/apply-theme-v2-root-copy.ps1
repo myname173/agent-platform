@@ -1,5 +1,12 @@
 # =============================================================================
-# apply-theme-v2.ps1 — PivotAI Theme for LobeHub 2.x
+# [LEGACY - DO NOT USE] apply-theme-v2.ps1, earlier root-level draft
+#
+# Archived on 2026-10-27. Superseded by ../apply-theme-v2.ps1, which adds the
+# AI face mat shipping, -Check (probe), -Restart (static file list refresh) and
+# the version fingerprint the watchdog needs.
+#
+# The live applier is ../apply-theme-v2.ps1. Kept only for history.
+# =============================================================================
 # Injects custom-theme/pivot-theme-v2.css/.js into the running LobeHub container
 # (all SPA stylesheets + shared vendor runtime modules), idempotently.
 #
@@ -13,10 +20,10 @@
 param([switch]$Remove)
 
 $ErrorActionPreference = 'Stop'
-$repoDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$css = Join-Path $repoDir 'custom-theme\pivot-theme-v2.css'
-$js = Join-Path $repoDir 'custom-theme\pivot-theme-v2.js'
-$applier = Join-Path $repoDir 'custom-theme\pivot-apply.js'
+$themeRoot = Split-Path -Parent $PSScriptRoot
+$css = Join-Path $themeRoot 'pivot-theme-v2.css'
+$js = Join-Path $themeRoot 'pivot-theme-v2.js'
+$applier = Join-Path $themeRoot 'pivot-apply.js'
 
 if (-not $Remove) {
   foreach ($f in @($css, $js, $applier)) {

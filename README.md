@@ -860,12 +860,17 @@ Canvas 星尘粒子（景深/闪烁/星座连线/流星/鼠标互动）+ 品牌�
 ```bash
 # 在 custom-theme/ 目录下执行
 powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Restart   # 应用/更新（容器重建后必须带 -Restart）
-powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Check     # 探针：主题在不在（exit 0/1）
+powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Check     # 探针：0=最新 1=缺失或陈旧 2=探不了
 powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Remove    # 卸载（去除注入块，保留原文件）
 ```
 
+每次应用会把 `sha256(pivot-theme-v2.css)[0:16]` 写成托管块里的 `PIVOTAI-THEME-V2:VER=<hash>`，
+`-Check` 与看门狗都拿仓库文件现算的哈希去比对 —— **只验"主题在不在"是不够的**，
+2026-10-27 就发现容器停在 10-09 之前的蓝色旧版上 18 天，而探针一直报 OK。
+`docker` CLI 不在 PATH 时脚本会自动找常见安装路径，也可用环境变量 `PIVOT_DOCKER` 指定。
+
 改文案/颜色：编辑仓库 `custom-theme/pivot-theme-v2.*`（颜色集中在 :root 的 --pivot-* 变量）→ 重跑脚本 → 浏览器强刷（Ctrl+Shift+R）。
-注意：① 容器重建/升级会重置文件系统，需重跑脚本恢复；② 静态文件列表在容器启动时拍快照，新文件（人脸图）必须重启容器后才可被服务，故推荐直接 `-Restart`；③ 已部署 Windows 计划任务「PivotAI Theme Keeper」每 5 分钟自动巡检，主题被抹掉时自动"重注入+重启"修复（日志 `custom-theme/theme-keeper.log`）；④ 注入器自动为每个文件保留 `.pivot-backup` 原始备份。
+注意：① 容器重建/升级会重置文件系统，需重跑脚本恢复；② 静态文件列表在容器启动时拍快照，新文件（人脸图）必须重启容器后才可被服务，故推荐直接 `-Restart`；③ 已部署 Windows 计划任务「PivotAI Theme Keeper」每 5 分钟自动巡检，主题被抹掉**或版本落后**时自动"重注入+重启"修复（日志 `custom-theme/theme-keeper.log`）；④ 注入器自动为每个文件保留 `.pivot-backup` 原始备份；⑤ 注入只覆盖 `_spa/**`，不覆盖 `_spa-auth/**`，所以登录页只拿得到 CSS、拿不到 JS（浅色底是预期行为）。
 - 市场（模板/发现 Agent）需要 LobeHub 云端账号授权（market.lobehub.com 全端点要求登录）；不影响核心对话，注册 lobehub.com 账号后可在应用内连接
 
 ### 嵌入额度计量（1M tokens/模型）
@@ -1050,10 +1055,13 @@ docker compose down -v
 agent-platform/
 ├── docker-compose.yml        # 统一服务编排
 ├── README.md                 # 本文档
-├── apply-theme.ps1           # PivotAI 视觉主题一键注入脚本
-├── custom-theme/             # PivotAI 定制主题源文件
-│   ├── pivot-theme.css       #   玻璃拟态与赛博光晕样式表
-│   └── pivot-theme.js        #   60fps 星宇宙粒子与品牌动态引擎
+├── custom-theme/             # PivotAI 定制主题源文件（唯一活版）
+│   ├── pivot-theme-v2.css    #   黑底 + 绿色主色的主题样式表
+│   ├── pivot-theme-v2.js     #   星宇宙粒子 / 品牌动态 / 人脸垫层引擎
+│   ├── pivot-apply.js        #   容器内注入器（带版本指纹）
+│   ├── apply-theme-v2.ps1    #   宿主侧一键应用（-Check / -Restart / -Remove）
+│   ├── theme-keeper.ps1      #   看门狗（版本不一致自动重装）
+│   └── legacy/               #   已废弃的 v1 与旧脚本，勿用（见其 README）
 ├── n8n/
 │   ├── workflows/            #   workflow 源码（deploy.mjs 部署）
 │   └── scripts/              #   deploy / keys / smoke-test / validate / backup 运维脚本

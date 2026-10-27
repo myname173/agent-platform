@@ -4,6 +4,12 @@
  *   default  : inject/update the managed theme block into all SPA bundles
  *   --remove : strip the managed blocks (restore original state)
  * Idempotent: re-running updates the managed block in place.
+ *
+ * PIVOT_VERSION (env, optional): short fingerprint of the CSS source. When set,
+ * it is written as a VER= line inside the managed block so the host-side
+ * watchdog can tell "theme present" from "theme present but stale" — the old
+ * presence-only probe could never detect a version drift (2026-10-27: the
+ * container sat on a pre-10-09 blue build for 18 days).
  */
 const fs = require('fs');
 const path = require('path');
@@ -16,6 +22,8 @@ const CSS_START = '/* == PIVOTAI-THEME-V2:START (managed - do not edit in contai
 const CSS_END = '/* == PIVOTAI-THEME-V2:END == */';
 const JS_START = '// == PIVOTAI-ENGINE-V2:START (managed - do not edit in container) ==';
 const JS_END = '// == PIVOTAI-ENGINE-V2:END ==';
+
+const VERSION = (process.env.PIVOT_VERSION || '').trim();
 
 const PUBLIC = '/app/public';
 
@@ -61,11 +69,21 @@ function applyBlock(file, start, end, payload) {
   return 'injected';
 }
 
-const cssPayload = fs.existsSync(CSS_SRC) ? fs.readFileSync(CSS_SRC, 'utf8') : '';
-const jsPayload = fs.existsSync(JS_SRC) ? fs.readFileSync(JS_SRC, 'utf8') : '';
+const cssRaw = fs.existsSync(CSS_SRC) ? fs.readFileSync(CSS_SRC, 'utf8') : '';
+const jsRaw = fs.existsSync(JS_SRC) ? fs.readFileSync(JS_SRC, 'utf8') : '';
+
+// The VER line is what the host-side watchdog greps for. Keep the exact shape:
+//   /* == PIVOTAI-THEME-V2:VER=<16 hex> == */
+const verLine = VERSION ? `/* == PIVOTAI-THEME-V2:VER=${VERSION} == */\n` : '';
+const cssPayload = cssRaw ? verLine + cssRaw : '';
+const jsPayload = jsRaw;
+
 if (!REMOVE && (!cssPayload || !jsPayload)) {
   console.error('theme sources missing in /tmp — copy pivot-theme-v2.css/.js first');
   process.exit(1);
+}
+if (!REMOVE && !VERSION) {
+  console.warn('WARN: PIVOT_VERSION not set — the block will carry no version, and the watchdog cannot detect drift');
 }
 
 let stats = { css: {}, js: {} };
@@ -80,4 +98,4 @@ for (const f of jsFiles) {
 console.log('CSS files:', JSON.stringify(stats.css), '| targets:', cssFiles.length);
 console.log('JS files:', JSON.stringify(stats.js), '| targets:', jsFiles.length);
 if (REMOVE) console.log('managed blocks removed');
-else console.log('PivotAI theme v2 applied');
+else console.log(`PivotAI theme v2 applied | version: ${VERSION || '(none)'}`);

@@ -47,6 +47,10 @@ REQUIRED = [
     "searxng/settings.yml", "stream-bridge/server.js",
     "custom-theme/apply-theme-v2.ps1", "custom-theme/pivot-apply.js",
     "custom-theme/pivot-theme-v2.css", "custom-theme/pivot-theme-v2.js",
+    # The face mat is required: apply-theme-v2.ps1 refuses to run without it.
+    "custom-theme/pivot-face.jpg",
+    # Ship the watchdog so the new machine can install it as a scheduled task.
+    "custom-theme/theme-keeper.ps1", "custom-theme/theme-keeper.cmd",
     "migration/restore.ps1", "migration/restore.sh",
     "migration/verify.ps1", "migration/verify.sh",
     "migration/preflight.ps1", "migration/preflight.sh",
@@ -602,8 +606,9 @@ n8n API 工作流数。
       ```powershell
       cd C:\\agent-platform\\custom-theme
       powershell -ExecutionPolicy Bypass -File .\\apply-theme-v2.ps1 -Restart
-      powershell -ExecutionPolicy Bypass -File .\\apply-theme-v2.ps1 -Check   # exit 0 = applied
+      powershell -ExecutionPolicy Bypass -File .\\apply-theme-v2.ps1 -Check   # 0=最新 1=缺失/陈旧 2=探不了
       ```
+      如果 `-Check` 返回 2，说明这台机器找不到 docker CLI：设 `PIVOT_DOCKER` 指向 docker.exe 后重试。
 
       容器**每次被重建**（compose down/up、镜像更新）都会丢掉注入，
       所以 `-Restart` 不能省——lobechat 的静态文件列表是容器启动时快照的，

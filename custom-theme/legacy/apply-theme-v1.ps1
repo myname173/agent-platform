@@ -1,8 +1,18 @@
-# Apply PivotAI Theme to LobeChat Docker Container
-Write-Host "Applying PivotAI Cyber Theme to LobeChat container..." -ForegroundColor Cyan
+# =============================================================================
+# [LEGACY - DO NOT USE] PivotAI theme v1 applier for LobeChat 1.x
+#
+# Archived on 2026-10-27. This script CANNOT work on the current LobeHub 2.x
+# container: it writes into hardcoded LobeChat 1.x build artifacts
+# (/app/.next/static/css/967104e9fd9cfb93.css and main-app-*.js), which do not
+# exist in the 2.x image (2.x serves /app/public/_spa/**).
+#
+# The live applier is ../apply-theme-v2.ps1. Kept only for history.
+# =============================================================================
+Write-Host "[LEGACY] PivotAI theme v1 (LobeChat 1.x only) - will not work on LobeHub 2.x" -ForegroundColor Yellow
 
-docker cp custom-theme/pivot-theme.css lobechat:/app/pivot-theme.css
-docker cp custom-theme/pivot-theme.js lobechat:/app/pivot-theme.js
+$v1Dir = $PSScriptRoot
+docker cp "$v1Dir/pivot-theme.css" lobechat:/app/pivot-theme.css
+docker cp "$v1Dir/pivot-theme.js" lobechat:/app/pivot-theme.js
 
 docker exec lobechat node -e "
 const fs = require('fs');

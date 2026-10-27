@@ -35,3 +35,10 @@ backups/
 # theme watchdog state
 .theme-keeper-misses
 deliverables/_verify/
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 一次性核查产物（报告 / 截图 / 注入模拟），不进版本库
+output/

@@ -165,7 +165,7 @@ cat <<EOF
       2. accept:  $TARGET/migration/verify.sh
       3. inject the theme (otherwise LobeHub stays light-themed):
                   cd $TARGET/custom-theme && pwsh -ExecutionPolicy Bypass -File ./apply-theme-v2.ps1 -Restart
-                  pwsh -ExecutionPolicy Bypass -File ./apply-theme-v2.ps1 -Check   # exit 0 = applied
+                  pwsh -ExecutionPolicy Bypass -File ./apply-theme-v2.ps1 -Check   # 0=up to date 1=stale/missing 2=cannot probe
       4. use the LAN IP from the certificate, not 127.0.0.1 — Caddy routes by
          Host header, so an IP-literal request gets an empty 200.
 EOF
