@@ -42,3 +42,6 @@ __pycache__/
 
 # 一次性核查产物（报告 / 截图 / 注入模拟），不进版本库
 output/
+
+# _scratch 里的调试截图只留本地（被文档点名的 8 张仍跟踪，见该目录 README）
+interview-demo/_scratch/*.png

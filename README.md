@@ -292,6 +292,26 @@ ALERT_COST_CRITICAL_USD=5   # 翻倍到这里升级为 critical
 
 阈值通过 `/admin/settings` 的 `cost` 字段下发到控制台，卡片显示的是**实际生效的配置**，不是前端猜的数。
 
+## 协作与提交身份
+
+这个仓库有两个提交者：**人**和**代理**。2026-10-27 之前两者共用一个占位身份
+（`agent-platform <dev@agent-platform.local>`，181 个提交），出了问题无法回溯是谁改的。
+
+**仓库本地身份是人**（`.git/config`，`--local` 作用域）：
+
+```bash
+git config --local user.name  "yixiao"
+git config --local user.email "yixiaoq783@gmail.com"
+```
+
+**代理提交必须显式覆盖**，不要改本地配置：
+
+```bash
+git -c user.name="agent-platform" -c user.email="dev@agent-platform.local" commit -m "..."
+```
+
+核对某个提交是谁做的：`git log -5 --pretty='%h %an <%ae> | %s'`。
+
 ## 运维
 
 ### 密钥与配置（.env）

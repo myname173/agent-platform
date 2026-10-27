@@ -33,6 +33,22 @@
    （**只传 token 不签名会被当成匿名，`get-session` 返回 `null`**）。
    **仅认证这一步是绕的；上传走的是产品自己的界面和接口。**
 
+## 截图：只留 8 张「被文档点名的」，其余不入库
+
+`_scratch/` 里的 25 张 PNG 有 23.85 MB，其中 17 张是调试过程中的中间截图
+（`face-light-zoom` / `keep-blue-light` / `before-after` 这类同场景反复调参的版本），
+**2026-10-27 起不再跟踪，只留在本地**（`.gitignore`：`interview-demo/_scratch/*.png`）。
+
+仍跟踪的 8 张是 `DEPLOY-NOTES.md` / `interview-demo/README.md` 直接引用作证据的：
+`dark-auth-1` · `face-dark-auth` · `face-light-noreload` · `face-dark-reload` ·
+`chat-dark-2` · `face-both-sbs` · `green-both-sbs` · `live`。
+
+移出的 17 张在 git 历史里仍可完整取回（提交 `a7a5ae7` 引入、`ca636c0` 之后移出）：
+
+```bash
+git show a7a5ae7:interview-demo/_scratch/keep-green-v1.png > /tmp/keep-green-v1.png
+```
+
 ## 运行顺序
 
 ```bash
@@ -40,8 +56,7 @@
 bash interview-demo/_scratch/dexec.sh postgres psql -U n8n -d lobechat -c "select count(*) from files;"
 
 # 2. 需要的话配 CORS（幂等）
-C:/Users/13682/.workbuddy-ai/binaries/python/versions/3.13.12/python.exe \
-  interview-demo/_scratch/set_bucket_cors.py
+python interview-demo/_scratch/set_bucket_cors.py
 
 # 3. 走真实 UI 上传（后台跑，约 4 分钟）
 bash interview-demo/_scratch/upload_via_ui.sh > /tmp/up.log 2>&1 &
@@ -51,8 +66,7 @@ ROW=$(bash interview-demo/_scratch/dexec.sh postgres psql -U n8n -d lobechat -t 
       -c "select id,name,size,url from files order by created_at desc limit 1;" | tr -d '\r')
 export FILE_ID=$(echo "$ROW" | cut -d'|' -f1)   FILE_NAME=$(echo "$ROW" | cut -d'|' -f2)
 export FILE_SIZE=$(echo "$ROW" | cut -d'|' -f3) FILE_KEY=$(echo "$ROW" | cut -d'|' -f4)
-C:/Users/13682/.workbuddy-ai/binaries/python/versions/3.13.12/python.exe \
-  interview-demo/_scratch/verify_upload.py
+python interview-demo/_scratch/verify_upload.py
 ```
 
 预期末行：`RESULT: PASS`。
