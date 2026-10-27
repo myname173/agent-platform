@@ -312,6 +312,16 @@ git -c user.name="agent-platform" -c user.email="dev@agent-platform.local" commi
 
 核对某个提交是谁做的：`git log -5 --pretty='%h %an <%ae> | %s'`。
 
+**推送前检查（每台机器装一次）**：`sh scripts/install-git-hooks.sh`
+
+装上一个 `pre-push` 钩子：当这次推送里出现**大额删除**（删掉 ≥5 个跟踪文件，或删行 >200 且是增行的 5 倍以上）
+就打印警告并列出被删文件。默认只警告不阻断；要强制拦截用 `PIVOT_STRICT_PUSH=1 git push`，
+临时绕过用 `git push --no-verify`。
+
+> 加它的原因：2026-10-27 发现工作区里三个已跟踪文件被**更旧的副本**覆盖
+> （`interview-demo/README.md` 793 B vs 44,852 B、演示台 4.4 MB vs 5.3 MB），
+> 只差一次 `git add -A && git push` 就会把 GitHub 上的完整版打成旧版 —— 而且因为体积变小，review 时看不出来。
+
 ## 运维
 
 ### 密钥与配置（.env）
