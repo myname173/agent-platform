@@ -27,5 +27,10 @@ curl -s -o /dev/null -w '%{http_code} %{size_download}\n' http://127.0.0.1:3210/
 powershell -File custom-theme/apply-theme-v2.ps1 -Check
 ```
 
-注意：`pivot-apply.js` 只注入 `_spa/**` 下的 `vendor-ui-runtime-*.js`，**不覆盖 `_spa-auth/**`**，
-所以登录页只会拿到主题的 CSS，拿不到 JS（黑底、星空、人脸都靠 JS）。这是设计现状，不是 bug。
+注意：`pivot-apply.js` 的筛选条件是「路径含 `_spa`」，所以**四个变体全覆盖** ——
+`_spa`（主应用）、`_spa-auth`（登录）、`_spa-share`（分享）、`_spa-workbench`。
+CSS 与 JS 都注入，登录页同样是黑底。
+
+⚠️ 校验注入时**别把 CSS 的标记套到 JS 上**：CSS 用 `PIVOTAI-THEME-V2:START`，
+JS 用 `PIVOTAI-ENGINE-V2:START`。2026-10-27 就因为这个用错标记，误判成「登录页没有主题 JS」，
+实际一直都在 —— 登录页当时是浅色，是因为容器里那份 JS 是 10-09 之前的旧版，**不是**因为没注入。

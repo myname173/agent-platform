@@ -17,14 +17,18 @@
 # OK. The probe now compares the block's VER= stamp against the sha256 of the
 # repo CSS, so a version drift triggers a re-apply. See custom-theme/legacy/.
 #
-# Docker CLI is not on PATH on this host; PIVOT_DOCKER overrides the lookup.
+# Single source of truth: this script owns NO probe logic. It shells out to
+# `apply-theme-v2.ps1 -Check` and reads the exit code
+#   0 = up to date | 1 = missing or stale | 2 = cannot probe
+# so the two can never drift apart (they did: the keeper once had its own
+# presence-only grep while -Check had a stricter one).
 # =============================================================================
 $ErrorActionPreference = 'Continue'
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $log = Join-Path $dir 'theme-keeper.log'
 $stateFile = Join-Path $dir '.theme-keeper-misses'
 $css = Join-Path $dir 'pivot-theme-v2.css'
-$FACE_DEST = '/app/public/_spa/pivot-face.jpg'
+$apply = Join-Path $dir 'apply-theme-v2.ps1'
 
 function Write-KeeperLog([string]$line) {
   Add-Content -Path $log -Encoding UTF8 -Value $line
@@ -35,23 +39,7 @@ function Write-KeeperLog([string]$line) {
   }
 }
 
-function Resolve-Docker {
-  if ($env:PIVOT_DOCKER -and (Test-Path $env:PIVOT_DOCKER)) { return $env:PIVOT_DOCKER }
-  $cmd = Get-Command docker -ErrorAction SilentlyContinue
-  if ($cmd) { return $cmd.Source }
-  $cands = @(
-    (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin\docker.exe'),
-    (Join-Path ${env:ProgramFiles(x86)} 'Docker\Docker\resources\bin\docker.exe'),
-    (Join-Path $env:LOCALAPPDATA 'Docker\bin\docker.exe'),
-    'D:\Docker\Docker\resources\bin\docker.exe',
-    'D:\Program Files\Docker\Docker\resources\bin\docker.exe',
-    'D:\DockerDesktop\resources\bin\docker.exe'
-  )
-  foreach ($c in $cands) { if ($c -and (Test-Path $c)) { return $c } }
-  return $null
-}
-
-function Note-Unreachable([string]$reason) {
+function Note-Skip([string]$reason) {
   $misses = 0
   if (Test-Path $stateFile) {
     $raw = Get-Content $stateFile -Raw
@@ -67,38 +55,28 @@ function Note-Unreachable([string]$reason) {
 }
 
 try {
-  if (-not (Test-Path $css)) { Note-Unreachable "theme source missing: $css" }
+  if (-not (Test-Path $css)) { Note-Skip "theme source missing: $css" }
+  if (-not (Test-Path $apply)) { Note-Skip "applier missing: $apply" }
 
-  $Docker = Resolve-Docker
-  if (-not $Docker) { Note-Unreachable 'docker CLI not found (set PIVOT_DOCKER)' }
+  # 1) Ask the applier - it owns the probe (and the docker lookup).
+  $checkOut = (& powershell -NoProfile -ExecutionPolicy Bypass -File $apply -Check 2>&1 | Out-String)
+  $checkCode = $LASTEXITCODE
+  $checkFlat = ($checkOut -replace '\s+', ' ').Trim()
 
-  # 1) Daemon unreachable -> nothing can be healed.
-  & $Docker info 2>&1 | Out-Null
-  if ($LASTEXITCODE -ne 0) { Note-Unreachable 'docker daemon unreachable' }
+  if ($checkCode -eq 0) { exit 0 }                       # healthy, nothing to do
+  if ($checkCode -eq 2) { Note-Skip "cannot probe: $checkFlat" }
+
   if (Test-Path $stateFile) { Remove-Item $stateFile -Force }
 
-  # 2) Fast path: the exact version of the repo CSS is already in the container.
-  $ver = (Get-FileHash -Path $css -Algorithm SHA256).Hash.Substring(0, 16).ToLower()
-  $probe = & $Docker exec lobechat sh -c "grep -q 'PIVOTAI-THEME-V2:VER=$ver' /app/public/_spa/assets/*.css && test -f $FACE_DEST && echo KEEPER-OK" 2>$null
-  if (($probe | Out-String) -match 'KEEPER-OK') { exit 0 }
-
-  # Diagnose before healing: missing block vs stale version.
-  $found = (& $Docker exec lobechat sh -c "grep -oh 'PIVOTAI-THEME-V2:VER=[0-9a-f]*' /app/public/_spa/assets/*.css | head -1" 2>$null | Out-String).Trim()
-  if ($found) {
-    $reason = "stale theme: container has $found, repo wants VER=$ver"
-  } else {
-    $reason = "theme missing in container (expected VER=$ver)"
-  }
-
-  # 3) Re-apply. Label honestly: a failed apply must not be recorded as healed.
-  $out = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir 'apply-theme-v2.ps1') -Restart 2>&1 | Out-String
-  $flat = ($out -replace "\s+", ' ').Trim()
+  # 2) Re-apply. Label honestly: a failed apply must not be recorded as healed.
+  $out = (& powershell -NoProfile -ExecutionPolicy Bypass -File $apply -Restart 2>&1 | Out-String)
+  $flat = ($out -replace '\s+', ' ').Trim()
   if ($flat -match 'did not come back|failed to connect|error|ERROR') {
     $label = 'FAILED'
   } else {
     $label = 'healed'
   }
-  Write-KeeperLog ("[{0}] {1} - {2} :: {3}" -f (Get-Date -Format s), $label, $reason, $flat)
+  Write-KeeperLog ("[{0}] {1} - {2} :: {3}" -f (Get-Date -Format s), $label, $checkFlat, $flat)
 } catch {
   Write-KeeperLog ("[{0}] error: {1}" -f (Get-Date -Format s), $_.Exception.Message)
 }

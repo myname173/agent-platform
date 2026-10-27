@@ -890,7 +890,7 @@ powershell -ExecutionPolicy Bypass -File apply-theme-v2.ps1 -Remove    # 卸载�
 `docker` CLI 不在 PATH 时脚本会自动找常见安装路径，也可用环境变量 `PIVOT_DOCKER` 指定。
 
 改文案/颜色：编辑仓库 `custom-theme/pivot-theme-v2.*`（颜色集中在 :root 的 --pivot-* 变量）→ 重跑脚本 → 浏览器强刷（Ctrl+Shift+R）。
-注意：① 容器重建/升级会重置文件系统，需重跑脚本恢复；② 静态文件列表在容器启动时拍快照，新文件（人脸图）必须重启容器后才可被服务，故推荐直接 `-Restart`；③ 已部署 Windows 计划任务「PivotAI Theme Keeper」每 5 分钟自动巡检，主题被抹掉**或版本落后**时自动"重注入+重启"修复（日志 `custom-theme/theme-keeper.log`）；④ 注入器自动为每个文件保留 `.pivot-backup` 原始备份；⑤ 注入只覆盖 `_spa/**`，不覆盖 `_spa-auth/**`，所以登录页只拿得到 CSS、拿不到 JS（浅色底是预期行为）。
+注意：① 容器重建/升级会重置文件系统，需重跑脚本恢复；② 静态文件列表在容器启动时拍快照，新文件（人脸图）必须重启容器后才可被服务，故推荐直接 `-Restart`；③ 已部署 Windows 计划任务「PivotAI Theme Keeper」每 5 分钟自动巡检，主题被抹掉**或版本落后**时自动"重注入+重启"修复（日志 `custom-theme/theme-keeper.log`）；④ 注入器自动为每个文件保留 `.pivot-backup` 原始备份；⑤ 注入覆盖全部 4 个 SPA 变体（`_spa` / `_spa-auth` / `_spa-share` / `_spa-workbench`），CSS 与 JS 都注入 —— **登录页同样会变黑底**（2026-10-27 实测：全新会话 `data-theme=dark`、人脸与星场都在）。
 - 市场（模板/发现 Agent）需要 LobeHub 云端账号授权（market.lobehub.com 全端点要求登录）；不影响核心对话，注册 lobehub.com 账号后可在应用内连接
 
 ### 嵌入额度计量（1M tokens/模型）

@@ -8,12 +8,16 @@
 # files (like the face mat) only start serving after a container restart, so
 # after a container RECREATION always run:  apply-theme-v2.ps1 -Restart
 #
-# Version fingerprint (added 2026-10-27): every apply stamps
+# Version fingerprint (2026-10-27): every apply stamps
 #   /* == PIVOTAI-THEME-V2:VER=<sha256(css)[0:16]> == */
 # into the managed block. -Check compares that stamp against the repo file, so
 # it detects "stale theme" and not merely "theme missing". Before this, the
 # container could sit on an old build indefinitely and every probe still said OK
 # (the 2026-10-09 blue build survived 18 days).
+#
+# -Check also counts: every stylesheet that carries a managed block must carry
+# the current VER. "Any file matches" would call a partial drift healthy - which
+# it did, once, when one of five bundles was edited by hand.
 #
 # Exit codes for -Check:  0 = up to date | 1 = missing or stale | 2 = cannot probe
 #
@@ -26,6 +30,7 @@
 param([switch]$Remove, [switch]$Check, [switch]$Restart)
 
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest progress bars pollute scheduled-task logs
 $themeDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $css      = Join-Path $themeDir 'pivot-theme-v2.css'
 $js       = Join-Path $themeDir 'pivot-theme-v2.js'
@@ -33,22 +38,49 @@ $applier  = Join-Path $themeDir 'pivot-apply.js'
 $face     = Join-Path $themeDir 'pivot-face.jpg'
 $FACE_DEST = '/app/public/_spa/pivot-face.jpg'
 
-# docker CLI is not on PATH on this host (Docker Desktop moved / wsl.exe is
-# blacklisted), so resolve it explicitly instead of assuming `docker` works.
+# docker CLI is not on PATH on this host (Docker Desktop installs per-user), so
+# resolve it explicitly instead of assuming `docker` works.
 function Resolve-Docker {
   if ($env:PIVOT_DOCKER -and (Test-Path $env:PIVOT_DOCKER)) { return $env:PIVOT_DOCKER }
   $cmd = Get-Command docker -ErrorAction SilentlyContinue
   if ($cmd) { return $cmd.Source }
   $cands = @(
+    # Per-user Docker Desktop install (this host: 4.89.0 lives here, NOT in Program Files)
+    (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\resources\bin\docker.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\resources\docker.exe'),
     (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin\docker.exe'),
     (Join-Path ${env:ProgramFiles(x86)} 'Docker\Docker\resources\bin\docker.exe'),
     (Join-Path $env:LOCALAPPDATA 'Docker\bin\docker.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\Docker\Docker\resources\bin\docker.exe'),
     'D:\Docker\Docker\resources\bin\docker.exe',
     'D:\Program Files\Docker\Docker\resources\bin\docker.exe',
-    'D:\DockerDesktop\resources\bin\docker.exe'
+    'D:\DockerDesktop\resources\bin\docker.exe',
+    'C:\ProgramData\DockerDesktop\version-bin\docker.exe'
   )
   foreach ($c in $cands) { if ($c -and (Test-Path $c)) { return $c } }
   return $null
+}
+
+function ConvertTo-Count($raw) {
+  $t = ($raw | Out-String).Trim()
+  if ($t -match '^\d+$') { return [int]$t }
+  return -1
+}
+
+# Three small exec calls instead of one compound sh script: PowerShell 5.1 eats
+# embedded double quotes when handing a string to a native exe, which turns a
+# clever one-liner into a sh syntax error. Keep every sh fragment single-quoted.
+function Get-ThemeProbe([string]$Expected) {
+  $blocksSh  = "find /app/public -name '*.css' -exec grep -l 'PIVOTAI-THEME-V2:START' {} + | wc -l"
+  $stampedSh = "find /app/public -name '*.css' -exec grep -l 'PIVOTAI-THEME-V2:VER=$Expected' {} + | wc -l"
+  $faceSh    = "test -f $FACE_DEST && echo FACE-OK"
+
+  $blocks  = ConvertTo-Count (& $Docker exec lobechat sh -c $blocksSh  2>$null)
+  $stamped = ConvertTo-Count (& $Docker exec lobechat sh -c $stampedSh 2>$null)
+  $hasFace = ((& $Docker exec lobechat sh -c $faceSh 2>$null | Out-String) -match 'FACE-OK')
+
+  $ok = ($blocks -gt 0) -and ($blocks -eq $stamped) -and $hasFace
+  return [pscustomobject]@{ Ok = $ok; Blocks = $blocks; Stamped = $stamped; Face = $hasFace }
 }
 
 $Docker = Resolve-Docker
@@ -62,23 +94,20 @@ if ((-not $Remove) -and (-not (Test-Path $face))) { Write-Host "[pivot] ERROR: m
 
 $Version = (Get-FileHash -Path $css -Algorithm SHA256).Hash.Substring(0, 16).ToLower()
 
-function Test-ThemeInPlace {
-  $r = & $Docker exec lobechat sh -c "grep -q 'PIVOTAI-THEME-V2:VER=$Version' /app/public/_spa/assets/*.css && test -f $FACE_DEST && echo PROBE-OK" 2>$null
-  return (($r | Out-String) -match 'PROBE-OK')
-}
-
 if ($Check) {
-  $r = & $Docker info 2>&1 | Out-String
+  & $Docker info 2>&1 | Out-Null
   if ($LASTEXITCODE -ne 0) { Write-Host "[pivot] cannot probe: docker daemon unreachable" -ForegroundColor Yellow; exit 2 }
-  if (Test-ThemeInPlace) {
-    Write-Host "[pivot] up to date (version $Version)"
+
+  $p = Get-ThemeProbe $Version
+  $detail = "blocks=$($p.Blocks) stamped=$($p.Stamped) face=$($p.Face)"
+  if ($p.Ok) {
+    Write-Host "[pivot] up to date (version $Version) $detail"
     exit 0
   }
-  $present = & $Docker exec lobechat sh -c "grep -q 'PIVOTAI-THEME-V2:START' /app/public/_spa/assets/*.css && echo HAS-BLOCK" 2>$null
-  if (($present | Out-String) -match 'HAS-BLOCK') {
-    Write-Host "[pivot] STALE: block present but not version $Version" -ForegroundColor Yellow
+  if ($p.Blocks -le 0) {
+    Write-Host "[pivot] MISSING: no managed block in container ($detail, expected version $Version)" -ForegroundColor Yellow
   } else {
-    Write-Host "[pivot] MISSING: no managed block in container" -ForegroundColor Yellow
+    Write-Host "[pivot] STALE: $detail (expected version $Version)" -ForegroundColor Yellow
   }
   exit 1
 }
