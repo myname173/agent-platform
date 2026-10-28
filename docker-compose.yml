@@ -67,6 +67,11 @@ services:
       # host.docker.internal:$CONSOLE_PORT (signed-doc link + "console up").
       # Must track the published port, so it cannot be hardcoded.
       - CONSOLE_PORT=${CONSOLE_PORT:-3000}
+      # LobeHub host port — the selfcheck replays a browser CORS preflight
+      # against the bucket with this origin. The bucket policy is written from
+      # the same .env value (scripts/provision-bucket.sh), so a port change must
+      # reach both or the check will report a false failure.
+      - LOBECHAT_PORT=${LOBECHAT_PORT:-3210}
       - EMBEDDING_PROVIDER=dashscope/qwen3.7-text-embedding-flash
       - EMBEDDING_DIM=1024      # Error-rate alerting (Chat Alerts workflow)
       - ALERT_WINDOW_MIN=${ALERT_WINDOW_MIN}

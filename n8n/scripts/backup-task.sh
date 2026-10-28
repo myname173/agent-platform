@@ -18,6 +18,13 @@ LOG="${REPO_DIR}/backups/backup-task.log"
 STAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 RUNSTAMP="$(date '+%Y%m%d-%H%M%S')"
 
+# GNU tar reads "host:path" as a REMOTE tape, so a Windows path like C:/Users/…
+# makes the integrity check fail with "tar (child): Cannot connect to C: resolve
+# failed" — which is what happened on 2026-10-28 when the scheduled task finally
+# reached this code (it had been dying earlier at `docker: command not found`).
+# Normalise to the MSYS form before handing a path to tar.
+posix_path() { cygpath -u "$1" 2>/dev/null || printf '%s' "$1"; }
+
 # Optional second copy on another disk / NAS / synced folder. Backups live on
 # the same machine as the data, so a dead disk takes both; this is the only
 # thing that survives that. Set BACKUP_OFFSITE_DIR in .env to enable.
@@ -88,7 +95,7 @@ send_heartbeat() {
     fi
 
     total_checks=$((total_checks + 1))
-    if [ -n "${newest_vol}" ] && tar -tzf "${newest_vol}" >/dev/null; then
+    if [ -n "${newest_vol}" ] && tar -tzf "$(posix_path "${newest_vol}")" >/dev/null; then
       ok_checks=$((ok_checks + 1)); echo "integrity: volume archive OK ($(basename "${newest_vol}"))"
     else
       echo "integrity: volume archive FAILED"
@@ -102,7 +109,7 @@ send_heartbeat() {
     fi
 
     total_checks=$((total_checks + 1))
-    if [ -n "${newest_minio}" ] && tar -tzf "${newest_minio}" >/dev/null; then
+    if [ -n "${newest_minio}" ] && tar -tzf "$(posix_path "${newest_minio}")" >/dev/null; then
       ok_checks=$((ok_checks + 1)); echo "integrity: minio archive OK ($(basename "${newest_minio}"))"
     else
       echo "integrity: minio archive FAILED"
@@ -123,8 +130,16 @@ send_heartbeat() {
     echo "==== $(date '+%Y-%m-%d %H:%M:%S') backup task done ===="
     detail="{\"stamp\":\"${RUNSTAMP}\",\"n\":${present},\"bytes\":${bytes},\"integrity\":\"${ok_checks}/${total_checks}\"}"
     echo "heartbeat payload: ${detail}"
-    send_heartbeat true "${detail}"
-    [ "${ok_checks}" -eq "${total_checks}" ] || exit 1
+    # A degraded set must NOT report ok=true. On 2026-10-28 the archives were
+    # fine but both tar checks failed, and the heartbeat still said ok=true with
+    # integrity 2/4 — the self-check only reads `ok`, so it stayed green over a
+    # backup nobody had verified. Report failure whenever the count is short.
+    if [ "${ok_checks}" -eq "${total_checks}" ]; then
+      send_heartbeat true "${detail}"
+    else
+      send_heartbeat false "integrity ${ok_checks}/${total_checks} (${detail})"
+      exit 1
+    fi
   else
     echo "backup.sh exited non-zero - see output above"
     echo "==== $(date '+%Y-%m-%d %H:%M:%S') backup task FAILED ===="

@@ -10,3 +10,8 @@
 *.gz binary
 *.woff binary
 *.woff2 binary
+
+# cmd.exe parses CRLF; an LF-only batch file breaks on multi-line blocks and
+# on labels. Keep these CRLF in the working tree regardless of eol=lf above.
+*.cmd text eol=crlf
+*.bat text eol=crlf

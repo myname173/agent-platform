@@ -340,6 +340,19 @@ bash n8n/scripts/backup.sh restore backups/n8n-data-XXXX.tar.gz   # 恢复 n8n �
 `pg-n8n-*.sql.gz`（n8n 库逻辑导出）、`pg-lobechat-*.sql.gz`（LobeHub 库：对话/用户数据）、
 `minio-data-*.tar.gz`（对象存储：文件/图片）、`config-*.tar.gz`（compose + .env）。
 
+> **2026-10-28：宿主机每日备份一直在失败，今天才修好。** 任务 `Agent Platform Backup` 调
+> `n8n/scripts/backup-task.cmd`，而它继承的是**系统 PATH**——Docker Desktop 4.x 装在用户目录、
+> 不在 PATH 上，于是每次 03:30 都报 `docker: command not found`、写一条 `ok=false` 心跳。
+> 备份没断是因为**栈内 `backup` 服务**还有一条独立循环在跑，所以自检一直显示「最近一次备份失败」
+> 但数据其实是有的。修法与主题脚本同一条规则：`backup-task.cmd` 显式解析 `docker.exe` 路径。
+> 同一次还修掉两个连带缺陷：
+> - **GNU tar 把 `C:/…` 当成远程主机**（`Cannot connect to C: resolve failed`）→ 完整性校验假失败；
+>   现在先 `cygpath -u` 归一化再交给 tar。
+> - **完整性 2/4 却仍上报 `ok=true`** → 自检只看 `ok` 字段，等于对一份没验过的备份保持绿灯；
+>   现在只要计数不足就发 `ok=false`。
+>
+> 修完实跑：`integrity 4/4`、`ok=true`、退出码 0，自检 `backup heartbeat fresh` 转绿。
+
 #### ⚠️ Windows 计划任务的坑（备份为什么曾经停摆 65 小时）
 
 任务 `Agent Platform Backup` 存在且启用，但只有**一个**触发器（每日 03:30），并且：
@@ -451,7 +464,7 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 | 命令 | 覆盖面 | 何时跑 |
 | --- | --- | --- |
 | `node n8n/scripts/smoke-test.mjs` | 71 项端到端（含控制台守卫 7 项） | 每批交付后 |
-| 控制台「自检」/ `POST /webhook/admin/selfcheck/run` | 47 项（只读 + 少量幂等写），每日 04:15 | 每天 |
+| 控制台「自检」/ `POST /webhook/admin/selfcheck/run` | 48 项（只读 + 少量幂等写），每日 04:15 | 每天 |
 | `node n8n/scripts/mcp-test.mjs` | MCP 全部 17 个工具（`MCP_TEST_SLOW=1` 额外跑 `run_brief` / `web_search`） | 改 MCP 后 |
 | `node n8n/scripts/check-tool-contract.mjs` | 网关清单 ↔ 侧车 `SERVER_TOOLS` ↔ `Execute Tool` 实现，且禁止再出现硬编码副本 | 部署前 |
 | `node --env-file=.env n8n/scripts/test-client-tools.mjs` | 带 `client_tools` 的入口（LobeHub）：服务端工具不得被原样透传 | 改工具分类逻辑后 |
@@ -900,6 +913,9 @@ bash scripts/verify-s3-e2e.sh   # PUT → GET → sha256 比对 → HEAD → DEL
 ```
 
   跑完自动删掉测试对象，不碰真实数据。
+- **自检里加了 `s3 bucket cors`（2026-10-28，第 48 项）**：重放浏览器预检并**读响应头**，
+  没有 `Access-Control-Allow-Origin` 即判红。它必须能被证伪 —— 当天实测「删掉桶策略 → 自检红 →
+  重新 provision → 自检绿」，因为只看状态码的话，缺策略时预检照样回 `200 OK`。
 
 ### PivotAI 主题（LobeHub 2.x 版）
 
