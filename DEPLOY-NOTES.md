@@ -79,6 +79,13 @@ MinIO 社区版镜像已于 2026-09-11 从 Docker Hub 删除、2026-09-24 在 Qu
 **服务名仍叫 `minio`、卷仍是 `minio_data`**，所以 LobeHub 的 `S3_*` 接线和其它服务引用都不用动。
 另外加了 `user: "0:0"`——RustFS 默认非 root，而 docker 卷是 root 属主，否则启动即 `Permission denied`。
 
+> ⚠️ **2026-10-28 补记：这个改动在本机当时并没有生效。** compose 改完之后，`minio` 服务**从未被重建**，
+> 所以直到 10-28 实际跑的仍是 `quay.io/minio/minio:latest`（容器创建于 09-15，`Server: MinIO` 响应头为证）。
+> 这也解释了为什么当时「RustFS 没有 CORS 兜底」的坑没被踩到 —— MinIO 有全局默认 `*` 顶着。
+> 10-28 已执行 `docker compose up -d minio` 真切换，并用 `scripts/verify-s3-e2e.sh` 复验通过
+> （100 KB 对象 PUT/GET SHA-256 一致，DELETE 后 404）。**教训：改 compose 的 `image:` 不等于换了后端，
+> 必须 `up -d` 并核对 `docker ps` 里的镜像名。**
+
 ### 1.2 `n8n/workflows/weekly-review.json` — 修掉一个硬编码的表名（重要）
 
 "Run Review" 节点的 SQL 里写死了作者实例的物理表名

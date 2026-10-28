@@ -852,7 +852,16 @@ curl -X POST http://localhost:5678/webhook/admin/kb/ingest \
 ### 文件存储（对象存储，Phase 4a）
 
 LobeHub 的图片/文件上传由 **RustFS**（S3 兼容对象存储；compose 服务名与容器名仍是 `minio`，卷仍是 `minio_data`）承载。
-2026-10-08 复验：真从对话前台上传一份 100 KB 文档 → `files` 落行、对象落盘、**取回字节与本地 SHA-256 一致**。
+
+> **2026-10-28 更正 —— 之前一直是 MinIO 在跑。** compose 在 `a7a5ae7`（10-09）就改成了 `rustfs/rustfs`，
+> 但那个服务**从未重建过**：到 10-28 实际运行的仍是 `quay.io/minio/minio:latest`（容器创建于 09-15）。
+> 本文档此前写的「2026-10-08 复验 RustFS」与实机不符 —— 那次验的是 MinIO。
+> 10-28 已真正切换并复验：`docker compose up -d minio` 重建 → 桶仍在（`HEAD 200`）→
+> `provision-bucket.sh` 写入桶级 CORS → 100 KB 对象 PUT/GET 往返 **SHA-256 一致** → DELETE 后 `HEAD 404`。
+>
+> **为什么必须换、不能继续用 MinIO**：那面镜像已经拉不回来了 —— Docker Hub `minio/minio` 返回 **404**
+> （仓库已删）、Quay `quay.io/minio/minio` 返回 **401**（需登录）。本机那份 13 个月前的副本一旦被
+> `docker image prune` 或换机器，栈就再也起不来，迁移包也就废了。RustFS 是唯一能持续拉取的 S3 兼容实现。
 
 - API：http://localhost:9000；控制台：http://localhost:9002（宿主端口由 `.env` 的 `MINIO_CONSOLE_PORT` 决定）
 - Bucket：`lobechat-files`；凭据与 lobechat 的 `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` 完全一致（见 docker-compose.yml）
@@ -881,6 +890,16 @@ bash scripts/provision-bucket.sh --check  # 只体检，不写任何东西
   浏览器因此不发真正的 `PUT`，应用只能 `abortS3Upload`（2026-10-08 实际踩到，见 `DEPLOY-NOTES.md`）。
   `curl` 没有 CORS 概念，所以**只验存储层永远发现不了这个坑**。
 - 复验：`--check` 会重放浏览器预检，并确认响应里带 `Access-Control-Allow-Origin`。
+- **2026-10-28 的额外发现**：切到 RustFS 之前，这个桶**根本没有桶级 CORS 策略**（`GetBucketCors` → 404
+  `NoSuchCORSConfiguration`），但预检照样通过 —— 因为 MinIO 有**全局默认 CORS（`*`）**兜着。
+  **RustFS 不提供这层兜底**，所以切换后必须真跑一次 `provision-bucket.sh`，否则浏览器上传会静默失败。
+- 端到端复验（不只是预检，真写一个 100 KB 对象再取回比对）：
+
+```bash
+bash scripts/verify-s3-e2e.sh   # PUT → GET → sha256 比对 → HEAD → DELETE → 确认 404
+```
+
+  跑完自动删掉测试对象，不碰真实数据。
 
 ### PivotAI 主题（LobeHub 2.x 版）
 
