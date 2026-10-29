@@ -24,9 +24,9 @@
 #    the image, which also means it needs nothing installed on the host beyond
 #    docker itself.
 #
-# The CORS origins are DERIVED from .env (PLATFORM_LAN_IP / LOBECHAT_PORT)
-# rather than hard-coded, so a LAN IP change does not silently leave a stale
-# origin behind — that was a real defect in the hand-written policy.
+# The CORS origins are DERIVED from .env rather than hard-coded. Local mode uses
+# PLATFORM_LAN_IP / LOBECHAT_PORT; the external overlay adds the HTTPS chat
+# origin from LOBECHAT_PUBLIC_URL or PLATFORM_DOMAIN.
 #
 # Usage:
 #   bash scripts/provision-bucket.sh
@@ -76,6 +76,15 @@ AK="$(env_val MINIO_ROOT_USER)"
 SK="$(env_val MINIO_ROOT_PASSWORD)"
 LAN_IP="$(env_val PLATFORM_LAN_IP 127.0.0.1)"
 LOBECHAT_PORT="$(env_val LOBECHAT_PORT 3210)"
+PUBLIC_CHAT_ORIGIN="$(env_val LOBECHAT_PUBLIC_URL)"
+PLATFORM_DOMAIN="$(env_val PLATFORM_DOMAIN)"
+if [ -z "$PUBLIC_CHAT_ORIGIN" ] && [ -n "$PLATFORM_DOMAIN" ]; then
+  PUBLIC_CHAT_ORIGIN="https://chat.${PLATFORM_DOMAIN}"
+fi
+CLOUDFLARE_DOMAIN="$(env_val CLOUDFLARE_DOMAIN)"
+if [ -z "$PUBLIC_CHAT_ORIGIN" ] && [ -n "$CLOUDFLARE_DOMAIN" ]; then
+  PUBLIC_CHAT_ORIGIN="https://chat.${CLOUDFLARE_DOMAIN}"
+fi
 
 # Inside the container the API is always on its own :9000 — no host port, no LAN
 # IP. That is deliberate: provisioning then cannot break when the LAN IP drifts.
@@ -119,7 +128,7 @@ split_status() { # stdin: body + "\n<status>"  -> sets BODY / STATUS
 say "0/4  config"
 ok "bucket      $BUCKET"
 ok "endpoint    $ENDPOINT  (container '$CONTAINER', internal :9000)"
-ok "cors origins from .env:  localhost:$LOBECHAT_PORT / 127.0.0.1:$LOBECHAT_PORT / $LAN_IP:$LOBECHAT_PORT"
+ok "cors origins from .env:  localhost:$LOBECHAT_PORT / 127.0.0.1:$LOBECHAT_PORT / $LAN_IP:$LOBECHAT_PORT${PUBLIC_CHAT_ORIGIN:+ / $PUBLIC_CHAT_ORIGIN}"
 [ "$CHECK_ONLY" = "1" ] && warn "--check: nothing will be written"
 
 # --- 1. bucket --------------------------------------------------------------
@@ -147,12 +156,18 @@ if [ "$BUCKET_MISSING" = "1" ]; then
 fi
 
 # --- 2. CORS policy ---------------------------------------------------------
+LOCAL_CORS_ORIGINS="    <AllowedOrigin>http://localhost:${LOBECHAT_PORT}</AllowedOrigin>
+    <AllowedOrigin>http://127.0.0.1:${LOBECHAT_PORT}</AllowedOrigin>
+    <AllowedOrigin>http://${LAN_IP}:${LOBECHAT_PORT}</AllowedOrigin>"
+if [ -n "$PUBLIC_CHAT_ORIGIN" ]; then
+  LOCAL_CORS_ORIGINS="${LOCAL_CORS_ORIGINS}
+    <AllowedOrigin>${PUBLIC_CHAT_ORIGIN}</AllowedOrigin>"
+fi
+
 CORS_XML="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <CORSConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">
   <CORSRule>
-    <AllowedOrigin>http://localhost:${LOBECHAT_PORT}</AllowedOrigin>
-    <AllowedOrigin>http://127.0.0.1:${LOBECHAT_PORT}</AllowedOrigin>
-    <AllowedOrigin>http://${LAN_IP}:${LOBECHAT_PORT}</AllowedOrigin>
+${LOCAL_CORS_ORIGINS}
     <AllowedMethod>GET</AllowedMethod>
     <AllowedMethod>PUT</AllowedMethod>
     <AllowedMethod>POST</AllowedMethod>
@@ -180,7 +195,13 @@ fi
 say "3/4  read the policy back"
 split_status "$(s3 GET "/${BUCKET}?cors" || true)"
 [ "$STATUS" = "200" ] || die "GetBucketCors returned $STATUS — the policy did not stick: $BODY"
-for o in "http://localhost:${LOBECHAT_PORT}" "http://127.0.0.1:${LOBECHAT_PORT}" "http://${LAN_IP}:${LOBECHAT_PORT}"; do
+CORS_CHECK_ORIGINS=(
+  "http://localhost:${LOBECHAT_PORT}"
+  "http://127.0.0.1:${LOBECHAT_PORT}"
+  "http://${LAN_IP}:${LOBECHAT_PORT}"
+)
+[ -n "$PUBLIC_CHAT_ORIGIN" ] && CORS_CHECK_ORIGINS+=("$PUBLIC_CHAT_ORIGIN")
+for o in "${CORS_CHECK_ORIGINS[@]}"; do
   case "$BODY" in
     *"$o"*) ok "origin present: $o" ;;
     *)      die "origin MISSING from the stored policy: $o" ;;

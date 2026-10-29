@@ -1,0 +1,47 @@
+# Phase 5.2A external edge.
+# PLATFORM_DOMAIN and ACME_EMAIL are supplied to the Caddy container by the
+# external Compose overlay. Caddy obtains and renews public certificates.
+
+{
+	 email {$ACME_EMAIL}
+	 acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+(secure_headers) {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+}
+
+console.{$PLATFORM_DOMAIN} {
+	import secure_headers
+	reverse_proxy platform-console:3000
+}
+
+chat.{$PLATFORM_DOMAIN} {
+	import secure_headers
+	reverse_proxy lobechat:3210
+}
+
+n8n.{$PLATFORM_DOMAIN} {
+	import secure_headers
+	reverse_proxy n8n:5678
+}
+
+# Browser uploads use presigned URLs on this host. Authentication remains the
+# S3 signature, while the MinIO/RustFS console below has separate basic auth.
+s3.{$PLATFORM_DOMAIN} {
+	import secure_headers
+	reverse_proxy minio:9000
+}
+
+storage.{$PLATFORM_DOMAIN} {
+	import secure_headers
+	basic_auth {
+		{$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+	}
+	reverse_proxy minio:9001
+}

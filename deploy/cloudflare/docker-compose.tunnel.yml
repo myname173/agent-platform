@@ -1,0 +1,38 @@
+# Cloudflare Tunnel overlay.
+#
+# The tunnel connector makes outbound connections to Cloudflare. It does not
+# publish a host port and does not require router port forwarding. Public host
+# routes are managed by the Cloudflare Tunnel dashboard and point at the
+# service names on n8n-net.
+
+services:
+  n8n:
+    environment:
+      N8N_PROXY_HOPS: "1"
+      N8N_HOST: n8n.${CLOUDFLARE_DOMAIN:?CLOUDFLARE_DOMAIN is required}
+      N8N_PROTOCOL: https
+      N8N_EDITOR_BASE_URL: https://n8n.${CLOUDFLARE_DOMAIN:?CLOUDFLARE_DOMAIN is required}
+      WEBHOOK_URL: https://n8n.${CLOUDFLARE_DOMAIN}/
+      CONSOLE_URL: https://console.${CLOUDFLARE_DOMAIN}
+
+  lobechat:
+    environment:
+      APP_URL: https://chat.${CLOUDFLARE_DOMAIN:?CLOUDFLARE_DOMAIN is required}
+      AUTH_ADDITIONAL_TRUSTED_ORIGINS: https://chat.${CLOUDFLARE_DOMAIN}
+      S3_ENDPOINT: https://s3.${CLOUDFLARE_DOMAIN}
+      S3_PUBLIC_DOMAIN: https://s3.${CLOUDFLARE_DOMAIN}
+      S3_INTERNAL_ENDPOINT: http://minio:9000
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: platform-cloudflared
+    restart: unless-stopped
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
+    networks:
+      - n8n-net
+

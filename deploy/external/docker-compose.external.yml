@@ -1,0 +1,49 @@
+# Phase 5.2A external access overlay.
+#
+# Opt-in only:
+#   docker compose -f docker-compose.yml \
+#     -f deploy/external/docker-compose.external.yml up -d
+#
+# The base Compose file remains the local/Pilot mode. This overlay removes
+# direct host ports from application and storage services and exposes only the
+# Caddy 80/443 edge.
+
+services:
+  n8n:
+    ports: !reset []
+    environment:
+      N8N_PROXY_HOPS: "1"
+      N8N_HOST: n8n.${PLATFORM_DOMAIN:?PLATFORM_DOMAIN is required}
+      N8N_PROTOCOL: https
+      N8N_EDITOR_BASE_URL: https://n8n.${PLATFORM_DOMAIN:?PLATFORM_DOMAIN is required}
+      WEBHOOK_URL: https://n8n.${PLATFORM_DOMAIN}/
+
+  console:
+    ports: !reset []
+
+  lobechat:
+    ports: !reset []
+    environment:
+      APP_URL: https://chat.${PLATFORM_DOMAIN:?PLATFORM_DOMAIN is required}
+      AUTH_ADDITIONAL_TRUSTED_ORIGINS: https://chat.${PLATFORM_DOMAIN}
+      S3_ENDPOINT: https://s3.${PLATFORM_DOMAIN}
+      S3_PUBLIC_DOMAIN: https://s3.${PLATFORM_DOMAIN}
+      S3_INTERNAL_ENDPOINT: http://minio:9000
+
+  searxng:
+    ports: !reset []
+
+  minio:
+    ports: !reset []
+
+  caddy:
+    ports: !override
+      - "80:80"
+      - "443:443"
+    environment:
+      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN:?PLATFORM_DOMAIN is required}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH is required}
+    volumes:
+      - ./caddy/Caddyfile.external:/etc/caddy/Caddyfile:ro
