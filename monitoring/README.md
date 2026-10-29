@@ -1,0 +1,156 @@
+# Platform Observability
+
+Phase 1.3 keeps one business-facing source of truth and one infrastructure
+metrics path:
+
+- Console `/webhook/v1/stats/executions` remains the business view for request
+  totals, success/error rate, average latency, token usage, cost and recent
+  tool traces. Alerts consume the same stats API.
+- `platform-runtime:3220/metrics` exposes Redis admission, rate-limit, lock,
+  durable state and request latency metrics.
+- `stream-bridge:3211/metrics` exposes request count, errors, rate limiting and
+  latency metrics.
+
+Prometheus is only for internal runtime metrics. Grafana and a second business
+metrics exporter are intentionally not part of this stack, so Console and
+Prometheus do not duplicate business dashboards or develop separate metric
+definitions.
+
+Prometheus is in the optional `observability` profile and is bound to localhost
+on `PROMETHEUS_PORT` (default `9090`):
+
+```powershell
+docker compose --profile observability up -d prometheus
+```
+
+The runtime-only baseline load test is safe to run against the internal service
+and does not call an upstream model:
+
+```powershell
+docker compose exec -T platform-runtime npm run test:load
+```
+
+It reports p50/p95/max latency and verifies one-winner idempotency, rate-limit
+cutoff and lock contention. The baseline is recorded in
+`monitoring/baseline-2026-10-28.md`.
+
+The read-only end-to-end business baseline crosses the host, n8n webhooks,
+workflow execution and Postgres/Data Tables. It covers the Console's stats,
+overview and settings APIs plus people/todo reads; it deliberately makes zero
+model calls and zero business writes:
+
+```powershell
+node --env-file=.env n8n/scripts/e2e-business-load.mjs
+```
+
+Tune `E2E_REQUESTS_PER_ENDPOINT`, `E2E_CONCURRENCY` and `E2E_TIMEOUT_MS` for a
+larger run. The latest 100-request result is recorded in
+`monitoring/e2e-business-2026-10-29.md`.
+
+## Phase 4.1 Agent quality and security
+
+The first Agent evaluation is deliberately local and deterministic. It uses
+the live Chat Gateway for a small tool-selection/client-tool set and the K8s
+Sandbox Gateway for authentication, network/process/dynamic-execution/file
+write policy checks. It adds no service, database, package or LLM judge:
+
+```powershell
+node --env-file=.env n8n/scripts/agent-eval.mjs
+```
+
+The command prints per-case results and a JSON report. Set
+`EVAL_SANDBOX_URL` when the loopback Pilot bridge is not at
+`http://127.0.0.1:18080`. A non-zero exit means at least one quality or
+security contract failed.
+
+The 2026-10-29 baseline is recorded in
+`monitoring/agent-eval-2026-10-29.md`.
+
+Phase 4.2 extends the same command with user-content prompt injection,
+unregistered MCP tool calls, temporary KB poisoning and task-level answer
+scoring. The KB fixture is created with a unique title and retired in a
+`finally` cleanup path; a failed cleanup makes the command fail:
+
+```powershell
+node --env-file=.env n8n/scripts/agent-eval.mjs
+```
+
+The evaluator reads `chat_executions.tool_trace` for required and forbidden
+tool assertions. It does not use an LLM judge: each task score is based on
+required facts, forbidden markers, answer length and source/citation markers.
+
+## Phase 2 async KB save
+
+The Redis Streams worker is optional and only handles `kb_save`:
+
+```powershell
+$env:PLATFORM_KB_ASYNC_ENABLED = 'true'
+docker compose --profile phase2 up -d platform-worker
+```
+
+When enabled, the entry request returns `202` with a `task_id`; the worker
+executes the existing KB workflow and runtime stores the final result. Leave
+`PLATFORM_KB_ASYNC_ENABLED=false` to keep the synchronous path.
+
+Phase 2.1 adds bounded worker recovery: stale Redis Stream deliveries are
+claimed after `PLATFORM_JOB_CLAIM_IDLE_MS` (default 120 seconds), retryable
+network/5xx/429 failures are retried up to `PLATFORM_JOB_MAX_ATTEMPTS` (default
+3), and terminal failures are recorded as `FAILED`. The worker ACKs a message
+only after a terminal runtime completion; a completed job reclaimed after a
+worker restart is recognized as terminal and is only ACKed.
+
+The repeatable regression requires the flag and worker to be active:
+
+```powershell
+node --env-file=.env n8n/scripts/test-kb-async.mjs
+```
+
+The recovery regression temporarily manages the worker and n8n containers:
+
+```powershell
+node --env-file=.env n8n/scripts/test-kb-async-recovery.mjs
+```
+
+## Phase 5.0 Release Gate
+
+The lightweight Pilot release gate reuses the checks above plus the read-only
+business baseline, platform boundary regression and Agent evaluation. It does
+not add a runner or change runtime configuration. The 2026-10-29 result is
+recorded in `monitoring/release-gate-2026-10-29.md`.
+
+## Phase 5.1 Pilot closeout
+
+The operational runbook for the current Docker Desktop Pilot covers startup,
+the smallest routine checks, failure triage, controlled rollback to Compose and
+the explicit non-production limits:
+`monitoring/pilot-runbook-2026-10-29.md`.
+
+The first Phase 5.2 capacity baseline and Kafka decision are recorded in
+`monitoring/phase5.2-capacity-decision-2026-10-29.md`.
+
+## Phase 5.2A external access boundary
+
+The opt-in external Compose overlay removes direct application/storage host
+ports, terminates public TLS at Caddy on `80/443`, and keeps Redis, Runtime,
+Worker and the Kubernetes Sandbox Gateway private:
+`deploy/external/README.md`.
+
+## Phase 5.3 Kafka event-bus pilot
+
+Kafka is available as an opt-in single-node KRaft profile for event-contract
+and produce/consume validation. It does not replace the Redis Streams
+`kb_save` queue. See `deploy/event-bus/README.md`.
+
+## Phase 6.1 external access boundary
+
+The Sandbox Gateway now uses a supervised loopback-only bridge at
+`127.0.0.1:18080`, with a current-user scheduled task that reconnects after
+Docker/Kubernetes restarts. The external Caddy edge remains opt-in and refuses
+to start until a real `PLATFORM_DOMAIN`, `ACME_EMAIL` and
+`ADMIN_PASSWORD_HASH` are present in `.env`. Use `deploy/external/edge.ps1` for
+the preflight and lifecycle commands.
+
+When the router cannot provide inbound port forwarding, use the router-
+independent Cloudflare Tunnel overlay in `deploy/cloudflare/README.md`. It
+keeps the local Caddy path intact and adds an outbound-only `cloudflared`
+connector on the existing Docker network.
