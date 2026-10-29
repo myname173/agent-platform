@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: platform-runtime
+    metrics_path: /metrics
+    static_configs:
+      - targets: [platform-runtime:3220]
+
+  - job_name: stream-bridge
+    metrics_path: /metrics
+    static_configs:
+      - targets: [stream-bridge:3211]
+

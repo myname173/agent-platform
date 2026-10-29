@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-platform
+resources:
+  - namespace.yaml
+  - worker-configmap.yaml
+  - worker-deployment.yaml
+  - worker-networkpolicy.yaml
+  - sandbox-gateway-rbac.yaml
+  - sandbox-gateway-deployment.yaml
+  - sandbox-gateway-service.yaml
+  - sandbox-serviceaccount.yaml
+  - sandbox-job.yaml
+  - sandbox-networkpolicy.yaml

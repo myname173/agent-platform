@@ -8,6 +8,12 @@ FROM python:3.14-alpine
 
 RUN pip install --no-cache-dir --root-user-action=ignore numpy pandas
 
+# Keep the one-shot runner in the image for the Kubernetes Job pilot. Compose
+# still bind-mounts sandbox_server.py at /sandbox.py, so its current path is
+# unchanged.
+COPY sandbox_server.py /sandbox_server.py
+COPY sandbox_job.py /sandbox_job.py
+
 # The service itself is bind-mounted (n8n/sandbox_server.py) so edits need
 # only a restart, not a rebuild.
 EXPOSE 8000

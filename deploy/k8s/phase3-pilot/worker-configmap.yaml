@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-worker-config
+data:
+  # Docker Desktop host gateway; Compose remains the source of truth.
+  REDIS_URL: redis://host.docker.internal:16379
+  N8N_URL: http://host.docker.internal:5678
+  PLATFORM_RUNTIME_URL: http://host.docker.internal:13220
+  JOB_STREAM: platform:jobs
+  JOB_GROUP: platform-kb-workers
+  JOB_MAX_ATTEMPTS: "3"
+  JOB_CLAIM_IDLE_MS: "120000"
+  JOB_CLAIM_COUNT: "10"

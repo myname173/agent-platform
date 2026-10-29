@@ -7,6 +7,7 @@
    - streamed turns are logged back to n8n (messages + execution stats).
    NOTE: keep SERVER_TOOLS in sync with n8n/workflows/chat-gateway.json. */
 const http = require('http');
+const { randomUUID } = require('crypto');
 
 const PORT = Number(process.env.PORT || 3211);
 const GATEWAY = String(process.env.GATEWAY_URL || 'http://n8n:5678/webhook/v1').replace(/\/$/, '');
@@ -14,8 +15,105 @@ const UPSTREAM = String(process.env.UPSTREAM_BASE_URL || 'https://api.deepseek.c
 const UP_KEY = process.env.UPSTREAM_API_KEY || '';
 const CHAT_KEY = process.env.CHAT_API_KEY || '';
 const LOG_URL = process.env.LOG_URL || 'http://n8n:5678/webhook/internal/log-turn';
+const RUNTIME_URL = String(process.env.PLATFORM_RUNTIME_URL || 'http://platform-runtime:3220').replace(/\/$/, '');
+const RUNTIME_KEY = String(process.env.PLATFORM_RUNTIME_KEY || CHAT_KEY).trim();
+const RUNTIME_ENABLED = String(process.env.PLATFORM_RUNTIME_ENABLED || 'true').toLowerCase() !== 'false';
+const RUNTIME_RATE_LIMIT_RPM = Math.max(1, Number(process.env.PLATFORM_RATE_LIMIT_RPM || 60));
 const MODEL_UPSTREAM = process.env.UPSTREAM_MODEL || 'deepseek-v4-flash';
 const AUTH_PREFIX = 'Bea' + 'rer ';
+const LATENCY_BUCKETS = [50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000];
+const bridgeMetrics = {
+  requests_total: 0,
+  errors_total: 0,
+  rate_limited_total: 0,
+  latency_sum_ms: 0,
+  latency_count: 0,
+  latency_buckets: Object.fromEntries(LATENCY_BUCKETS.map((bucket) => [bucket, 0])),
+};
+
+const observeBridgeRequest = (path, status, durationMs) => {
+  bridgeMetrics.requests_total += 1;
+  bridgeMetrics.latency_sum_ms += durationMs;
+  bridgeMetrics.latency_count += 1;
+  for (const bucket of LATENCY_BUCKETS) if (durationMs <= bucket) bridgeMetrics.latency_buckets[bucket] += 1;
+  if (status >= 400) bridgeMetrics.errors_total += 1;
+  if (status === 429) bridgeMetrics.rate_limited_total += 1;
+};
+
+const bridgeMetricText = () => {
+  const lines = [
+    '# HELP stream_bridge_info Stream bridge runtime information.',
+    '# TYPE stream_bridge_info gauge',
+    `stream_bridge_info{runtime_enabled="${RUNTIME_ENABLED}",runtime_configured="${Boolean(RUNTIME_KEY)}"} 1`,
+    '# HELP stream_bridge_requests_total Total HTTP requests handled by stream-bridge.',
+    '# TYPE stream_bridge_requests_total counter',
+    `stream_bridge_requests_total ${bridgeMetrics.requests_total}`,
+    '# HELP stream_bridge_errors_total Total HTTP responses with status >= 400.',
+    '# TYPE stream_bridge_errors_total counter',
+    `stream_bridge_errors_total ${bridgeMetrics.errors_total}`,
+    '# HELP stream_bridge_rate_limited_total Total rate-limited requests.',
+    '# TYPE stream_bridge_rate_limited_total counter',
+    `stream_bridge_rate_limited_total ${bridgeMetrics.rate_limited_total}`,
+    '# HELP stream_bridge_request_duration_ms Request duration histogram.',
+    '# TYPE stream_bridge_request_duration_ms histogram',
+    ...LATENCY_BUCKETS.map((bucket) => `stream_bridge_request_duration_ms_bucket{le="${bucket}"} ${bridgeMetrics.latency_buckets[bucket]}`),
+    `stream_bridge_request_duration_ms_bucket{le="+Inf"} ${bridgeMetrics.latency_count}`,
+    `stream_bridge_request_duration_ms_sum ${bridgeMetrics.latency_sum_ms}`,
+    `stream_bridge_request_duration_ms_count ${bridgeMetrics.latency_count}`,
+  ];
+  return lines.join('\n') + '\n';
+};
+
+function traceIdFor(req) {
+  const incoming = String(req.headers['x-trace-id'] || '').trim().toLowerCase();
+  if (/^[0-9a-f]{32}$/.test(incoming)) return incoming;
+  const traceparent = String(req.headers.traceparent || '');
+  const match = traceparent.match(/^[\da-f]{2}-([\da-f]{32})-[\da-f]{16}-[\da-f]{2}$/i);
+  return (match ? match[1] : randomUUID().replaceAll('-', '')).toLowerCase();
+}
+
+function requestIdFor(req) {
+  const incoming = String(req.headers['x-request-id'] || '').trim();
+  return incoming.slice(0, 120) || randomUUID();
+}
+
+function traceHeaders(req, traceId, requestId) {
+  return {
+    'x-trace-id': traceId,
+    'x-request-id': requestId,
+    traceparent: '00-' + traceId + '-' + randomUUID().replaceAll('-', '').slice(0, 16) + '-01',
+    'x-session-id': String(req.headers['x-session-id'] || ''),
+    'x-client': String(req.headers['x-client'] || 'stream-bridge'),
+  };
+}
+
+async function runtimePost(path, payload) {
+  if (!RUNTIME_ENABLED || !RUNTIME_KEY) return null;
+  try {
+    const r = await fetch(RUNTIME_URL + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-platform-runtime-key': RUNTIME_KEY },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(1200),
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (error) {
+    // Runtime coordination is fail-open during rollout; n8n remains the compatibility path.
+    return null;
+  }
+}
+
+async function runtimeRateLimit(req, body, traceId, requestId) {
+  const session = String(req.headers['x-session-id'] || body?.user || 'anonymous').slice(0, 120);
+  return runtimePost('/v1/rate-limit', {
+    scope: 'chat:' + (session || 'anonymous'),
+    limit: RUNTIME_RATE_LIMIT_RPM,
+    window_sec: 60,
+    trace_id: traceId,
+    request_id: requestId,
+  });
+}
 
 const SERVER_TOOLS = [
   { type: 'function', function: { name: 'web_search', description: 'Search the public web for current information, facts, news or documentation. Returns ranked results with title, url and snippet.', parameters: { type: 'object', properties: { query: { type: 'string', description: 'The search query' } }, required: ['query'] } } },
@@ -107,7 +205,7 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
-const jsonOut = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
+const jsonOut = (res, code, obj, headers = {}) => { res.writeHead(code, { 'Content-Type': 'application/json', ...headers }); res.end(JSON.stringify(obj)); };
 const sseHeaders = (res) => res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
 const sseSend = (res, obj) => { try { res.write('data: ' + JSON.stringify(obj) + '\n\n'); } catch (e) {} };
 const sseEnd = (res) => { try { res.write('data: [DONE]\n\n'); res.end(); } catch (e) {} };
@@ -148,22 +246,28 @@ async function handleEmbeddings(res, body) {
 }
 
 async function proxyGateway(req, res, raw) {
+  const traceId = traceIdFor(req);
+  const requestId = requestIdFor(req);
   try {
     const r = await fetch(GATEWAY + '/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: req.headers['authorization'] || '', 'x-session-id': String(req.headers['x-session-id'] || ''), 'x-client': String(req.headers['x-client'] || 'stream-bridge') },
+      headers: { 'Content-Type': 'application/json', Authorization: req.headers['authorization'] || '', ...traceHeaders(req, traceId, requestId) },
       body: raw,
       signal: AbortSignal.timeout(300000),
     });
     const text = await r.text();
-    res.writeHead(r.status, { 'Content-Type': 'application/json' });
+    res.writeHead(r.status, { 'Content-Type': 'application/json', 'x-trace-id': traceId, 'x-request-id': requestId });
     res.end(text);
   } catch (e) {
-    jsonOut(res, 502, { error: { message: 'gateway unavailable: ' + String(e.message).slice(0, 160) } });
+    jsonOut(res, 502, { error: { message: 'gateway unavailable: ' + String(e.message).slice(0, 160) }, trace_id: traceId, request_id: requestId }, { 'x-trace-id': traceId, 'x-request-id': requestId });
   }
 }
 
 async function handleStream(req, res, body) {
+  const traceId = traceIdFor(req);
+  const requestId = requestIdFor(req);
+  res.setHeader('x-trace-id', traceId);
+  res.setHeader('x-request-id', requestId);
   const sid = String(req.headers['x-session-id'] || body.user || 'lobehub');
   const client = String(req.headers['x-client'] || 'stream-bridge');
   const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -279,7 +383,7 @@ async function handleStream(req, res, body) {
     if (usage) sseSend(res, { id: 'chatcmpl-bridge-' + Date.now(), object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model, choices: [], usage });
     sseEnd(res);
     console.log('[done] stream ms=' + (Date.now() - started) + ' content=' + contentAcc.length);
-    logTurn({ session_id: sid, client, model, user_text: userText, assistant_text: contentAcc, reasoning: reasoningAcc.slice(0, 2000), usage, latency_ms: Date.now() - started, path: 'stream' });
+    logTurn({ trace_id: traceId, request_id: requestId, session_id: sid, client, model, user_text: userText, assistant_text: contentAcc, reasoning: reasoningAcc.slice(0, 2000), usage, latency_ms: Date.now() - started, path: 'stream' });
     return;
   }
 
@@ -329,7 +433,7 @@ async function handleStream(req, res, body) {
   try {
     const r = await fetch(GATEWAY + '/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: req.headers['authorization'] || '', 'x-session-id': sid, 'x-client': client },
+      headers: { 'Content-Type': 'application/json', Authorization: req.headers['authorization'] || '', ...traceHeaders(req, traceId, requestId), 'x-session-id': sid, 'x-client': client },
       body: JSON.stringify({ ...body, stream: false }),
       signal: abortCtrl.signal,
     });
@@ -486,9 +590,15 @@ async function handleImageFetch(res, body) {
   }
 }
 const server = http.createServer(async (req, res) => {
+  const startedAt = Date.now();
+  const path0 = req.url ? req.url.split('?')[0] : '';
+  res.once('finish', () => observeBridgeRequest(path0, res.statusCode, Date.now() - startedAt));
   try {
-    const path0 = req.url ? req.url.split('?')[0] : '';
-    if (path0 === '/healthz') return jsonOut(res, 200, { ok: true, upstream: !!UP_KEY, gateway: GATEWAY, embeddings: !!DASH_KEY, voice: !!VOICE_TOKEN, tools: SERVER_TOOLS.map((t) => t.function.name) });
+    if (path0 === '/healthz') return jsonOut(res, 200, { ok: true, upstream: !!UP_KEY, gateway: GATEWAY, embeddings: !!DASH_KEY, voice: !!VOICE_TOKEN, runtime: { enabled: RUNTIME_ENABLED, configured: !!RUNTIME_KEY, url: RUNTIME_URL }, tools: SERVER_TOOLS.map((t) => t.function.name) });
+    if (path0 === '/metrics' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
+      return res.end(bridgeMetricText());
+    }
     if (req.method !== 'POST') return jsonOut(res, 405, { error: { message: 'method not allowed' } });
     const raw = await readBody(req);
     let body = null;
@@ -500,6 +610,26 @@ const server = http.createServer(async (req, res) => {
     if (path0 === '/voice/reply') return handleVoiceReply(res, body);
     if (path0 === '/image/fetch') return handleImageFetch(res, body);
     if (!path0.endsWith('/chat/completions')) return jsonOut(res, 404, { error: { message: 'not found' } });
+    const traceId = traceIdFor(req);
+    const requestId = requestIdFor(req);
+    // Pin generated IDs on the request so the rate-limit decision and downstream
+    // n8n/logging calls observe exactly the same correlation identity.
+    req.headers['x-trace-id'] = traceId;
+    req.headers['x-request-id'] = requestId;
+    const limit = await runtimeRateLimit(req, body, traceId, requestId);
+    if (limit && limit.allowed === false) {
+      return jsonOut(res, 429, {
+        error: { message: 'Rate limit exceeded', type: 'rate_limit_error', code: 'rate_limit_exceeded' },
+        trace_id: traceId,
+        request_id: requestId,
+      }, {
+        'x-trace-id': traceId,
+        'x-request-id': requestId,
+        'x-ratelimit-limit': String(limit.limit || RUNTIME_RATE_LIMIT_RPM),
+        'x-ratelimit-remaining': String(limit.remaining || 0),
+        'retry-after': String(Math.max(1, Math.ceil((Number(limit.reset_at || Date.now()) - Date.now()) / 1000))),
+      });
+    }
     if (body && body.stream === true) return handleStream(req, res, body);
     return proxyGateway(req, res, raw);
   } catch (e) {

@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: platform-sandbox
+  labels:
+    app.kubernetes.io/name: platform-sandbox
+    app.kubernetes.io/part-of: agent-platform
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 45
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-sandbox
+        app.kubernetes.io/part-of: agent-platform
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      serviceAccountName: platform-sandbox
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runner
+          image: agent-platform/sandbox:3.14-k8s-pilot
+          imagePullPolicy: IfNotPresent
+          command: ["python", "/sandbox_job.py"]
+          env:
+            - name: SANDBOX_REQUEST_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: platform-sandbox-input
+                  key: request.json
+            - name: SANDBOX_TIMEOUT
+              value: "15"
+            - name: SANDBOX_AS_MB
+              value: "1536"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi

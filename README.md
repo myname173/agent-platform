@@ -78,7 +78,27 @@ walkthrough: [部署到一台新机器](#部署到一台新机器).
 | `POST /webhook/admin/selfcheck/run` | 43 checks, also daily at 04:15 |
 | `node n8n/scripts/mcp-test.mjs` | MCP protocol + all 17 tools |
 | `node --env-file=.env n8n/scripts/test-client-tools.mjs` | client-tool path (LobeHub): no server tool may pass through unexecuted |
+| `node --env-file=.env n8n/scripts/agent-eval.mjs` | Phase 4.2 Agent quality + security evaluation: injection, unauthorized tools, KB poisoning and Sandbox policy |
 | `node --env-file=.env n8n/scripts/test-idempotency.mjs` | a retried request must not repeat a side effect; `tool_trace` must land |
+| `node --env-file=.env n8n/scripts/test-platform-boundaries.mjs` | Phase 1.2 side-effect boundary replay and deterministic no-op checks |
+| `node --env-file=.env n8n/scripts/test-kb-boundary.mjs` | Phase 1.3 `kb_save` first-write, runtime replay and cleanup |
+| `node --env-file=.env n8n/scripts/test-kb-unknown-recovery.mjs` | Phase 1.3 `kb_save` UNKNOWN blocking, operator recovery and replayed failure |
+| `node --env-file=.env n8n/scripts/test-kb-async.mjs` | Phase 2 async `kb_save`: `202` queue, worker completion, same-key replay (requires phase2 profile) |
+| `node --env-file=.env n8n/scripts/test-kb-async-recovery.mjs` | Phase 2.1 stale pending recovery via `XAUTOCLAIM` and replay safety (requires Docker) |
+| `node --env-file=.env n8n/scripts/test-kb-async-load.mjs` | Phase 3.2 small K8s Worker load: queue/completion latency, terminal success and cleanup |
+| `node --env-file=.env n8n/scripts/e2e-business-load.mjs` | Read-only end-to-end business baseline through n8n webhooks (no model calls or business writes) |
+| `kubectl kustomize deploy/k8s/phase3-pilot` | Phase 3.0 K8s pilot manifests: worker Deployment and isolated sandbox Job |
+| `deploy/k8s/phase3-pilot/pilot.ps1 -Action check` | Phase 3.3 K8s pilot closure: worker, gateway, Compose bridge and Redis pending check |
+| `deploy/k8s/phase3-pilot/sandbox-bridge.ps1 -Action install` | Phase 6.1 supervised loopback Sandbox bridge; reconnects after Docker/K8s restart |
+| `deploy/external/edge.ps1 -Action up` | Phase 5.2A/6.1 opt-in external edge: Caddy `80/443`, public TLS, no direct app/storage ports |
+| `deploy/external/edge.ps1 -Action check` | Phase 6.1 external edge preflight; requires real domain, ACME email and Caddy password hash |
+| `deploy/cloudflare/tunnel.ps1 -Action up` | Router-independent external edge: Cloudflare Tunnel overlay with outbound-only connector |
+| `deploy/cloudflare/tunnel.ps1 -Action check` | Cloudflare Tunnel preflight; requires a Cloudflare-managed domain and tunnel token |
+| `scripts/update-duckdns.ps1` | Update the DuckDNS A record from the local token without printing it |
+| `scripts/generate-caddy-hash.ps1` | Generate the local Caddy storage-console password hash without command-line password input |
+| `deploy/event-bus/kafka-pilot.ps1 -Action up` | Phase 5.3 optional Kafka KRaft event-bus pilot; does not replace Redis Streams |
+| `node --env-file=.env n8n/scripts/recover-platform-request.mjs ...` | Operator-confirmed UNKNOWN recovery; never infers the business outcome |
+| `docker compose --profile phase2 up -d platform-worker` | Optional Phase 2 Redis Streams worker for asynchronous `kb_save`, with Phase 2.1 stale pending reclaim and bounded retry |
 
 **About secrets.** No key lives in this repo. Workflows read `$env.*` at
 runtime; `.env` has never been committed. `deploy.mjs` pushes workflow JSON to
@@ -469,6 +489,14 @@ lobechat（表数与 `users` / `agents` / `user_settings` / `ai_providers` 的�
 | `node n8n/scripts/check-tool-contract.mjs` | 网关清单 ↔ 侧车 `SERVER_TOOLS` ↔ `Execute Tool` 实现，且禁止再出现硬编码副本 | 部署前 |
 | `node --env-file=.env n8n/scripts/test-client-tools.mjs` | 带 `client_tools` 的入口（LobeHub）：服务端工具不得被原样透传 | 改工具分类逻辑后 |
 | `node --env-file=.env n8n/scripts/test-idempotency.mjs` | 重发不重复副作用 · 换 key 仍执行 · `tool_trace` 落库 | 改工具循环后 |
+| `node --env-file=.env n8n/scripts/test-platform-boundaries.mjs` | Phase 1.2 四个副作用边界：首次写入、同键重放、取消确定性无操作 | 改平台适配器后 |
+| `node --env-file=.env n8n/scripts/test-kb-boundary.mjs` | Phase 1.3 `kb_save`：首次写入、runtime 重放、自动清理 | 改知识库平台适配器后 |
+| `node --env-file=.env n8n/scripts/test-kb-unknown-recovery.mjs` | Phase 1.3 `kb_save`：UNKNOWN 阻断、人工恢复、失败结果重放 | 改失败补偿逻辑后 |
+| `node --env-file=.env n8n/scripts/test-kb-async.mjs` | Phase 2 `kb_save`：202 入队、worker 完成、同键重放（需显式开启 phase2） | 改异步边界后 |
+| `node --env-file=.env n8n/scripts/test-kb-async-recovery.mjs` | Phase 2.1：模拟失联 consumer、stale pending 回收、终态后重放 | 改 worker 恢复策略后 |
+| `node --env-file=.env n8n/scripts/test-kb-async-load.mjs` | Phase 3.2：小规模 K8s Worker 压测，统计入队/完成延迟并清理临时文档 | 改异步 Worker 或队列配置后 |
+| `node --env-file=.env n8n/scripts/recover-platform-request.mjs ...` | 人工确认后收敛单个 UNKNOWN 请求；Redis 过期需显式允许 | 处理运行中断后 |
+| `docker compose --profile phase2 up -d platform-worker` | Phase 2：异步化 `kb_save`；Phase 2.1 增加 stale pending 回收、有限重试、终态后 ACK | 进入异步化或改 worker 恢复策略后 |
 | `node --env-file=.env n8n/scripts/cap-rate.mjs 7` | 工具轮次分布 / 跑满率 / 撞顶次数 —— 决定循环该多深 | 想调整 `MAX_TOOL_ROUNDS` 前 |
 
 MCP 测试需要 `MCP_API_KEY`（见 `.env`），可选 `CHAT_API_KEY` / `N8N_API_KEY` 用于清理测试数据。

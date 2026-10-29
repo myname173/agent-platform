@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-worker
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: platform-worker
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        # Docker Desktop's host.docker.internal gateway for this cluster.
+        - ipBlock:
+            cidr: 192.168.65.254/32
+      ports:
+        - protocol: TCP
+          port: 13220
+        - protocol: TCP
+          port: 5678
+        - protocol: TCP
+          port: 16379
