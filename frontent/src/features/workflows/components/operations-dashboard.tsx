@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { ChatStats } from '@/lib/n8n-client';
 import { cn } from '@/lib/utils';
+import { AsyncTaskPanel } from './async-task-panel';
 import {
   clientColor,
   executionEndedAt,
@@ -626,6 +627,8 @@ export default function OperationsDashboard() {
             ))}
           </div>
         )}
+
+        <AsyncTaskPanel />
 
         {timeRange !== 'all' && (
           <p className="mt-2 text-[11px] text-zinc-500">

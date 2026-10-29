@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -16,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Icons } from '@/components/icons';
 
 const TARGET_CHARS = 750;
 const OVERLAP_CHARS = 80;
@@ -81,8 +83,9 @@ interface QueueItem {
   name: string;
   text: string;
   chunks: number;
-  status: 'reading' | 'ready' | 'ingesting' | 'done' | 'skipped' | 'error';
+  status: 'reading' | 'ready' | 'ingesting' | 'queued' | 'done' | 'skipped' | 'error';
   note?: string;
+  taskId?: string;
   ingestedChunks?: number;
   ingestedTokens?: number;
 }
@@ -144,12 +147,14 @@ const STATUS_LABEL: Record<QueueItem['status'], string> = {
   reading: '读取中',
   ready: '待摄取',
   ingesting: '摄取中',
+  queued: '已排队',
   done: '完成',
   skipped: '已跳过',
   error: '失败'
 };
 
 export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
@@ -158,6 +163,7 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  const [queuedTaskId, setQueuedTaskId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -260,7 +266,7 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
   const projectedUsed = usedTokens + shownTokens;
   const projectedPct = Math.round((projectedUsed / EMBED_QUOTA) * 100);
 
-  const ingestOne = async (item: QueueItem): Promise<'ok' | 'skipped' | 'error'> => {
+  const ingestOne = async (item: QueueItem): Promise<'ok' | 'skipped' | 'queued' | 'error'> => {
     setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'ingesting' as const } : q)));
     try {
       const res = await fetch('/api/n8n/kb', {
@@ -282,6 +288,16 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
           )
         );
         return 'error';
+      }
+      if (body.status === 'queued' && body.task_id) {
+        setQueue((prev) =>
+          prev.map((q) =>
+            q.id === item.id
+              ? { ...q, status: 'queued' as const, taskId: String(body.task_id), note: '任务已提交' }
+              : q
+          )
+        );
+        return 'queued';
       }
       setQueue((prev) =>
         prev.map((q) =>
@@ -314,6 +330,7 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
 
     let ok = 0;
     let skipped = 0;
+    let queued = 0;
     let failed = 0;
     let blocks = 0;
     let tokens = 0;
@@ -321,6 +338,7 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
       const r = await ingestOne(item);
       if (r === 'ok') ok += 1;
       else if (r === 'skipped') skipped += 1;
+      else if (r === 'queued') queued += 1;
       else failed += 1;
     }
     for (const q of queue) {
@@ -332,10 +350,11 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
 
     const parts = [`完成 ${ok} 篇`];
     if (skipped) parts.push(`跳过 ${skipped} 篇（内容相同）`);
+    if (queued) parts.push(`已排队 ${queued} 篇`);
     if (failed) parts.push(`失败 ${failed} 篇`);
     parts.push(`共 ${blocks} 块 · 计费 ${tokens.toLocaleString()} tokens`);
     setResult(parts.join(' · '));
-    if (ok || skipped) onDone();
+    if (ok || skipped || queued) onDone();
     setBusy(false);
   };
 
@@ -356,6 +375,13 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.ok) {
         setError(body?.error || '摄取失败');
+        return;
+      }
+      if (body.status === 'queued' && body.task_id) {
+        const taskId = String(body.task_id);
+        setQueuedTaskId(taskId);
+        setResult('已进入异步队列 · task_id ' + taskId);
+        onDone();
         return;
       }
       setResult(
@@ -383,6 +409,7 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
       setQueue([]);
       setError(null);
       setResult(null);
+      setQueuedTaskId(null);
     }
   };
 
@@ -395,10 +422,22 @@ export function KbIngestDialog({ onDone, usedTokens = 0 }: IngestDialogProps) {
         {result ? (
           <>
             <DialogHeader>
-              <DialogTitle>✅ 摄取成功</DialogTitle>
+              <DialogTitle>{queuedTaskId ? '已提交异步任务' : '摄取成功'}</DialogTitle>
               <DialogDescription>{result}</DialogDescription>
             </DialogHeader>
             <DialogFooter>
+              {queuedTaskId ? (
+                <Button
+                  variant='outline'
+                  onClick={() => {
+                    close(false);
+                    router.push('/dashboard/workflows?task_id=' + encodeURIComponent(queuedTaskId));
+                  }}
+                >
+                  <Icons.arrowRight />
+                  查看任务
+                </Button>
+              ) : null}
               <Button onClick={() => close(false)}>完成</Button>
             </DialogFooter>
           </>

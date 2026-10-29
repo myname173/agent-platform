@@ -2,6 +2,8 @@ const N8N_URL = process.env.N8N_URL || process.env.NEXT_PUBLIC_N8N_URL || 'http:
 const N8N_API_KEY = process.env.N8N_API_KEY || '';
 // Chat Gateway 的 Bearer key（n8n env CHAT_API_KEY），与公共 API 的 X-N8N-API-KEY 是两回事
 const CHAT_API_KEY = process.env.CHAT_API_KEY || '';
+const PLATFORM_RUNTIME_URL = process.env.PLATFORM_RUNTIME_URL || 'http://platform-runtime:3220';
+const PLATFORM_RUNTIME_KEY = process.env.PLATFORM_RUNTIME_KEY || CHAT_API_KEY;
 
 const headers = {
   'X-N8N-API-KEY': N8N_API_KEY,
@@ -17,6 +19,38 @@ export async function getHealthz() {
     console.error('Error fetching health:', error);
     return { status: 'error' };
   }
+}
+
+export interface PlatformJob {
+  job_id: string;
+  job_type: string;
+  status: 'QUEUED' | 'RUNNING' | 'RETRY_WAITING' | 'SUCCEEDED' | 'FAILED' | string;
+  request_id: string;
+  trace_id: string;
+  scope: string;
+  idempotency_key?: string;
+  attempts?: string | number;
+  error_code?: string;
+  error_message?: string;
+  created_at?: string;
+  updated_at?: string;
+  last_attempt_at?: string;
+  last_retry_at?: string;
+  finished_at?: string;
+  result?: Record<string, unknown> | null;
+}
+
+export async function getPlatformJob(jobId: string): Promise<{ ok: boolean; job?: PlatformJob; error?: string }> {
+  const id = String(jobId || '').trim();
+  if (!id) throw new Error('task_id 不能为空');
+  const res = await fetch(`${PLATFORM_RUNTIME_URL.replace(/\/$/, '')}/v1/jobs/${encodeURIComponent(id)}`, {
+    headers: { 'x-platform-runtime-key': PLATFORM_RUNTIME_KEY },
+    cache: 'no-store'
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 401 || res.status === 403) throw new Error('Platform Runtime 拒绝了任务查询');
+  if (!res.ok || body?.ok === false) throw new Error(body?.error || `任务查询失败（${res.status}）`);
+  return body;
 }
 
 export async function getWorkflows() {
