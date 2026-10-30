@@ -11,12 +11,19 @@
 # 要强制拦截：PIVOT_STRICT_PUSH=1 git push
 # 临时绕过：git push --no-verify
 #
+# 第二道闸门（2026-10-29 加）：凭据泄露 —— 把 .env 的真实值写进【本次新增的行】
+# 一律【直接拦截】，不受 PIVOT_STRICT_PUSH 影响，因为这类东西推上去就收不回来
+# （本仓库曾在 GitHub 上是 public：scripts/check-users.mjs 的库密码、
+# demo-assets/_data.json 的 MCP 令牌，公开了整整一个多月）。
+# 分级规则与自检见 scripts/secret-scan.sh 头部；只想放行一次：git push --no-verify
+#
 # 安装：sh scripts/install-git-hooks.sh
 # =============================================================================
 
 strict="${PIVOT_STRICT_PUSH:-0}"
 zero="0000000000000000000000000000000000000000"
 status=0
+root=$(git rev-parse --show-toplevel 2>/dev/null) || root=""
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   # 删除远端分支的推送不检查
@@ -30,6 +37,23 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     base="$remote_sha"
   fi
   [ -z "$base" ] && continue
+
+  # ---- 凭据闸门：只看这次会新增的行，命中即拦截 ----
+  if [ -n "$root" ] && [ -f "$root/scripts/secret-scan.sh" ]; then
+    scan_out=$(bash "$root/scripts/secret-scan.sh" --added "${base}..${local_sha}" 2>/dev/null)
+    scan_rc=$?
+    if [ "$scan_rc" = "1" ]; then
+      echo ""
+      echo "  [x] 已拦截：本次推送【新增的行】里写进了 .env 的真实凭据（值不打印）"
+      printf '%s\n' "$scan_out" | sed 's/^/      /'
+      echo "      绕过一次： git push --no-verify"
+      echo "      证明这道闸门会拦（不是摆设）： bash scripts/secret-scan.sh --self-test"
+      echo ""
+      status=1
+    elif [ "$scan_rc" != "0" ]; then
+      echo "  [!] 凭据闸门没能运行（rc=${scan_rc}，多半是本机没有 .env）—— 这次放行，但请手工跑一次 scripts/secret-scan.sh"
+    fi
+  fi
 
   # numstat 第三列是路径；二进制文件的行数列是 "-"
   stats=$(git diff --numstat "$base" "$local_sha" 2>/dev/null)
