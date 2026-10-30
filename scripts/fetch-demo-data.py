@@ -4,8 +4,10 @@ This becomes the data backbone for the demo deck + renderings.
 
 Keys come from the environment or the repo's gitignored .env -- NEVER hardcoded
 here. This file used to carry a real n8n JWT in git; that token has since
-expired and been rotated, but the repo is public on GitHub, so any
-credential-shaped string belongs in .env (gitignored), not in a tracked file.
+expired and been rotated. The repo was switched to private on 2026-10-29, which
+hides the tree but does not un-publish history -- so the rule is unchanged: any
+credential-shaped string belongs in .env (gitignored), never in a tracked file,
+and anything that entered history has to be rotated rather than deleted.
 """
 import json, os, re, urllib.request, urllib.parse
 from pathlib import Path
@@ -36,6 +38,49 @@ if not N8N_KEY or not CHAT_KEY:
 BASE = "http://localhost:5678"
 H_N8N = {"X-N8N-API-KEY": N8N_KEY, "Accept": "application/json"}
 H_ADM = {"Authorization": "Bearer " + CHAT_KEY, "Accept": "application/json"}
+
+
+def _secret_values():
+    """Every .env value long enough to be a credential, as key -> value.
+
+    The dump below copies whole data-table rows, and some of those tables store
+    live tokens in plain columns (mcp_servers.auth_header is one). Matching the
+    VALUE rather than the column name is what makes this cover the unexpected
+    place too: a DB password embedded in a URL, or a token quoted inside a chat
+    message.
+    """
+    pairs = {}
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            v = v.strip().strip('"').strip("'")
+            if len(v) >= 10:
+                pairs[k.strip()] = v
+    return pairs
+
+
+SECRET_VALUES = _secret_values()
+
+
+def redact(node, stats):
+    """Return node with any live .env value replaced by <redacted:KEY>."""
+    if isinstance(node, dict):
+        return {k: redact(v, stats) for k, v in node.items()}
+    if isinstance(node, list):
+        return [redact(v, stats) for v in node]
+    if isinstance(node, str):
+        for key, val in SECRET_VALUES.items():
+            if val and val in node:
+                node = node.replace(val, f"<redacted:{key}>")
+                stats["hits"] += 1
+                stats["keys"].append(key)
+        return node
+    return node
+
 
 # all data table IDs from /api/v1/data-tables
 TABLES = {
@@ -159,7 +204,14 @@ try:
 except Exception as e:
     out["admin_alerts"] = {"error": str(e)}
 
-# write
+# write (after redaction: this file is tracked, so a live value in it is a leak)
+stats = {"hits": 0, "keys": []}
+out = redact(out, stats)
+if stats["hits"]:
+    uniq = sorted(set(stats["keys"]))
+    print(f"[redact] {stats['hits']} live .env value(s) replaced -> {uniq}")
+    print("[redact] these came from business data, not from this script: a table is "
+          "storing a token in plaintext. Rotate it there.")
 Path("demo-assets").mkdir(exist_ok=True)
 Path("demo-assets/_data.json").write_text(json.dumps(out, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 print(f"✅ demo-assets/_data.json  ({Path('demo-assets/_data.json').stat().st_size//1024} KB)")

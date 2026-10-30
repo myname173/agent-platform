@@ -1443,7 +1443,7 @@
     {
       "name": "self",
       "url": "http://n8n:5678/webhook/mcp",
-      "auth_header": "Bearer mcp-fd5bb6bfe675d9c6f09ca3d19f76ae83",
+      "auth_header": "Bearer <redacted:MCP_API_KEY>",
       "enabled": 1,
       "note": "the platform talking to itself, for the outbound-MCP test",
       "id": 1,
@@ -1693,7 +1693,7 @@
       "name": "机主",
       "display_name": "机主",
       "role": "owner",
-      "channels": "{\"telegram_chat_id\":\"7020739140\"}",
+      "channels": "{\"telegram_chat_id\":\"<redacted:TELEGRAM_CHAT_ID>\"}",
       "tz": "Asia/Shanghai",
       "active": 1,
       "note": "本人",
