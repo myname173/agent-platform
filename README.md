@@ -154,8 +154,8 @@ docker compose up -d
 # 方式 A（推荐）：容器化运行（前端源码见 frontent/）
 docker compose up -d console   # 需在根 .env 配置 CONSOLE_CLERK_PUBLISHABLE_KEY
 
-# 方式 B：dev 模式（首次需要 pnpm install）
-cd frontent && pnpm dev        # → http://localhost:3000
+# 方式 B：dev 模式（首次需要 bun install）
+cd frontent && bun run dev     # → http://localhost:3000
 ```
 
 ### 3. 访问各服务

@@ -9,7 +9,8 @@ FROM node:${NODE_VERSION} AS dependencies
 WORKDIR /app
 
 # Install bun to use bun.lock for dependency resolution
-RUN npm install -g bun
+# Pinned to the version CI uses, so image builds and CI resolve identically.
+RUN npm install -g bun@1.4.4
 
 # Copy package-related files to leverage Docker cache
 COPY package.json bun.lock* ./

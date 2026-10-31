@@ -15,21 +15,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: frontent/pnpm-lock.yaml
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Same version the Dockerfile installs; 1.4.4 was verified to accept
+          # the committed bun.lock under --frozen-lockfile.
+          bun-version: 1.4.4
+
+      # Cache the downloaded packages, not node_modules: the install still runs
+      # and still has to agree with bun.lock. Key follows the lockfile so a
+      # dependency change misses the cache instead of silently reusing it.
+      - name: Cache bun packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('frontent/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: bun run typecheck
 
   workflows-validate:
     name: n8n workflow validation
