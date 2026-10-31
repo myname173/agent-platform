@@ -15,7 +15,7 @@ conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读
 
 - **一个自托管平台，跑在一台机器上。** n8n 是唯一的业务逻辑与 Agent 编排中枢；前端（LobeHub / 控制台 / Telegram / MCP）最终都只调用 n8n，彼此不直接互调（唯一旁路是 LobeHub → stream-bridge → n8n，见 §2.1；`README.md:9-17`、`README.md:125`）。
 - **12 个常驻 Docker 服务 + 3 个可选 profile。** 不是 README 写的 8 或 9 个（见 §11 偏差 D1）。
-- **源码即工作流。** 24 个 n8n workflow 以 JSON 形式入库，部署靠脚本推送，不在 n8n UI 里改（`README.md:1073-1095`）。
+- **源码即工作流。** 25 个 n8n workflow 以 JSON 形式入库，部署靠脚本推送，不在 n8n UI 里改（`README.md:1073-1095`）。
 - **密钥全在 `.env`（gitignore）。** workflow JSON 内不出现密钥值，运行时读 `$env.*`（`n8n/scripts/validate-workflows.mjs:1-11`）。
 - **控制台是 Next.js BFF。** 浏览器只访问 `/api/*`；n8n 的 `N8N_API_KEY` 只在服务端出现（`README.md:271-275`）。
 
@@ -93,7 +93,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 | 目录 | 文件数 | 运行期角色 | 说明 |
 |---|---|---|---|
-| `n8n/` | 65 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`sandbox.Dockerfile` |
+| `n8n/` | 66 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`sandbox.Dockerfile` |
 | `frontent/` | 649 | 运行 | 控制台（Next 16 App Router；目录名拼写如此） |
 | `platform-runtime/` | 8 | 运行 | `platform-runtime/server.js`（533 行）+ 可选 `platform-runtime/worker.js`（phase2 profile） |
 | `stream-bridge/` | 1 | 运行 | 单文件 `stream-bridge/server.js`（639 行） |
@@ -114,7 +114,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 |---|---|
 | `docker-compose.yml` | 唯一部署事实源：端口、依赖、环境变量、profile |
 | `.env.example` | 全部配置项与含义（196 行） |
-| `n8n/scripts/deploy.mjs` | workflow 部署规则 + 22 张数据表定义 |
+| `n8n/scripts/deploy.mjs` | workflow 部署规则 + 23 张数据表定义 |
 | `n8n/workflows/chat-gateway.json` | 对话/鉴权/记忆/工具循环的全部逻辑 |
 | `frontent/src/lib/n8n-client.ts` | 控制台到 n8n / runtime 的所有服务端调用 |
 | `frontent/src/config/nav-config.ts` | 控制台真实导航（14 项） |
@@ -126,9 +126,9 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 ### 4.1 部署模型（确认）
 
-- `n8n/workflows/*.json` 共 **24** 个可部署 workflow；`n8n/workflows/baseline/` 是 2 个旧快照，**不部署**（`n8n/scripts/deploy.mjs:1-15`、`README.md:1077`）。
+- `n8n/workflows/*.json` 共 **25** 个可部署 workflow；`n8n/workflows/baseline/` 是 2 个旧快照，**不部署**（`n8n/scripts/deploy.mjs:1-15`、`README.md:1077`）。
 - 有 `id` → PUT 更新；无 `id` → POST 新建；`active:true` 会重新注册 webhook；`@table_name` 引用会先建表（`n8n/scripts/deploy.mjs:1-15`）。
-- 共 **39** 个唯一 webhook path（`grep '"path"' n8n/workflows/*.json` 去重计数）。
+- 共 **40** 个唯一 webhook path（`grep '"path"' n8n/workflows/*.json` 去重计数）。
 - webhook 本身**没有 n8n 原生鉴权**；鉴权在各 Code 节点里比对 `$env.CHAT_API_KEY`（如 `n8n/workflows/todos.json` 的 Auth 节点）。
 
 ### 4.2 工作流分组
@@ -137,7 +137,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 |---|---|---|
 | 对话核心 | `chat-gateway`、`chat-stats-api`、`chat-retention`、`chat-alerts` | `v1/*`、`admin/*` |
 | 控制台后端 | `platform-admin-api`（68 节点）、`todos`、`reminders` | `admin/*` |
-| 定时任务 | `daily-brief`、`weekly-review`、`topic-watch`、`selfcheck`、`heartbeat` | `admin/*` |
+| 定时任务 | `daily-agenda`、`daily-brief`、`weekly-review`、`topic-watch`、`selfcheck`、`heartbeat` | `admin/*` |
 | 工具 | `doc-forge`、`smart-summary`、`meeting-actions`、`workflow-tools`、`example-echo` | `admin/tools*`、`admin/docforge` |
 | 内部服务 | `memory`、`notify`、`stream-log` | `internal/*` |
 | 外部入口 | `mcp-server`、`telegram-bridge`、`lobehub-config`、`kb-ingest` | `mcp`、`admin/*` |
@@ -146,6 +146,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 | workflow | 规则 |
 |---|---|
+| `daily-agenda` | `30 7,11,15 * * *`（07:30 主槽；当天已有成功推送则补跑槽静默） |
 | `chat-alerts` | 每 15 分钟 |
 | `chat-retention` | `0 3,14 * * *` |
 | `daily-brief` | `30 8,11,15 * * *` |
@@ -154,6 +155,8 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | `selfcheck` | `15 4,10,16,21 * * *` |
 | `reminders` | 每 1 分钟 |
 | `telegram-bridge` | 每 1 分钟 |
+
+`daily-agenda` 的纳入范围：自己的 open todo（必须有 `due_date` 且 ≤ 今天）、未确认的委派（`owner_ref` 非空、`ack_at` 为空，无 due 或 ≤ 今天）、pending 且 ≤ 今天的提醒。指纹（item 身份 + 文本 + bucket + due + owner）不变时不推送，也不写 `agenda_runs`；推送失败同样不写，次日会重试。11:30 / 15:30 是补跑槽，`Already Sent Today` 守卫在当天已有成功记录时直接结束，避免一天推两次。
 
 ### 4.4 Agent 工具
 
@@ -171,8 +174,8 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 - 镜像 `paradedb/paradedb:latest-pg17`，启动参数预加载 `pg_search,pg_cron`（`docker-compose.yml:156-164`；缺 `pg_cron` 会让全新卷启动失败，注释已记录）。
 - 卷名是 `postgres_data_pg17`（`docker-compose.yml:596-598`），旧卷 `postgres_data` 留作回滚（`README.md:127-129`）。
-- n8n Data Table **22 张**，定义在 `n8n/scripts/deploy.mjs:47-270`：
-  `chat_messages, chat_executions, admin_audit, idempotency_records, kb_usage, daily_briefs, workflow_tools, topic_watch, todos, people, tool_contract, mcp_servers, sandbox_approvals, documents, weekly_reviews, selfcheck_runs, heartbeats, telegram_state, reminders, ops_alerts, ops_alert_silence, gateway_keys`。
+- n8n Data Table **23 张**，定义在 `n8n/scripts/deploy.mjs:46-295`：
+  `chat_messages, chat_executions, admin_audit, idempotency_records, kb_usage, daily_briefs, workflow_tools, topic_watch, todos, people, tool_contract, mcp_servers, sandbox_approvals, documents, weekly_reviews, selfcheck_runs, heartbeats, telegram_state, reminders, ops_alerts, ops_alert_silence, gateway_keys, agenda_runs`。
 - 另有 `platform` schema（`CREATE SCHEMA IF NOT EXISTS platform`，`n8n/scripts/platform-schema.sql:7`），runtime 使用 `platform.requests / platform.events / platform.tool_runs`（`platform-runtime/server.js:133-230`）。
 
 ### 5.2 Redis
@@ -262,9 +265,9 @@ node n8n/scripts/lobehub-config.mjs                           # LobeHub ↔ 网�
 | D1 | README 说「8 个服务」/「9 个容器」，实际常驻 **12** | `README.md:9,60,177` vs `docker-compose.yml` | 按 README 数容器会漏掉 redis / stream-bridge / runtime / caddy |
 | D2 | README 说 LobeChat 直接调 n8n；实际经 `stream-bridge` | `README.md:244-247` vs `docker-compose.yml:261,357` | 排查流式/工具问题会找错层 |
 | D3 | 工具数：README 写 12，网关实际 16；MCP 17 | `README.md:31-32` vs `n8n/workflows/chat-gateway.json`、`n8n/workflows/mcp-server.json` | 计数类断言不可信 |
-| D4 | 数据表：README 写 19，实际 22 | `README.md:51` vs `n8n/scripts/deploy.mjs:47-270` | 同上 |
+| D4 | 数据表：README 写 19，实际 23 | `README.md:51` vs `n8n/scripts/deploy.mjs:46-295` | 同上 |
 | D5 | smoke 断言数 README 内部矛盾（71 / 47） | `README.md:77` vs `README.md:1090-1093` | 以运行输出为准 |
-| D6 | 原 CI 用 `pnpm-lock.yaml`（仓库只有 `bun.lock`）→ 已修复：CI 改用 bun + `bun.lock`，bun 固定 1.4.4（2026-10-31，未提交） | `.github/workflows/ci.yml:9-43` vs `frontent/bun.lock` | 修复前每个 PR 必红 |
+| D6 | 原 CI 用 `pnpm-lock.yaml`（仓库只有 `bun.lock`）→ 已修复并提交（`0068d27`）：CI 改用 bun + `bun.lock`，bun 固定 1.4.4 | `.github/workflows/ci.yml:9-43` vs `frontent/bun.lock` | 修复前每个 PR 必红 |
 | D7 | `frontent/AGENTS.md` 过期：写 Next 16.0.10、ESLint/Prettier | `frontent/AGENTS.md` vs `frontent/package.json:15-19` | 按它选工具会装错；以本文件与 `frontent/package.json` 为准 |
 | D8 | README 数据流段落有重复粘贴 | `README.md:262-266` | 阅读噪声 |
 | D9 | `signDocToken` 仅有定义无调用者，文档分享链接不带 `?t=` | `frontent/src/lib/doc-token.ts:23`、`frontent/src/features/docs/components/docs-panel.tsx:226` | 分享功能实际未接通 |
@@ -288,15 +291,15 @@ node n8n/scripts/lobehub-config.mjs                           # LobeHub ↔ 网�
 grep -nE "^  [a-z-]+:" docker-compose.yml
 
 # workflow 数与 webhook 数
-ls n8n/workflows/*.json | wc -l                          # 24
-grep -ho '"path": *"[^"]*"' n8n/workflows/*.json | sort -u | wc -l   # 39
+ls n8n/workflows/*.json | wc -l                          # 25
+grep -ho '"path": *"[^"]*"' n8n/workflows/*.json | sort -u | wc -l   # 40
 
 # 控制台路由与死页面
 find frontent/src/app/api -name route.ts | wc -l         # 27
 grep -rl "notFound()" frontent/src/app/dashboard --include=page.tsx | wc -l  # 16
 
 # 数据表
-grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 22
+grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 23
 
 # 密钥闸门
 node n8n/scripts/validate-workflows.mjs

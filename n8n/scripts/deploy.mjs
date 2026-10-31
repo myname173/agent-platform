@@ -281,6 +281,17 @@ const DATA_TABLE_COLUMNS = {
     { name: 'spend_30d', type: 'number' },
     { name: 'spend_30d_at', type: 'string' },
   ],
+
+  // Daily Agenda: one row per SUCCESSFUL 07:30 push. The fingerprint is what
+  // makes "no change, no message" work; a failed delivery writes no row, so the
+  // next run retries instead of being suppressed by a send that never happened.
+  agenda_runs: [
+    { name: 'agenda_date', type: 'string' },
+    { name: 'fingerprint', type: 'string' },
+    { name: 'item_count', type: 'number' },
+    { name: 'sent', type: 'number' },
+    { name: 'preview', type: 'string' },
+  ],
 };
 
 async function ensureColumns(tableId, expected) {

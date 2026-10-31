@@ -7,7 +7,7 @@
 ## English
 
 **A self-hosted AI agent platform that runs on one machine.** Eight Docker
-Compose services, **24 n8n workflows** as the orchestration core, and four ways
+Compose services, **25 n8n workflows** as the orchestration core, and four ways
 in — a chat front end (LobeHub), an ops console (Next.js), a Telegram bridge,
 and an MCP server for external agent clients.
 
@@ -43,9 +43,9 @@ surface.
   stops the moment they acknowledge.
 - **Pushes you can act on.** Reminders and nudges arrive with inline buttons —
   tap *done* or *snooze* and it writes straight back to the same row.
-- **Runs itself.** Daily brief at 08:30, topic watch at 21:00, weekly review,
-  a 42-check self-test at 04:15, and five-artifact nightly backups with a
-  restore drill into a throwaway database.
+- **Runs itself.** Daily agenda at 07:30 (silent when nothing changed), daily
+  brief at 08:30, topic watch at 21:00, weekly review, a self-test four times a
+  day, and five-artifact nightly backups with a restore drill into a throwaway database.
 
 **Numbers** (verified 2026-09-21): 8 containers · 24 workflows · 39 webhook
 paths · 12 agent tools · 19 data tables · 25 console API routes · smoke test
@@ -187,7 +187,7 @@ docker compose up -d          # 9 个容器（含栈内备份 backup）
 N8N_URL=http://localhost:5678 N8N_API_KEY=<key> node n8n/scripts/deploy.mjs
 ```
 
-`deploy.mjs` 会：创建/更新 24 条工作流 → 建好所有数据表与缺失列 → **把工作流里写死的凭据 ID 重映射到本机同名凭据** → 快照网关工具表。
+`deploy.mjs` 会：创建/更新 25 条工作流 → 建好所有数据表与缺失列 → **把工作流里写死的凭据 ID 重映射到本机同名凭据** → 快照网关工具表。
 
 剩下的手工步骤只有三条：
 
