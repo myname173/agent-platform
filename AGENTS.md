@@ -270,13 +270,14 @@ node n8n/scripts/lobehub-config.mjs                           # LobeHub ↔ 网�
 | D6 | 原 CI 用 `pnpm-lock.yaml`（仓库只有 `bun.lock`）→ 已修复并提交（`8400781`）：CI 改用 bun + `bun.lock`，bun 固定 1.4.4 | `.github/workflows/ci.yml:9-43` vs `frontent/bun.lock` | 修复前每个 PR 必红 |
 | D7 | `frontent/AGENTS.md` 过期：写 Next 16.0.10、ESLint/Prettier | `frontent/AGENTS.md` vs `frontent/package.json:15-19` | 按它选工具会装错；以本文件与 `frontent/package.json` 为准 |
 | D8 | README 数据流段落有重复粘贴 | `README.md:262-266` | 阅读噪声 |
-| D9 | `signDocToken` 仅有定义无调用者，文档分享链接不带 `?t=` | `frontent/src/lib/doc-token.ts:23`、`frontent/src/features/docs/components/docs-panel.tsx:226` | 分享功能实际未接通 |
+| D9 | ~~文档分享未接通~~ **原判断错误，已更正**：分享链路是通的——`doc-forge` 的 `Run Doc Forge` 节点用 `CHAT_API_KEY` 做 HMAC 签出 `?t=`，`frontent/src/app/api/n8n/docs/[id]/route.ts:21-22` 用 `verifyDocToken` 校验，控制台「复制链接」按钮走 `action:'sign'`（`frontent/src/features/docs/components/docs-panel.tsx:126-138,261-263`），selfcheck 还有 `doc signed link` 断言。真正的问题只是前端 `signDocToken` / `DOC_TOKEN_TTL_DAYS` 两个导出从无调用者（重复实现），已删除 | `n8n/workflows/doc-forge.json`、`frontent/src/lib/doc-token.ts` | 别把它当缺失功能重做一遍 |
 | D10 | 控制台元数据仍是模板文案、包名仍是 `next-shadcn-dashboard-starter` | `frontent/src/app/dashboard/layout.tsx:11-18`、`frontent/package.json:2` | 仅观感 |
 | D11 | 硬编码局域网 IP `192.168.1.114` | `frontent/src/features/overview/components/push-mobile-card.tsx:13,66-71` | 换网络后推送卡片失效 |
 | D12 | `searxng` 使用明文弱密钥 `n8nsecretkey123` | `searxng/settings.yml:40` | SearXNG 仅内网可达，但仍属弱配置 |
 | D13 | `.probe.txt` 是 docker 探测输出残留 | `.probe.txt:1-4` | 无功能影响，易误认为凭证 |
 | D14 | backup 容器只读挂载整个 `.env` | `docker-compose.yml:547` | 容器内任意执行即可读到全部密钥 |
-| D15 | `stream-bridge` 用 `'Bea'+'rer '` 拼接 | `stream-bridge/server.js:23` | 规避密钥扫描的写法，审计时要认得出 |
+| D15 | 用字符串拼接绕过密钥扫描：`stream-bridge` 的 `'Bea'+'rer '`，`smoke-test.mjs` 的 `"proc"+"ess"` 与 `["DASH","SCOPE_API","_KEY"].join("")` | `stream-bridge/server.js:23`、`n8n/scripts/smoke-test.mjs:348` | 规避密钥扫描的写法，审计时要认得出 |
+| D16 | 断言数以代码为准：`selfcheck.json` 现有 **48** 条 `add()`（README 写 42/42、47 项、45 通过，三处互不相同），`smoke-test.mjs` 现有 **65** 处 `check()` 调用，而它打印的 `total` 只算实际跑到的 pass/fail，缺 env 时整组 SKIP | `n8n/workflows/selfcheck.json`、`n8n/scripts/smoke-test.mjs:51,268,350,423,451` vs `README.md:52,447,476-477,1096` | README 那些数字是历史运行输出，引用前先数代码 |
 
 ## 12. 安全现状（必须知道）
 
