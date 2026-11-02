@@ -1,0 +1,38 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>SVG 可导入性校验</title>
+<style>body{font:13px/1.5 system-ui;background:#111;color:#ddd;padding:18px}
+table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #333;padding:6px 8px;text-align:left;font-size:12px;vertical-align:top}
+.ok{color:#10B981}.bad{color:#EF4444}img{background:#222;max-width:300px;display:block}</style></head><body>
+<h3>figma/*.svg · 浏览器渲染校验（浏览器画不出来 = Figma 也导不进去）</h3>
+<table><thead><tr><th>#</th><th>文件</th><th>渲染结果</th><th>预览</th></tr></thead><tbody id="tb"></tbody></table>
+<div id="verdict" style="margin-top:12px;font-weight:700">尚未完成</div>
+<script>
+const files = [
+ ['00-合板-全部画板-一次拖入.svg',6260,1860],
+ ['01-控制台-Overview-1440x900.svg',1440,900],['02-控制台-Operations-暗色-1440x900.svg',1440,900],
+ ['03-控制台-Keys-1440x900.svg',1440,900],['04-控制台-Alerts-1440x900.svg',1440,900],
+ ['05-控制台-Knowledge-1440x900.svg',1440,900],['06-LobeChat前台-PivotAI-1440x900.svg',1440,900],
+ ['07-Telegram-推送与派发阶梯-1600x900.svg',1600,900],['08-信息架构与跨端用户旅程-1600x900.svg',1600,900]];
+const tb=document.getElementById('tb'); window.__res=[];
+files.forEach(([f,w0,h0],i)=>{
+  const tr=document.createElement('tr');
+  tr.innerHTML='<td>'+(i+1)+'</td><td>'+f+'</td><td class="st">加载中</td><td></td>';
+  tb.appendChild(tr);
+  const img=new Image();
+  img.onload=()=>{ const ok = img.naturalWidth===w0 && img.naturalHeight===h0;
+    tr.querySelector('.st').innerHTML = ok
+      ? '<span class="ok">可渲染 '+img.naturalWidth+'×'+img.naturalHeight+'（与声明一致）</span>'
+      : '<span class="bad">尺寸不符 '+img.naturalWidth+'×'+img.naturalHeight+'，声明 '+w0+'×'+h0+'</span>';
+    tr.lastElementChild.appendChild(img);
+    window.__res.push({f,ok,w:img.naturalWidth,h:img.naturalHeight}); done(); };
+  img.onerror=()=>{ tr.querySelector('.st').innerHTML='<span class="bad">渲染失败（XML 不合法或有未闭合标签）</span>';
+    window.__res.push({f,ok:false,w:0,h:0}); done(); };
+  img.src='../figma/'+encodeURIComponent(f);
+});
+function done(){ if(window.__res.length<files.length) return;
+  const bad=window.__res.filter(r=>!r.ok);
+  document.getElementById('verdict').innerHTML = bad.length===0
+    ? '<span class="ok">0/'+files.length+' 异常 —— 全部可渲染且尺寸与声明一致</span>'
+    : '<span class="bad">'+bad.length+' 张异常：'+bad.map(b=>b.f).join('、')+'</span>';
+  document.getElementById('verdict').firstChild.className = bad.length===0?'ok':'bad';
+}
+</script></body></html>
