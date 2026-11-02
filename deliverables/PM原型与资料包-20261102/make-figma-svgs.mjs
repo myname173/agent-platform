@@ -52,8 +52,10 @@ const arrow = (x1,y1,x2,y2,{stroke=L.muted,sw=1.5,label='',c={}}={}) => {
 };
 
 /* 语义组件 */
+const CJK = /[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef\u{1f300}-\u{1faff}]/u;
+const textW = (s, fs) => [...String(s)].reduce((a, c) => a + (CJK.test(c) ? fs : fs * 0.58), 0);
 const badge = (x,y,label,color,bgOpacity=.14) => {
-  const w = 12 + label.length*6.2;
+  const w = 12 + textW(label, 10);   // 原先按 6.2/字符算，中文徽标（如「引擎正常」）框太窄，字会压到旁边头像
   return g('Badge/'+label, rect(0,0,w,18,{fill:color,rx:9,opacity:bgOpacity})+rect(0,0,w,18,{stroke:color,rx:9,sw:.8})
     +txt(w/2,12.5,label,{size:10,fill:color,anchor:'middle',weight:600}), x, y);
 };
@@ -108,8 +110,8 @@ const sidebar = (items,t=L) => {
 const topbar = (w,crumb,t=L) => g('Topbar/'+crumb,
   rect(0,0,w,52,{fill:t.bg,stroke:t.border})+line(0,52,w,52,{stroke:t.border})
   +txt(20,32,crumb,{size:12,fill:t.muted})
-  +rect(w-300,14,220,26,{fill:t.card,stroke:t.border,rx:8})+txt(w-286,31,'搜索命令…',{size:11,fill:t.muted})+txt(w-96,31,'⌘K',{size:10,fill:t.muted,fam:MONO})
-  +badge(w-70,17,'引擎正常',t.ok)+circle(w-24,26,13,{fill:t.primary})+txt(w-24,30,'黄',{size:10,fill:'#fff',anchor:'middle'}));
+  +rect(w-520,14,220,26,{fill:t.card,stroke:t.border,rx:8})+txt(w-506,31,'搜索命令…',{size:11,fill:t.muted})+txt(w-316,31,'⌘K',{size:10,fill:t.muted,fam:MONO})
+  +badge(w-260,17,'引擎正常',t.ok)+circle(w-30,26,13,{fill:t.primary})+txt(w-30,30,'黄',{size:10,fill:'#fff',anchor:'middle'}));
 
 const BOARDS = [];   // 收集每张画板，用于最后合成“一次拖入”的合板文件
 const svgFile = (name,width,height,body,note='') => {
@@ -180,10 +182,10 @@ out.push(svgFile('01-控制台-Overview-1440x900.svg',1440,900,
           + txt(24,756,'平台',{size:12.5,weight:600,fill:L.fg})+txt(60,756,'运行状态与已经沉淀下来的内容',{size:11,fill:L.muted})
           + line(100,752,1148,752,{stroke:L.border})
           + cardBox(24,770,540,110,'平台自检','48 项 · 手动与定时分别统计 · POST /webhook/admin/selfcheck/run · R-SC-01')
-          + txt(40,820,'最近一次：48/48 全绿（2026-10-30 实机）',{size:11.5,fill:L.fg})
+          + txt(40,842,'最近一次：48/48 全绿（2026-10-30 实机）',{size:11.5,fill:L.fg})
           + cardBox(580,770,572,110,'模型成本','告警复用 Chat Stats 的成本数、不自己重算 · R-CF-01')
-          + txt(596,814,'24h $0.0091 · 7d $0.1133 · 累计 $0.4745',{size:11.5,fill:L.fg})
-          + rect(596,830,540,7,{fill:L.accent,rx:4})+rect(596,830,3,7,{fill:L.info,rx:4})
+          + txt(596,840,'24h $0.0091 · 7d $0.1133 · 累计 $0.4745',{size:11.5,fill:L.fg})
+          + rect(596,854,540,7,{fill:L.accent,rx:4})+rect(596,854,3,7,{fill:L.info,rx:4})
         )
     , 248, 0),0, 0),
   '控制台总览页 · 1440x900 · 对应 frontent/src/features/overview/components/platform-overview.tsx'))
@@ -403,7 +405,7 @@ out.push(svgFile('07-Telegram-推送与派发阶梯-1600x900.svg',1600,900,
         + txt(30,444,'错误率 60.0%（6/10，窗口 60 分钟）超过阈值 50%',{size:10.5,fill:T.fg,fam:MONO}),0,0)
       + g('Msg/动态监控', rect(16,480,368,110,{fill:T.card,stroke:'none',rx:13})
         + txt(30,502,'📡 动态监控 · 新发现 2 条',{size:11,weight:700,fill:T.green})
-        + lines(30,524,['▸ n8n 自托管 更新','  • 2.37.7 改了 rows 响应体解析 —— https://…','▸ AI Agent 编排框架','  • 长上下文检索新基线 —— https://…'],{size:10,fill:T.fg,lh:16})
+        + lines(30,524,['▸ n8n 自托管 更新','  • 2.37.7 改了 rows 响应体解析 —— https://…','▸ AI Agent 编排框架','  • 长上下文检索新基线 —— https://…'],{size:10,fill:T.fg,lh:14})
         + txt(30,578,'每关键词 1–3 条 · ≤60 字 · time_range=day · 同夜 seen 去重',{size:9.5,fill:T.muted}),0,0)
       + g('Msg/语音降级规则', rect(16,606,368,110,{fill:T.card,stroke:'none',rx:13})
         + txt(30,628,'🎙 双向语音 · 镜像模式',{size:11,weight:600,fill:T.fg})
