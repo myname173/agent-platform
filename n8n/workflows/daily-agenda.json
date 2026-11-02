@@ -101,8 +101,11 @@
     },
     {
       "parameters": {
-        "respondWith": "firstIncomingItem",
-        "options": {}
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
       },
       "id": "respond-error",
       "name": "Respond Error",
