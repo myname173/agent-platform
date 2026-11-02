@@ -6,6 +6,7 @@ let fail = 0;
 for (const f of readdirSync(dir).filter(x => x.endsWith('.svg'))) {
   const s = readFileSync(join(dir, f), 'utf8');
   const errs = [];
+  const infos = [];
 
   // 1) 标签栈平衡
   const stack = [];
@@ -88,6 +89,23 @@ for (const f of readdirSync(dir).filter(x => x.endsWith('.svg'))) {
     if (ix > 2 && iy > 2) errs.push(`Card 重叠：「${a.name}」×「${b.name}」交叠 ${Math.round(ix)}×${Math.round(iy)}`);
   }
 
+  // 5) 渐变/裁剪引用完整性：fill="url(#x)" 悬空时形状会渲染成黑块或消失，
+  //    而结构上仍然是合法 XML —— 这类"看不见但不报错"的缺陷必须单独判。
+  const definedIds = new Set([...s.matchAll(/\sid="([^"]+)"/g)].map(m => m[1]));
+  const refs = [...s.matchAll(/url\(#([^)]+)\)/g)].map(m => m[1]);
+  const dangling = [...new Set(refs)].filter(id => !definedIds.has(id));
+  if (dangling.length) errs.push('悬空的渐变/裁剪引用：' + dangling.join(', ') + '（会渲染成黑块或消失）');
+  const idCounts = new Map();
+  for (const m of s.matchAll(/\sid="([^"]+)"/g)) idCounts.set(m[1], (idCounts.get(m[1]) || 0) + 1);
+  const refSet = new Set(refs);
+  /* 只有被 url(#id) 引用的 id 重了才是缺陷（渐变/裁剪会串引用）。
+     Badge/已触达×2、Sidebar×5 这类是同一组件的多个实例 —— Figma 图层名允许重复，
+     把它们判红是我这条检查写错了，不是内容错了，所以降级为提示。 */
+  const dupReferenced = [...idCounts].filter(([id, n]) => n > 1 && refSet.has(id)).map(([id, n]) => id + '×' + n);
+  if (dupReferenced.length) errs.push('被引用但重复的 id（渐变/裁剪会串引用）：' + dupReferenced.join(', '));
+  const dupInfo = [...idCounts].filter(([id, n]) => n > 1 && !refSet.has(id));
+  if (dupInfo.length) infos.push('同名组件实例（Figma 图层名可重复，不算缺陷）：' + dupInfo.slice(0, 4).map(([id, n]) => id + '×' + n).join(', '));
+
   // 6) Figma 关心的可编辑性：text 图层数 / 命名分组数
   const texts = (s.match(/<text /g) || []).length;
   const groups = (s.match(/<g id="/g) || []).length;
@@ -98,6 +116,7 @@ for (const f of readdirSync(dir).filter(x => x.endsWith('.svg'))) {
   if (!ok) fail++;
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${f}  ·  ${groups} 命名组 / ${rects} 矩形 / ${texts} 文本图层 / ${cards.length} Card / 几何判定 ${checked} 个元素 / 交给 getBBox 的 path·polygon ${uncheckedGeom} 个${unnamed ? ' / ' + unnamed + ' 个未命名组' : ''}`);
   errs.forEach(e => console.log('        ⤷ ' + e));
+  infos.forEach(i => console.log('        · 提示 ' + i));
 }
 console.log(fail === 0 ? `\n全部 SVG 结构合法（${'0'} 个失败）` : `\n${fail} 个文件结构有问题`);
 process.exit(fail === 0 ? 0 : 1);
