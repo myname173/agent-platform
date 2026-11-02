@@ -86,6 +86,23 @@ for (const sec of document.querySelectorAll('#svgs section')) {
     }
   }
   for (const [name, e] of boardAcc) boards.push({ name, shapes: boxOf(e.shapes), n: e.shapes.n, text: boxOf(e.text) });
+  /* 文字压字检测：用 Chromium 的**实际字宽**判定。
+     我原先用 len*fs*0.62 估宽，把 8 处真问题放大成 61 处假阳性 —— 估宽只留给“含文本参考”列用。 */
+  const textBoxes = [];
+  for (const el of sec.querySelectorAll('text')) {
+    let b; try { b = el.getBBox(); } catch (e) { continue; }
+    if (!b || (b.width === 0 && b.height === 0)) continue;
+    const r = toRoot(el, b);
+    textBoxes.push({ x: r.x, y: r.y, w: r.w, h: r.h, t: (el.textContent || '').slice(0, 18) });
+  }
+  const collisions = [];
+  for (let i = 0; i < textBoxes.length; i++) for (let j = i + 1; j < textBoxes.length; j++) {
+    const a = textBoxes[i], b2 = textBoxes[j];
+    const ox = Math.min(a.x + a.w, b2.x + b2.w) - Math.max(a.x, b2.x);
+    const oy = Math.min(a.y + a.h, b2.y + b2.h) - Math.max(a.y, b2.y);
+    if (ox > 6 && oy > 4) collisions.push(a.t + ' × ' + b2.t + ' (' + Math.round(ox) + '×' + Math.round(oy) + ')');
+  }
+
   const overOf = (t) => ({ left: -t.minX, top: -t.minY, right: t.maxX - w, bottom: t.maxY - h });
   const over = overOf(shapes);
   const bad = Object.entries(over).some(([, v]) => v > 1);
@@ -93,14 +110,15 @@ for (const sec of document.querySelectorAll('#svgs section')) {
   rows.push({ file, declared: w + '×' + h, shapes: boxOf(shapes), shapesN: shapes.n,
     withText: boxOf(withText), textOnlyOverflow: Object.entries(overTxt).some(([, v]) => v > 1),
     over: Object.entries(over).filter(([, v]) => v > 1).map(([k, v]) => k + ' ' + Math.round(v) + 'px').join(' / ') || '—',
-    bad, boards });
+    bad, collisions, boards });
 }
 for (const r of rows) {
   const tr = document.createElement('tr');
+  const shapeCell = r.bad ? '<span class="bad">图形溢出：' + r.over + '</span>' : '<span class="ok">图形在框内</span>';
+  const textCell = r.collisions.length ? '<br><span class="bad">文字压字 ' + r.collisions.length + ' 处：' + r.collisions.slice(0, 3).join('；') + (r.collisions.length > 3 ? ' …' : '') + '</span>' : '';
   tr.innerHTML = '<td>' + r.file + '</td><td>' + r.declared + '</td>'
     + '<td>' + r.shapes + '（' + r.shapesN + ' 图形）</td><td>' + r.withText + '</td>'
-    + '<td class="' + (r.bad ? 'bad">图形溢出：' + r.over : 'ok">图形在框内')
-    + (r.textOnlyOverflow && !r.bad ? '<br><span class="warn">（含文本参考略出界，估宽噪声）</span>' : '') + '</td>';
+    + '<td>' + shapeCell + textCell + '</td>';
   tb.appendChild(tr);
   for (const b of r.boards) {
     const br = document.createElement('tr');
@@ -118,10 +136,13 @@ for (const r of rows) {
     + (r.textOnlyOverflow && !r.bad ? '<br><span class="warn">（含文本参考值略出界，属估宽噪声）</span>' : '') + '</td>';
   tb.appendChild(tr);
 }
-const bads = rows.filter(r => r.bad);
+const bads = rows.filter(r => r.bad || r.collisions.length);
+const shapeBads = rows.filter(r => r.bad), textBads = rows.filter(r => r.collisions.length);
 document.getElementById('report').innerHTML =
-  '<p class="' + (bads.length ? 'bad' : 'ok') + '">' + (bads.length ? bads.length + '/' + rows.length + ' 个文件的**图形**超出声明画板：' + bads.map(b => b.file).join('、') : '全部 ' + rows.length + ' 个文件的图形都在声明画板内') + '</p>'
-  + '<p class="warn">判定只看图形（rect/circle/ellipse/line/path/polygon，1px 容差）；含文本那一列是参考值，字体度量差异会带来几 px 假阳性，不参与判定。</p>';
+  '<p class="' + (bads.length ? 'bad' : 'ok') + '">' + (bads.length
+    ? bads.length + '/' + rows.length + ' 个文件有问题 —— 图形越界 ' + shapeBads.length + ' 个、文字压字 ' + textBads.length + ' 个文件（共 ' + rows.reduce((a, r) => a + r.collisions.length, 0) + ' 处）'
+    : '全部 ' + rows.length + ' 个文件：图形在框内，且无文字重叠') + '</p>'
+  + '<p class="warn">图形判定 1px 容差；文字压字判定 = 垂直重叠 &gt;4px 且水平重叠 &gt;6px。「含文本参考」列本身不参与越界判定（字体度量差异会带来几 px 假阳性）。</p>';
 window.__bbox = rows;
 </script></body></html>\n`, 'utf8');
 
