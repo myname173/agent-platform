@@ -1,2 +1,3 @@
-# 这是用 _verify/extract-script.mjs 从原型 HTML 里抽出来的临时校验产物，可随时重生成
+# 这两个是从交付物重新生成的校验产物，可随时重跑生成，不进版本库
 proto.js
+bbox-check.html
