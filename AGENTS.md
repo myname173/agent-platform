@@ -93,7 +93,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 | 目录 | 文件数 | 运行期角色 | 说明 |
 |---|---|---|---|
-| `n8n/` | 67 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`sandbox.Dockerfile` |
+| `n8n/` | 68 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`sandbox.Dockerfile` |
 | `frontent/` | 649 | 运行 | 控制台（Next 16 App Router；目录名拼写如此） |
 | `platform-runtime/` | 8 | 运行 | `platform-runtime/server.js`（533 行）+ 可选 `platform-runtime/worker.js`（phase2 profile） |
 | `stream-bridge/` | 1 | 运行 | 单文件 `stream-bridge/server.js`（639 行） |
@@ -114,7 +114,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 |---|---|
 | `docker-compose.yml` | 唯一部署事实源：端口、依赖、环境变量、profile |
 | `.env.example` | 全部配置项与含义（196 行） |
-| `n8n/scripts/deploy.mjs` | workflow 部署规则 + 23 张数据表定义 |
+| `n8n/scripts/deploy.mjs` | workflow 部署规则 + 24 张数据表定义 |
 | `n8n/workflows/chat-gateway.json` | 对话/鉴权/记忆/工具循环的全部逻辑 |
 | `frontent/src/lib/n8n-client.ts` | 控制台到 n8n / runtime 的所有服务端调用 |
 | `frontent/src/config/nav-config.ts` | 控制台真实导航（14 项） |
@@ -163,7 +163,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | `reminders` | 每 1 分钟 |
 | `telegram-bridge` | 每 1 分钟 |
 
-`daily-agenda` 的纳入范围：自己的 open todo（必须有 `due_date` 且 ≤ 今天）、未确认的委派（`owner_ref` 非空、`ack_at` 为空，无 due 或 ≤ 今天）、pending 且 ≤ 今天的提醒。指纹（item 身份 + 文本 + bucket + due + owner）不变时不推送，也不写 `agenda_runs`；推送失败同样不写，次日会重试。11:30 / 15:30 是补跑槽，`Already Sent Today` 守卫在当天已有成功记录时直接结束，避免一天推两次。
+`daily-agenda` 的纳入范围：自己的 open todo（必须有 `due_date` 且 ≤ 今天）、未确认的委派（`owner_ref` 非空、`ack_at` 为空，无 due 或 ≤ 今天）、pending 且 ≤ 今天的提醒。指纹（item 身份 + 文本 + bucket + due + owner + 项目 label）不变时不推送，也不写 `agenda_runs`；推送失败同样不写，次日会重试。11:30 / 15:30 是补跑槽，`Already Sent Today` 守卫在当天已有成功记录时直接结束，避免一天推两次。
 
 ### 4.4 Agent 工具
 
@@ -172,6 +172,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 - 其上还会动态追加：`wf_<name>`（`wf_tools` 注册表里的用户自建流程）与 `client_tools`（客户端自带工具）；因此**工具总数不是固定值**，"16"只指静态表。
 - 第 1 轮的 `serverTools` 会作为 `server_tools` 传入第 2 轮，保证工具面不会在循环中途缩小（同节点注释）。
 - MCP 暴露 **17** 个工具（`n8n/workflows/mcp-server.json` 的 `Do MCP` 节点）：上述大部分 + `people_list, delegation_view, doc_create, doc_list, doc_get`。
+- `todo_add` / `todo_list` 各带一个可选 `project`（slug 或 label）；工具**数量没变**，只是参数变宽。合法取值不额外开工具去查——`todo_list` 的响应里就带 `projects` 登记表，模型调一次列表即可自发现（与 `owner` 靠 `people` 字段自发现同一套路）。
 - 工具循环上限由 `MAX_TOOL_ROUNDS` 控制，默认 2（`docker-compose.yml:59`）。
 - Code 节点可用的外部模块：`pg`（`NODE_FUNCTION_ALLOW_EXTERNAL=pg`）、内置 `crypto`（`docker-compose.yml:63-67`）。
 
@@ -181,9 +182,22 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 - 镜像 `paradedb/paradedb:latest-pg17`，启动参数预加载 `pg_search,pg_cron`（`docker-compose.yml:156-164`；缺 `pg_cron` 会让全新卷启动失败，注释已记录）。
 - 卷名是 `postgres_data_pg17`（`docker-compose.yml:596-598`），旧卷 `postgres_data` 留作回滚（`README.md:127-129`）。
-- n8n Data Table **23 张**，定义在 `n8n/scripts/deploy.mjs:46-295`：
-  `chat_messages, chat_executions, admin_audit, idempotency_records, kb_usage, daily_briefs, workflow_tools, topic_watch, todos, people, tool_contract, mcp_servers, sandbox_approvals, documents, weekly_reviews, selfcheck_runs, heartbeats, telegram_state, reminders, ops_alerts, ops_alert_silence, gateway_keys, agenda_runs`。
+- n8n Data Table **24 张**，定义在 `n8n/scripts/deploy.mjs:46-311`：
+  `chat_messages, chat_executions, admin_audit, idempotency_records, kb_usage, daily_briefs, workflow_tools, topic_watch, todos, people, projects, tool_contract, mcp_servers, sandbox_approvals, documents, weekly_reviews, selfcheck_runs, heartbeats, telegram_state, reminders, ops_alerts, ops_alert_silence, gateway_keys, agenda_runs`。
+- 实例上还会多出第 25 张 `cron_runs`（列 `job/period/ran_at/source`）：它**不在** `DATA_TABLE_COLUMNS` 里，是 `topic-watch` 与 `weekly-review` 的守卫节点在运行时「查不到就自己建」出来的，因此不受 `ensureColumns` 保护（`n8n/workflows/topic-watch.json` 的 `Already Ran Today` / `Mark Ran`）。
 - 另有 `platform` schema（`CREATE SCHEMA IF NOT EXISTS platform`，`n8n/scripts/platform-schema.sql:7`），runtime 使用 `platform.requests / platform.events / platform.tool_runs`（`platform-runtime/server.js:133-230`）。
+
+### 5.1.1 项目维度（`projects` + `project_ref`）
+
+一个小型交付团队的活儿是**按项目**分的，所以 `projects` 是登记表、`project_ref` 是外键（按名字引用，不是数字 id）。
+
+- `projects` 列：`name`（slug，唯一键，约定用仓库名）· `label`（人读的显示名）· `repo_url` · `customer` · `status`（`active|archived`）· `notes` · `created_at`。
+- 建表由 `deploy.mjs` 负责，**行由 `n8n/scripts/seed-projects.mjs` 登记**（deploy.mjs 只造结构、从不写数据）。种子脚本幂等且**只填空**：已经非空的字段一律不动，所以机主手工填的 `customer` 不会被重跑覆盖；默认只报差异，`apply` 才写。
+- 挂了 `project_ref` 的表：`todos`、`documents`。`reminders` **还没有**（提醒目前不按项目分）。
+- 写入侧一律「必须已登记」：`admin/todos/add`、`doc-forge create`、`admin/report/health` 收到未知 slug 直接 400（`unknown_project`），归档项目 400（`project_archived`）——避免一个错别字凭空开出无人认领的项目。slug 与 label 都能匹配，存进去的永远是 slug。
+- 读取侧：`admin/todos?project=<slug|label|none>`、`doc-forge action=list project=…`；响应里额外带 `projects`（登记表）与 `by_project`（分布），`none` 表示未归类。
+- 晨报把项目渲染成行尾 `[label]` 标签，未挂项目的条目**渲染与加这个功能之前完全一致**；项目 label 参与指纹，所以改归属算「有变化」，会重新推送。
+- 对外验收报告（`audience=client`）把解析出来的项目 label 也塞进脱敏扫描目标——它和调用方传的 title 一样属于「外部可影响、又会出现在文档标题里」的数据（见 §4.2）。
 
 ### 5.2 Redis
 
@@ -232,6 +246,8 @@ cd frontent && bun run typecheck
 # 一次性接线
 bash scripts/provision-bucket.sh                              # 建桶 + CORS
 node n8n/scripts/lobehub-config.mjs                           # LobeHub ↔ 网关
+N8N_URL=... N8N_API_KEY=... node n8n/scripts/seed-projects.mjs         # 只报项目登记差异
+N8N_URL=... N8N_API_KEY=... node n8n/scripts/seed-projects.mjs apply   # 写入（幂等、只填空）
 ```
 
 控制台脚本来自 `frontent/package.json:9-22`；包管理器是 **bun**（`bun.lock`），CI 与 `frontent/Dockerfile` 都固定 **bun 1.4.4**（`frontent/Dockerfile:12-13`、`.github/workflows/ci.yml:22-26`）。
@@ -290,6 +306,7 @@ node n8n/scripts/lobehub-config.mjs                           # LobeHub ↔ 网�
 | D14 | backup 容器只读挂载整个 `.env` | `docker-compose.yml:547` | 容器内任意执行即可读到全部密钥 |
 | D15 | 用字符串拼接绕过密钥扫描：`stream-bridge` 的 `'Bea'+'rer '`，`smoke-test.mjs` 的 `"proc"+"ess"` 与 `["DASH","SCOPE_API","_KEY"].join("")` | `stream-bridge/server.js:23`、`n8n/scripts/smoke-test.mjs:348` | 规避密钥扫描的写法，审计时要认得出 |
 | D16 | 断言数以代码为准：`selfcheck.json` 现有 **49** 条 `add()`（含新增的 `schedules fresh`；README 里同一个数写了 20 / 42 / 43 / 47 / 48 五种，全是历史运行输出），`smoke-test.mjs` 现有 **65** 处 `check()` 调用，而它打印的 `total` 只算实际跑到的 pass/fail，缺 env 时整组 SKIP | `n8n/workflows/selfcheck.json`、`n8n/scripts/smoke-test.mjs:51,268,350,423,451` vs `README.md:52,78,447,476-477,487,744,944,1096` | README 那些数字是历史运行输出，引用前先数代码 |
+| D17 | doc-forge 的业务错误走 **HTTP 200**：只有 `Auth` 接了 `Respond Error`（真状态码），`Run Doc Forge` 的 `bad()` 直接进 `Respond Doc Forge`（`firstIncomingItem`），所以 `unknown_kind` / `not_found` / `unknown_project` 都返回 200 + `{__error:true,status,body}` 信封。MCP 的 `doc_create` 原来只判 `r.ok === false`，于是把失败报成 `Document #undefined (weekly) created: undefined` 且 `isError:false`（**已修**：现在要求 `r.id` 存在）；`doc_get` 因为有 `!r.html` 兜底一直是对的 | `n8n/workflows/doc-forge.json` 的 connections 与 `bad()`、`n8n/workflows/mcp-server.json` 的 `doc_create` | 集成方只看状态码会以为成功；新加 `bad()` 分支时必须同时检查调用方 |
 
 ## 12. 安全现状（必须知道）
 
@@ -312,7 +329,7 @@ find frontent/src/app/api -name route.ts | wc -l         # 27
 grep -rl "notFound()" frontent/src/app/dashboard --include=page.tsx | wc -l  # 16
 
 # 数据表
-grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 23
+grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 24
 
 # 密钥闸门
 node n8n/scripts/validate-workflows.mjs

@@ -142,6 +142,7 @@ const DATA_TABLE_COLUMNS = {
     { name: 'remind_count', type: 'number' },
     { name: 'last_remind_at', type: 'string' },
     { name: 'escalated', type: 'number' },
+    { name: 'project_ref', type: 'string' },
   ],
 
   // B0 identity foundation: people directory (owner-managed, no self-registration)
@@ -153,6 +154,20 @@ const DATA_TABLE_COLUMNS = {
     { name: 'tz', type: 'string' },
     { name: 'active', type: 'number' },
     { name: 'note', type: 'string' },
+  ],
+
+  // Project registry: what the team is actually delivering. `name` is the slug
+  // every *_ref points at (a repo name by convention), `label` is what humans
+  // read. Rows are seeded by n8n/scripts/seed-projects.mjs, not by deploy.mjs —
+  // this script only ever creates structure.
+  projects: [
+    { name: 'name', type: 'string' },
+    { name: 'label', type: 'string' },
+    { name: 'repo_url', type: 'string' },
+    { name: 'customer', type: 'string' },
+    { name: 'status', type: 'string' },
+    { name: 'notes', type: 'string' },
+    { name: 'created_at', type: 'string' },
   ],
 
   // B2: tool-contract snapshot (gateway side) — the sidecar reports its own list at /healthz,
@@ -197,6 +212,7 @@ const DATA_TABLE_COLUMNS = {
     { name: 'meta', type: 'string' },
     { name: 'archived_at', type: 'string' },
     { name: 'kb_doc_id', type: 'string' },
+    { name: 'project_ref', type: 'string' },
   ],
 
   // B3: weekly reviews (owner view by default, team view on demand)
