@@ -750,7 +750,7 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 
 ### 待办（Todos）
 
-开放循环登记（对话 / 晨报 / 控制台三处接入）。每条待办可以挂一个**项目**（`projects` 登记表里的 slug 或显示名，用 `n8n/scripts/seed-projects.mjs` 登记）：晨报会把它渲染成行尾的 `[项目]` 标签，`todo_list` 与 `admin/todos?project=` 都能按项目过滤，未登记的项目名会被拒（400 `unknown_project`），免得一个错别字凭空开出无人认领的项目。
+开放循环登记（对话 / 晨报 / 控制台三处接入）。每条待办可以挂一个**项目**（`projects` 登记表里的 slug 或显示名，用 `n8n/scripts/seed-projects.mjs` 登记，或在控制台「协作 → Projects」页增改归档——那里还能看到每个项目的未完成 / 逾期 / 文档数量，删除有引用保护）：晨报会把它渲染成行尾的 `[项目]` 标签，`todo_list` 与 `admin/todos?project=` 都能按项目过滤，未登记的项目名会被拒（400 `unknown_project`），免得一个错别字凭空开出无人认领的项目。
 
 | 说一句 | 工具 | 动作 |
 | --- | --- | --- |

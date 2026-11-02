@@ -79,7 +79,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
         └─ /api/platform/jobs/* → platform-runtime /v1/jobs/:id
 ```
 
-- 27 个 route handler：`frontent/src/app/api/**/route.ts`（25 个在 `n8n/` 下）。
+- 28 个 route handler：`frontent/src/app/api/**/route.ts`（26 个在 `n8n/` 下）。
 - n8n 地址解析：`frontent/src/lib/n8n-client.ts:1-6`（`N8N_URL` → `NEXT_PUBLIC_N8N_URL` → `http://localhost:5678`）。
 - 登录守卫：`frontent/src/lib/api-guard.ts:17`；上游 401/403 被重标为 502（`frontent/src/lib/api-guard.ts:32-40`）。
 - 例外：`/api/n8n/health` 无鉴权（`frontent/src/app/api/n8n/health/route.ts:4-11`）；`/api/n8n/docs/[id]` 支持 `?t=` 签名免登录（`frontent/src/app/api/n8n/docs/[id]/route.ts:16-30`）。
@@ -94,7 +94,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | 目录 | 文件数 | 运行期角色 | 说明 |
 |---|---|---|---|
 | `n8n/` | 68 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`sandbox.Dockerfile` |
-| `frontent/` | 650 | 运行 | 控制台（Next 16 App Router；目录名拼写如此） |
+| `frontent/` | 653 | 运行 | 控制台（Next 16 App Router；目录名拼写如此） |
 | `platform-runtime/` | 8 | 运行 | `platform-runtime/server.js`（533 行）+ 可选 `platform-runtime/worker.js`（phase2 profile） |
 | `stream-bridge/` | 1 | 运行 | 单文件 `stream-bridge/server.js`（639 行） |
 | `caddy/` | 4 | 运行 | `Caddyfile`、域名版示例、探测脚本 |
@@ -117,7 +117,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | `n8n/scripts/deploy.mjs` | workflow 部署规则 + 24 张数据表定义 |
 | `n8n/workflows/chat-gateway.json` | 对话/鉴权/记忆/工具循环的全部逻辑 |
 | `frontent/src/lib/n8n-client.ts` | 控制台到 n8n / runtime 的所有服务端调用 |
-| `frontent/src/config/nav-config.ts` | 控制台真实导航（14 项） |
+| `frontent/src/config/nav-config.ts` | 控制台真实导航（15 项） |
 | `platform-runtime/server.js` | 协调 API 契约 |
 | `stream-bridge/server.js` | 流式旁路与降级规则 |
 | `backup/backup.sh` | 5 类备份产物与新鲜度守卫 |
@@ -128,7 +128,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 - `n8n/workflows/*.json` 共 **26** 个可部署 workflow；`n8n/workflows/baseline/` 是 2 个旧快照，**不部署**（`n8n/scripts/deploy.mjs:1-15`、`README.md:1077`）。
 - 有 `id` → PUT 更新；无 `id` → POST 新建；`active:true` 会重新注册 webhook；`@table_name` 引用会先建表（`n8n/scripts/deploy.mjs:1-15`）。
-- 共 **41** 个唯一 webhook path（`grep '"path"' n8n/workflows/*.json` 去重计数）。
+- 共 **43** 个唯一 webhook path（`grep '"path"' n8n/workflows/*.json` 去重计数）。
 - webhook 本身**没有 n8n 原生鉴权**；鉴权在各 Code 节点里比对 `$env.CHAT_API_KEY`（如 `n8n/workflows/todos.json` 的 Auth 节点）。
 
 ### 4.2 工作流分组
@@ -136,7 +136,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | 组 | 文件 | webhook 前缀 |
 |---|---|---|
 | 对话核心 | `chat-gateway`、`chat-stats-api`、`chat-retention`、`chat-alerts` | `v1/*`、`admin/*` |
-| 控制台后端 | `platform-admin-api`（68 节点）、`todos`、`reminders`、`health-report` | `admin/*` |
+| 控制台后端 | `platform-admin-api`（80 节点）、`todos`、`reminders`、`health-report` | `admin/*` |
 | 定时任务 | `daily-agenda`、`daily-brief`、`weekly-review`、`topic-watch`、`selfcheck`、`heartbeat` | `admin/*` |
 | 工具 | `doc-forge`、`smart-summary`、`meeting-actions`、`workflow-tools`、`example-echo` | `admin/tools*`、`admin/docforge` |
 | 内部服务 | `memory`、`notify`、`stream-log` | `internal/*` |
@@ -198,6 +198,8 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 - 读取侧：`admin/todos?project=<slug|label|none>`、`doc-forge action=list project=…`；响应里额外带 `projects`（登记表）与 `by_project`（分布），`none` 表示未归类。
 - 晨报把项目渲染成行尾 `[label]` 标签，未挂项目的条目**渲染与加这个功能之前完全一致**；项目 label 参与指纹，所以改归属算「有变化」，会重新推送。
 - 对外验收报告（`audience=client`）把解析出来的项目 label 也塞进脱敏扫描目标——它和调用方传的 title 一样属于「外部可影响、又会出现在文档标题里」的数据（见 §4.2）。
+- 维护入口有两个：`seed-projects.mjs`（批量、幂等、只填空）与控制台「协作 → Projects」页（`/dashboard/projects` → `/api/n8n/projects` → `GET admin/projects` / `POST admin/projects/manage`）。后者是 `platform-admin-api` 里克隆 `people` 那条链得到的 12 个节点，`create/update/archive/delete` 全部写 `admin_audit`；列表顺带算出每个项目的未完成 / 逾期 / 今日到期待办数与文档数，按未完成数倒序。
+- **删除有引用保护**：`project_ref` 是按名字引用、没有数据库约束，所以 `delete` 会先数 `todos` / `documents` 里还有多少条指向它，非零就 `409 in_use` 并提示改用归档——否则那些记录会变成指向空气的孤儿引用。`name` 建后不可改，同一个道理。
 
 ### 5.2 Redis
 
@@ -281,9 +283,9 @@ N8N_URL=... N8N_API_KEY=... node n8n/scripts/seed-projects.mjs apply   # 写入�
 
 - **栈**：Next.js 16.2.12 App Router、React 19.2.4、TypeScript 5.7.2、Tailwind 4、shadcn/ui、Clerk 7、Sentry、zustand、TanStack Query/Table/Form、nuqs（`frontent/package.json:23-88`）。
 - **鉴权**：`clerkMiddleware()` 只挂上下文（`frontent/src/proxy.ts:5-12`）；`/dashboard` 段在布局里 `await auth.protect()`（`frontent/src/app/dashboard/layout.tsx:20-22`）。
-- **真实页面**（14 个导航项）：`overview, docs, knowledge, topics, briefs, people, ai-chat, workflows, keys, alerts, models, settings, profile, notifications`（`frontent/src/config/nav-config.ts:36-160`）。
+- **真实页面**（15 个导航项）：`overview, docs, knowledge, topics, briefs, projects, people, ai-chat, workflows, keys, alerts, models, settings, profile, notifications`（`frontent/src/config/nav-config.ts:36-169`）。
 - **死路由 16 个**：`billing, chat, elements/icons, exclusive, forms/*, kanban, product, product/[productId], react-query, users, workspaces, workspaces/team` 都调用 `notFound()`（模板残留，`find frontent/src/app/dashboard -name page.tsx | xargs grep -l notFound`）。
-- **API**：27 个 route handler；认证 cookie 由 Clerk 管理，前端不存 token。
+- **API**：28 个 route handler；认证 cookie 由 Clerk 管理，前端不存 token。
 - **环境变量**：`frontent/env.example.txt` 只有 Clerk/Sentry/`CHAT_API_KEY`；`N8N_URL`、`N8N_API_KEY`、`PLATFORM_RUNTIME_*` 由 compose 运行期注入（`docker-compose.yml:141-144`）或本地自行补进 `.env.local`。
 
 ## 11. 已知偏差与坑（写文档时已核对）
@@ -322,10 +324,10 @@ grep -nE "^  [a-z-]+:" docker-compose.yml
 
 # workflow 数与 webhook 数
 ls n8n/workflows/*.json | wc -l                          # 26
-grep -ho '"path": *"[^"]*"' n8n/workflows/*.json | sort -u | wc -l   # 41
+grep -ho '"path": *"[^"]*"' n8n/workflows/*.json | sort -u | wc -l   # 43
 
 # 控制台路由与死页面
-find frontent/src/app/api -name route.ts | wc -l         # 27
+find frontent/src/app/api -name route.ts | wc -l         # 28
 grep -rl "notFound()" frontent/src/app/dashboard --include=page.tsx | wc -l  # 16
 
 # 数据表
@@ -334,7 +336,7 @@ grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 24
 # §3 的目录文件数：只数受版本控制的文件（构建产物如 tsconfig.tsbuildinfo 不算）
 for d in n8n frontent platform-runtime stream-bridge monitoring deploy scripts; do
   echo "$d=$(git ls-files $d | wc -l)"
-done                                                      # 68 650 8 1 9 23 28
+done                                                      # 68 653 8 1 9 23 28
 
 # 密钥闸门
 node n8n/scripts/validate-workflows.mjs

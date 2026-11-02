@@ -1335,6 +1335,250 @@
         660,
         1940
       ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "admin/projects",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1-webhook-projects",
+      "name": "Webhook Projects",
+      "webhookId": "admin-people",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        2060
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Bearer auth, same as the Chat Gateway / Stats API. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key. Provide it via the Authorization header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "a1-parse-auth-projects",
+      "name": "Parse Auth Projects",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        2060
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-a1-has-error-projects",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1-has-error-projects",
+      "name": "Has Error Projects",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        2060
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "@projects",
+          "mode": "id"
+        },
+        "returnAll": false,
+        "limit": 200,
+        "orderBy": true,
+        "orderByColumn": "createdAt",
+        "orderByDirection": "ASC",
+        "options": {}
+      },
+      "id": "a1-load-projects",
+      "name": "Load Projects",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        2060
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Shape project rows for the console, and attach how much open work each one\n   carries -- that count is the reason to open this page at all.\n   Best effort on the joins: a missing todos/documents table must not blank the\n   registry, it just shows zeroes. */\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.name);\nconst base = 'http://localhost:5678/api/v1';\nconst api = (method, path, qs) => this.helpers.httpRequest({\n  method, url: base + path,\n  headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' },\n  qs,\n});\nconst tableId = async (tname) => {\n  const list = await api('GET', '/data-tables', { limit: 100 });\n  const t = (list.data || []).find((x) => x.name === tname);\n  return t ? t.id : null;\n};\nconst loadRows = async (tname) => {\n  const id = await tableId(tname);\n  if (!id) return [];\n  return (await api('GET', '/data-tables/' + id + '/rows', { limit: 250 })).data || [];\n};\nlet todos = [];\nlet documents = [];\ntry { todos = await loadRows('todos'); } catch (e) { todos = []; }\ntry { documents = await loadRows('documents'); } catch (e) { documents = []; }\n\nconst SHIFT = 8 * 3600000;\nconst today = new Date(Date.now() + SHIFT).toISOString().slice(0, 10);\nconst docCount = (ref) => documents.filter((x) => String(x.project_ref || '') === ref).length;\n\nconst projects = rows.map((r) => {\n  const name = String(r.name);\n  const open = todos.filter((t) => t.status === 'open' && String(t.project_ref || '') === name);\n  return {\n    id: r.id,\n    name,\n    label: r.label || name,\n    repo_url: r.repo_url || '',\n    customer: r.customer || '',\n    status: String(r.status || 'active'),\n    notes: r.notes || '',\n    created_at: r.createdAt,\n    open_todos: open.length,\n    overdue_todos: open.filter((t) => t.due_date && t.due_date < today).length,\n    due_today_todos: open.filter((t) => t.due_date && t.due_date === today).length,\n    docs: docCount(name),\n  };\n});\nprojects.sort((a, b) => (b.open_todos - a.open_todos) || String(a.name).localeCompare(String(b.name)));\n\nreturn [{ json: {\n  ok: true,\n  count: projects.length,\n  projects,\n  today,\n  unattached: {\n    open_todos: todos.filter((t) => t.status === 'open' && !String(t.project_ref || '')).length,\n    docs: docCount(''),\n  },\n} }];"
+      },
+      "id": "a1-format-projects-list",
+      "name": "Format Projects List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        2060
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "a1-respond-projects-200",
+      "name": "Respond Projects 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        2060
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/projects/manage",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1-webhook-projects-manage",
+      "name": "Webhook Projects Manage",
+      "webhookId": "admin-people-manage",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        2180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Bearer auth, same as the Chat Gateway / Stats API. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expectedKey = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expectedKey || provided !== expectedKey) {\n  return [{ json: { __error: true, status: 401, openai_error: { error: { message: 'Invalid API key. Provide it via the Authorization header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "a1-parse-auth-projects-manage",
+      "name": "Parse Auth Projects Manage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        2180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-a1-has-error-projects-manage",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1-has-error-projects-manage",
+      "name": "Has Error Projects Manage",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        2180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Manage the project registry (A).\n   Actions: create | update | archive | delete. All writes audit-logged.\n   `name` is the slug every project_ref points at, so it is immutable after\n   create: renaming it would orphan every todo and document that references it.\n   Delete is refused while anything still points at the project -- archive it\n   instead. There is no database constraint to lean on, so the check is here. */\nconst body = ($('Webhook Projects Manage').first().json.body) || {};\nconst action = String(body.action || '');\nconst name = String(body.name || '').trim();\n\nconst base = 'http://localhost:5678/api/v1';\nconst api = (method, path, qs, payload) => this.helpers.httpRequest({\n  method, url: base + path,\n  headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' },\n  qs, body: payload,\n});\nconst filter = (col, value) => JSON.stringify({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });\nconst filterObj = (col, value) => ({ type: 'and', filters: [{ columnName: col, condition: 'eq', value }] });\nconst tableId = async (tname) => {\n  const list = await api('GET', '/data-tables', { limit: 100 });\n  const t = (list.data || []).find((x) => x.name === tname);\n  if (!t) throw new Error(tname + ' table not found');\n  return t.id;\n};\nconst audit = async (act, detail) => {\n  try {\n    const t = await tableId('admin_audit');\n    await api('POST', '/data-tables/' + t + '/rows', null, { data: [{ action: act, target: name || '', detail: String(detail || '').slice(0, 300) }] });\n  } catch (e) { /* audit best-effort */ }\n};\nconst bad = (status, code, message) => [{ json: { __error: true, status, openai_error: { error: { message, type: 'invalid_request_error', code } } } }];\n\n/* slugs stay ASCII on purpose: they travel in query strings and tool arguments */\nif (!name || !/^[A-Za-z0-9._-]{1,48}$/.test(name)) return bad(400, 'invalid_name', 'name must be 1-48 chars: letters, digits, _ . -');\nif (!['create', 'update', 'archive', 'delete'].includes(action)) return bad(400, 'unknown_action', 'unknown action: ' + action);\n\nconst id = await tableId('projects');\nconst rows = await api('GET', '/data-tables/' + id + '/rows', { filter: filter('name', name) });\nconst existing = (rows.data || [])[0] || null;\n\nconst status = String(body.status || '').trim();\nif (status && !['active', 'archived'].includes(status)) return bad(400, 'invalid_status', 'status must be active or archived');\n\nif (action === 'create') {\n  if (existing) return bad(409, 'already_exists', 'project already exists: ' + name);\n  const row = {\n    name,\n    label: String(body.label || '').trim().slice(0, 60) || name,\n    repo_url: String(body.repo_url || '').trim().slice(0, 300),\n    customer: String(body.customer || '').trim().slice(0, 60),\n    status: status || 'active',\n    notes: String(body.notes || '').slice(0, 300),\n    created_at: new Date().toISOString(),\n  };\n  await api('POST', '/data-tables/' + id + '/rows', null, { data: [row] });\n  await audit('projects.create', 'label=' + row.label);\n  return [{ json: { ok: true, action, project: row } }];\n}\n\nif (!existing) return bad(404, 'not_found', 'project not found: ' + name);\n\nif (action === 'archive') {\n  const next = String(existing.status || 'active') === 'archived' ? 'active' : 'archived';\n  await api('PATCH', '/data-tables/' + id + '/rows/update', null, { filter: filterObj('name', name), data: { status: next } });\n  await audit('projects.archive', 'status=' + next);\n  return [{ json: { ok: true, action, name, status: next } }];\n}\n\nif (action === 'update') {\n  const data = {};\n  if (body.label !== undefined) data.label = String(body.label).trim().slice(0, 60);\n  if (body.repo_url !== undefined) data.repo_url = String(body.repo_url).trim().slice(0, 300);\n  if (body.customer !== undefined) data.customer = String(body.customer).trim().slice(0, 60);\n  if (body.notes !== undefined) data.notes = String(body.notes).slice(0, 300);\n  if (status) data.status = status;\n  if (!Object.keys(data).length) return bad(400, 'empty_update', 'nothing to update');\n  await api('PATCH', '/data-tables/' + id + '/rows/update', null, { filter: filterObj('name', name), data });\n  await audit('projects.update', Object.keys(data).join(','));\n  return [{ json: { ok: true, action, name, updated: Object.keys(data) } }];\n}\n\nconst refs = [];\nfor (const t of ['todos', 'documents']) {\n  let tid = null;\n  try { tid = await tableId(t); } catch (e) { tid = null; }\n  if (!tid) continue;\n  const using = ((await api('GET', '/data-tables/' + tid + '/rows', { limit: 250 })).data || []).filter((r) => String(r.project_ref || '') === name);\n  if (using.length) refs.push(t + '=' + using.length);\n}\nif (refs.length) return bad(409, 'in_use', 'still referenced by ' + refs.join(', ') + ' - archive it instead of deleting');\nconst deleted = await api('DELETE', '/data-tables/' + id + '/rows/delete', { filter: filter('name', name), returnData: true });\nconst n = Array.isArray(deleted) ? deleted.length : (deleted && deleted.data ? deleted.data.length : 0);\nawait audit('projects.delete', 'removed=' + n);\nreturn [{ json: { ok: true, action, name, removed: n } }];"
+      },
+      "id": "a1-handle-projects-action",
+      "name": "Handle Projects Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        2180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-a1-route-projects-result",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1-route-projects-result",
+      "name": "Route Projects Result",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        2180
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "a1-respond-projects-manage-200",
+      "name": "Respond Projects Manage 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        2180
+      ]
     }
   ],
   "connections": {
@@ -2028,6 +2272,137 @@
         [
           {
             "node": "Respond Delegation 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Projects": {
+      "main": [
+        [
+          {
+            "node": "Parse Auth Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Auth Projects": {
+      "main": [
+        [
+          {
+            "node": "Has Error Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Projects": {
+      "main": [
+        [
+          {
+            "node": "Format Projects List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Projects List": {
+      "main": [
+        [
+          {
+            "node": "Respond Projects 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Projects Manage": {
+      "main": [
+        [
+          {
+            "node": "Parse Auth Projects Manage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Auth Projects Manage": {
+      "main": [
+        [
+          {
+            "node": "Has Error Projects Manage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Projects Action": {
+      "main": [
+        [
+          {
+            "node": "Route Projects Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Projects": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error Projects Manage": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Projects Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Projects Result": {
+      "main": [
+        [
+          {
+            "node": "Format Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Projects Manage 200",
             "type": "main",
             "index": 0
           }
