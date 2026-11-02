@@ -337,10 +337,15 @@ out.push(svgFile('05-控制台-Knowledge-1440x900.svg',1440,900,
 /* ============ 06 前台 PivotAI ============ */
 out.push(svgFile('06-LobeChat前台-PivotAI-1440x900.svg',1440,900,
   frame('LobeChat 前台 PivotAI v2（玻璃拟态 · 绿系）',1440,900,P.bg,
-    g('Background/Aurora 三段', rect(0,0,1440,900,{fill:'rgba(52,211,153,.22)'})
-      + `<ellipse cx="380" cy="300" rx="380" ry="300" fill="rgba(52,211,153,.22)"/>`
-      + `<ellipse cx="1080" cy="620" rx="360" ry="280" fill="rgba(34,197,94,.24)"/>`
-      + `<ellipse cx="720" cy="360" rx="420" ry="260" fill="rgba(16,185,129,.15)"/>`,0,0)
+    g('Background/Aurora 三段',
+      `<defs>`
+      + `<radialGradient id="auroraMint" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#34D399" stop-opacity=".22"/><stop offset="100%" stop-color="#34D399" stop-opacity="0"/></radialGradient>`
+      + `<radialGradient id="auroraGreen" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#22C55E" stop-opacity=".24"/><stop offset="100%" stop-color="#22C55E" stop-opacity="0"/></radialGradient>`
+      + `<radialGradient id="auroraEmerald" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#10B981" stop-opacity=".15"/><stop offset="100%" stop-color="#10B981" stop-opacity="0"/></radialGradient>`
+      + `</defs>`
+      + `<ellipse cx="380" cy="300" rx="380" ry="300" fill="url(#auroraMint)"/>`
+      + `<ellipse cx="1080" cy="620" rx="360" ry="280" fill="url(#auroraGreen)"/>`
+      + `<ellipse cx="720" cy="360" rx="420" ry="260" fill="url(#auroraEmerald)"/>`,0,0)
     + g('Sidebar/会话列表（玻璃）', rect(0,0,272,900,{fill:P.glassSide,stroke:P.border})
       + circle(34,42,15,{fill:P.accent})+txt(34,47,'P',{size:12,fill:'#052E16',anchor:'middle',weight:800})
       + txt(58,40,'PivotAI',{size:13.5,weight:600,fill:P.fg})+txt(58,54,'从对话到执行 · Chat less. Ship more.',{size:9,fill:P.muted})
