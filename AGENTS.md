@@ -86,7 +86,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 ### 2.3 Telegram 与 MCP
 
-- Telegram：`telegram-bridge` workflow 每分钟轮询；推送与双向语音（`n8n/workflows/telegram-bridge.json`）。
+- Telegram：`telegram-bridge` workflow 每分钟轮询；推送与双向语音（`n8n/workflows/telegram-bridge.json`）。对话入口＝机主会话 ＋ `people` 表里 active、role≠guest 且配了 `channels.telegram_chat_id` 的成员；成员受 deny-by-default 命令白名单约束，`/done`、`/ack` 只能动派给自己的条目，会话按 `tg-<chat_id>` 隔离（网关据此自动归因 `person_ref`）。
 - MCP：外部 agent 调 `POST /webhook/mcp`，JSON-RPC，Bearer `MCP_API_KEY`（`n8n/workflows/mcp-server.json`）。
 
 ## 3. 代码地图
@@ -277,7 +277,7 @@ node n8n/scripts/lobehub-config.mjs                           # LobeHub ↔ 网�
 | D13 | `.probe.txt` 是 docker 探测输出残留 | `.probe.txt:1-4` | 无功能影响，易误认为凭证 |
 | D14 | backup 容器只读挂载整个 `.env` | `docker-compose.yml:547` | 容器内任意执行即可读到全部密钥 |
 | D15 | 用字符串拼接绕过密钥扫描：`stream-bridge` 的 `'Bea'+'rer '`，`smoke-test.mjs` 的 `"proc"+"ess"` 与 `["DASH","SCOPE_API","_KEY"].join("")` | `stream-bridge/server.js:23`、`n8n/scripts/smoke-test.mjs:348` | 规避密钥扫描的写法，审计时要认得出 |
-| D16 | 断言数以代码为准：`selfcheck.json` 现有 **48** 条 `add()`（README 写 42/42、47 项、45 通过，三处互不相同），`smoke-test.mjs` 现有 **65** 处 `check()` 调用，而它打印的 `total` 只算实际跑到的 pass/fail，缺 env 时整组 SKIP | `n8n/workflows/selfcheck.json`、`n8n/scripts/smoke-test.mjs:51,268,350,423,451` vs `README.md:52,447,476-477,1096` | README 那些数字是历史运行输出，引用前先数代码 |
+| D16 | 断言数以代码为准：`selfcheck.json` 现有 **49** 条 `add()`（含新增的 `schedules fresh`；README 写 42/42、47 项、45 通过，三处互不相同），`smoke-test.mjs` 现有 **65** 处 `check()` 调用，而它打印的 `total` 只算实际跑到的 pass/fail，缺 env 时整组 SKIP | `n8n/workflows/selfcheck.json`、`n8n/scripts/smoke-test.mjs:51,268,350,423,451` vs `README.md:52,447,476-477,1096` | README 那些数字是历史运行输出，引用前先数代码 |
 
 ## 12. 安全现状（必须知道）
 

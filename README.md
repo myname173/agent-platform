@@ -678,7 +678,7 @@ Telegram 渲染成 inline keyboard，点完写回同一行并摘掉按钮（防�
 
 说明：晨报**自动推送**当前关闭（daily-brief 的 Push Brief 节点 `disabled`；控制台手动「推送到 IM」不受影响）；告警与提醒正常推送。
 
-**双向入口（已上线）**：直接给 bot 发消息即与平台对话（长轮询接入 → 网关（session `tg-<chat_id>`，自动带最近 20 条上下文）→ 回复，无需公网地址）；`/help` 看示例、`/reset` 清空该会话记忆；仅响应机主账号，其他人消息被忽略。轮询每分钟一次（一般 1 分钟内响应）。
+**双向入口（已上线）**：直接给 bot 发消息即与平台对话（长轮询接入 → 网关（session `tg-<chat_id>`，记忆与 `person_ref` 归因都按会话隔离，自动带最近 20 条上下文）→ 回复，无需公网地址）；`/help` 看示例、`/reset` 只清空自己这条会话。**谁能对话**：机主（`TELEGRAM_CHAT_ID` 那个会话）＋ `people` 表里 active、role≠guest 且配了 `channels.telegram_chat_id` 的成员；陌生人依旧忽略，guest 只收推送。**成员能做什么**：命令白名单 `/mine /todos /todo /ack /done /reminders /kb /reset /tools /start /help`，其中 `/done`、`/ack` 只能动派给自己的那条；管理类命令（`/docs /waiting /派发 /people /memory /share /minutes /meeting /remember /forget`）仅机主可用，白名单是 deny-by-default，新加命令默认不给成员。轮询每分钟一次（一般 1 分钟内响应）。
 
 ### 手机访问（局域网）
 
