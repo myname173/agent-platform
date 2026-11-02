@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { completeTodo } from '@/lib/n8n-client';
 import { requireUser } from '@/lib/api-guard';
+import { invalidateAdminReadCache } from '@/lib/admin-read-cache';
 
 export async function POST(request: Request) {
   const { denied } = await requireUser();
@@ -13,6 +14,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'id required' }, { status: 400 });
     }
     const out = await completeTodo(id);
+    if (out.status >= 200 && out.status < 300) {
+      invalidateAdminReadCache('todos:*');
+    }
     return NextResponse.json(out.body ?? { error: 'upstream error' }, { status: out.status });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
