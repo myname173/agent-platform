@@ -165,8 +165,8 @@ out.push(svgFile('01-控制台-Overview-1440x900.svg',1440,900,
           + txt(24,502,'今日',{size:12.5,weight:600,fill:L.fg})+txt(60,502,'需要你动手或等别人回话的事',{size:11,fill:L.muted})
           + line(100,498,1148,498,{stroke:L.border})
           + cardBox(24,516,368,200,'待办','待办不自动变提醒、提醒不自动变待办（设计红线）· R-TD-01')
-          + lines(40,560,['☐ 周五交房租 · 逾期 1 天','☐ 整理季度 OKR · 今日到期','☐ 约阿哲对账流程 · 今日到期','☐ 给 Lily 发模板 · 11-08'],{size:11.5,fill:L.fg,lh:22})
-          + btn(300,540,'完成',{primary:true})
+          + lines(40,586,['☐ 周五交房租 · 逾期 1 天','☐ 整理季度 OKR · 今日到期','☐ 约阿哲对账流程 · 今日到期','☐ 给 Lily 发模板 · 11-08'],{size:11.5,fill:L.fg,lh:20})
+          + btn(300,586,'完成',{primary:true})
           + cardBox(404,516,368,200,'提醒','控制台「取消」与 TG「知道了」写同一行 · R-RM-01')
           + tableRows(516+64,['标题','触发时间','状态','操作'].map((t,i)=>({t,w:[120,88,54,40][i]})),
               [['对账','15:00',{badge:'待触发',color:L.info},'取消'],
@@ -336,8 +336,8 @@ out.push(svgFile('05-控制台-Knowledge-1440x900.svg',1440,900,
 out.push(svgFile('06-LobeChat前台-PivotAI-1440x900.svg',1440,900,
   frame('LobeChat 前台 PivotAI v2（玻璃拟态 · 绿系）',1440,900,P.bg,
     g('Background/Aurora 三段', rect(0,0,1440,900,{fill:'rgba(52,211,153,.22)'})
-      + `<ellipse cx="180" cy="180" rx="380" ry="300" fill="rgba(52,211,153,.22)"/>`
-      + `<ellipse cx="1240" cy="760" rx="360" ry="280" fill="rgba(34,197,94,.24)"/>`
+      + `<ellipse cx="380" cy="300" rx="380" ry="300" fill="rgba(52,211,153,.22)"/>`
+      + `<ellipse cx="1080" cy="620" rx="360" ry="280" fill="rgba(34,197,94,.24)"/>`
       + `<ellipse cx="720" cy="360" rx="420" ry="260" fill="rgba(16,185,129,.15)"/>`,0,0)
     + g('Sidebar/会话列表（玻璃）', rect(0,0,272,900,{fill:P.glassSide,stroke:P.border})
       + circle(34,42,15,{fill:P.accent})+txt(34,47,'P',{size:12,fill:'#052E16',anchor:'middle',weight:800})
@@ -349,8 +349,8 @@ out.push(svgFile('06-LobeChat前台-PivotAI-1440x900.svg',1440,900,
       + txt(20,232,'更早',{size:10,fill:P.muted,spacing:.5})
       + txt(28,254,'🧾 发票结构化试点',{size:11.5,fill:'#CBD5E1'})+txt(28,282,'⏱ 提醒为什么没响',{size:11.5,fill:'#CBD5E1'})
       + rect(14,310,244,86,{fill:'rgba(15,23,42,.4)',stroke:'rgba(245,158,11,.35)',rx:9,dash:'4 3'})
-      + lines(24,330,['⚠ 已知现象','切到服务端数据库模式后，v1 存在浏览器本地的'],{size:10.5,fill:'#FCD34D',lh:15})
-      + txt(24,348,'服务端 ⇒ 列表初始为空，需导入或重发',{size:10,fill:P.muted})
+      + lines(24,328,['⚠ 已知现象','切到服务端数据库模式后，v1 存在浏览器本地的'],{size:10.5,fill:'#FCD34D',lh:16})
+      + txt(24,362,'会话不在服务端 ⇒ 列表初始为空，需导入或重发',{size:10,fill:P.muted})
       + line(0,828,272,828,{stroke:P.border})+circle(34,858,14,{fill:P.primary})+txt(34,862,'黄',{size:10,fill:'#DCFCE7',anchor:'middle'})
       + txt(56,856,'黄泽华 · 设置/外观',{size:10.5,fill:P.muted}),0,0)
     + g('Composer/输入区', rect(300,738,1112,104,{fill:P.glass,stroke:P.border,rx:16})

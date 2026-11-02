@@ -39,8 +39,8 @@ for (const f of readdirSync(dir).filter(x => x.endsWith('.svg'))) {
   const xform = [];
   let ox = 0, oy = 0, checked = 0;
   const attr = (at, k) => { const m = at.match(new RegExp(' ' + k + '="(-?[\\d.]+)"')); return m ? Number(m[1]) : null; };
-  const nodeRe = /<(\/?)(g|rect|text)\b([^>]*?)(\/?)>/g;
-  let n;
+  const nodeRe = /<(\/?)(g|rect|text|circle|ellipse|line|path|polygon|polyline)\b([^>]*?)(\/?)>/g;
+  let n, uncheckedGeom = 0;
   while (frame && (n = nodeRe.exec(s))) {
     const [, close, tag, at, selfClose] = n;
     if (close) { if (tag === 'g') { const p = xform.pop(); ox = p ? p[0] : 0; oy = p ? p[1] : 0; } continue; }
@@ -56,14 +56,27 @@ for (const f of readdirSync(dir).filter(x => x.endsWith('.svg'))) {
       }
       continue;
     }
+    /* path/polygon/polyline 的边界要从 d/points 里解析，这里不硬算 —— 明确计数，绝不静默通过。
+       （它们由 bbox-check.html 用渲染器 getBBox 覆盖） */
+    if (tag === 'path' || tag === 'polygon' || tag === 'polyline') { uncheckedGeom++; continue; }
     const x = attr(at, 'x'), y = attr(at, 'y'), w = attr(at, 'width'), h = attr(at, 'height');
+    /* 图形全覆盖：rect/text 之外，circle 与 ellipse 也必须量。
+       之前只量 rect/text，06 的三段 aurora ellipse 越界没被抓到，是 Figma 自己报 1800×1160 才暴露的。 */
+    const cx = attr(at, 'cx'), cy = attr(at, 'cy'), r = attr(at, 'r'), rx = attr(at, 'rx'), ry = attr(at, 'ry');
     checked++;
-    if (x === null || y === null) { errs.push(`<${tag}> 缺 x/y`); continue; }
-    if (tag === 'rect') {
-      if (x + ox < -1 || y + oy < -1 || x + ox + w > FW + 1 || y + oy + h > FH + 1)
-        errs.push(`rect 越界：abs(${(x+ox).toFixed(0)},${(y+oy).toFixed(0)}) ${w}×${h} 超出画板 ${FW}×${FH}`);
-    } else if (x + ox < -1 || y + oy < -1 || x + ox > FW + 1 || y + oy > FH + 1) {
-      errs.push(`text 越界：abs(${(x+ox).toFixed(0)},${(y+oy).toFixed(0)})`);
+    let bx = null, by = null, bw = 0, bh = 0;
+    if (tag === 'rect') { bx = x; by = y; bw = w; bh = h; }
+    else if (tag === 'circle') { bx = cx - r; by = cy - r; bw = 2 * r; bh = 2 * r; }
+    else if (tag === 'ellipse') { bx = cx - rx; by = cy - ry; bw = 2 * rx; bh = 2 * ry; }
+    else if (tag === 'line') {
+      const x1 = attr(at, 'x1'), y1 = attr(at, 'y1'), x2 = attr(at, 'x2'), y2 = attr(at, 'y2');
+      bx = Math.min(x1, x2); by = Math.min(y1, y2); bw = Math.abs(x2 - x1); bh = Math.abs(y2 - y1);
+    }
+    else if (tag === 'text') { bx = x; by = y - 4; bw = 0; bh = 0; }   // 文本宽度交给 bbox-check.html
+    if (bx === null) { errs.push(`<${tag}> 缺几何属性`); continue; }
+    if (tag !== 'text') {
+      if (bx + ox < -1 || by + oy < -1 || bx + ox + bw > FW + 1 || by + oy + bh > FH + 1)
+        errs.push(`${tag} 越界：abs(${(bx+ox).toFixed(0)},${(by+oy).toFixed(0)}) ${bw}×${bh} 超出画板 ${FW}×${FH}`);
     }
     if (selfClose && tag === 'text') continue;
     if (tag === 'text') { const end = s.indexOf('</text>', n.index); if (end < 0) errs.push('text 未闭合'); nodeRe.lastIndex = end + 7; }
@@ -83,7 +96,7 @@ for (const f of readdirSync(dir).filter(x => x.endsWith('.svg'))) {
 
   const ok = errs.length === 0;
   if (!ok) fail++;
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${f}  ·  ${groups} 命名组 / ${rects} 矩形 / ${texts} 文本图层 / ${cards.length} Card / 布局体检 ${checked} 个元素${unnamed ? ' / ' + unnamed + ' 个未命名组' : ''}`);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${f}  ·  ${groups} 命名组 / ${rects} 矩形 / ${texts} 文本图层 / ${cards.length} Card / 几何判定 ${checked} 个元素 / 交给 getBBox 的 path·polygon ${uncheckedGeom} 个${unnamed ? ' / ' + unnamed + ' 个未命名组' : ''}`);
   errs.forEach(e => console.log('        ⤷ ' + e));
 }
 console.log(fail === 0 ? `\n全部 SVG 结构合法（${'0'} 个失败）` : `\n${fail} 个文件结构有问题`);
