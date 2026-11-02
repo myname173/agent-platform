@@ -7,7 +7,7 @@
 ## English
 
 **A self-hosted AI agent platform that runs on one machine.** Eight Docker
-Compose services, **25 n8n workflows** as the orchestration core, and four ways
+Compose services, **26 n8n workflows** as the orchestration core, and four ways
 in — a chat front end (LobeHub), an ops console (Next.js), a Telegram bridge,
 and an MCP server for external agent clients.
 
@@ -187,7 +187,7 @@ docker compose up -d          # 9 个容器（含栈内备份 backup）
 N8N_URL=http://localhost:5678 N8N_API_KEY=<key> node n8n/scripts/deploy.mjs
 ```
 
-`deploy.mjs` 会：创建/更新 25 条工作流 → 建好所有数据表与缺失列 → **把工作流里写死的凭据 ID 重映射到本机同名凭据** → 快照网关工具表。
+`deploy.mjs` 会：创建/更新 26 条工作流 → 建好所有数据表与缺失列 → **把工作流里写死的凭据 ID 重映射到本机同名凭据** → 快照网关工具表。
 
 剩下的手工步骤只有三条：
 
@@ -745,7 +745,7 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 
 - 入口：控制台首页「平台自检」卡（一键运行）或 `POST /webhook/admin/selfcheck/run`；每日 04:15 自动跑一次。
 - 覆盖：基础设施（7 端点）· 网关 golden（闲聊 / 工具轮 / 401 负例）· 流式链路（SSE 直通 / 工具降级 / 非流式代理）· 通道（Notify / TG 桥 / 提醒）· 数据（备份心跳 / 总览 / 统计 / 消息库）。
-- 报告：落 `selfcheck_runs` 表（控制台可看）；**失败自动推送 Telegram**。
+- 报告：落 `selfcheck_runs` 表（控制台可看）；**失败自动推送 Telegram**；`POST /webhook/admin/report/health` 把最近一次结果一键转成验收文档（`audience=client` 只出分组计数与结论、默认给签名免登录链接，自检结果超过 24 小时直接 409 要求重跑）。
 - 备份心跳：每日备份完成后向 `POST /webhook/admin/heartbeat` 上报（`heartbeats` 表），自检据此判断备份新鲜度（>30h 警告；>40h 或失败 = 不通过）。
 
 ### 待办（Todos）

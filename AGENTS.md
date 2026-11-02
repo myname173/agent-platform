@@ -1,6 +1,6 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
-verified_at: 2026-10-31
+verified_at: 2026-11-03
 verified_commit: 6e2ccbc
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
@@ -15,7 +15,7 @@ conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读
 
 - **一个自托管平台，跑在一台机器上。** n8n 是唯一的业务逻辑与 Agent 编排中枢；前端（LobeHub / 控制台 / Telegram / MCP）最终都只调用 n8n，彼此不直接互调（唯一旁路是 LobeHub → stream-bridge → n8n，见 §2.1；`README.md:9-17`、`README.md:125`）。
 - **12 个常驻 Docker 服务 + 3 个可选 profile。** 不是 README 写的 8 或 9 个（见 §11 偏差 D1）。
-- **源码即工作流。** 25 个 n8n workflow 以 JSON 形式入库，部署靠脚本推送，不在 n8n UI 里改（`README.md:1073-1095`）。
+- **源码即工作流。** 26 个 n8n workflow 以 JSON 形式入库，部署靠脚本推送，不在 n8n UI 里改（`README.md:1073-1095`）。
 - **密钥全在 `.env`（gitignore）。** workflow JSON 内不出现密钥值，运行时读 `$env.*`（`n8n/scripts/validate-workflows.mjs:1-11`）。
 - **控制台是 Next.js BFF。** 浏览器只访问 `/api/*`；n8n 的 `N8N_API_KEY` 只在服务端出现（`README.md:271-275`）。
 
@@ -93,7 +93,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 | 目录 | 文件数 | 运行期角色 | 说明 |
 |---|---|---|---|
-| `n8n/` | 66 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`sandbox.Dockerfile` |
+| `n8n/` | 67 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`sandbox.Dockerfile` |
 | `frontent/` | 649 | 运行 | 控制台（Next 16 App Router；目录名拼写如此） |
 | `platform-runtime/` | 8 | 运行 | `platform-runtime/server.js`（533 行）+ 可选 `platform-runtime/worker.js`（phase2 profile） |
 | `stream-bridge/` | 1 | 运行 | 单文件 `stream-bridge/server.js`（639 行） |
@@ -126,9 +126,9 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 ### 4.1 部署模型（确认）
 
-- `n8n/workflows/*.json` 共 **25** 个可部署 workflow；`n8n/workflows/baseline/` 是 2 个旧快照，**不部署**（`n8n/scripts/deploy.mjs:1-15`、`README.md:1077`）。
+- `n8n/workflows/*.json` 共 **26** 个可部署 workflow；`n8n/workflows/baseline/` 是 2 个旧快照，**不部署**（`n8n/scripts/deploy.mjs:1-15`、`README.md:1077`）。
 - 有 `id` → PUT 更新；无 `id` → POST 新建；`active:true` 会重新注册 webhook；`@table_name` 引用会先建表（`n8n/scripts/deploy.mjs:1-15`）。
-- 共 **40** 个唯一 webhook path（`grep '"path"' n8n/workflows/*.json` 去重计数）。
+- 共 **41** 个唯一 webhook path（`grep '"path"' n8n/workflows/*.json` 去重计数）。
 - webhook 本身**没有 n8n 原生鉴权**；鉴权在各 Code 节点里比对 `$env.CHAT_API_KEY`（如 `n8n/workflows/todos.json` 的 Auth 节点）。
 
 ### 4.2 工作流分组
@@ -136,11 +136,18 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | 组 | 文件 | webhook 前缀 |
 |---|---|---|
 | 对话核心 | `chat-gateway`、`chat-stats-api`、`chat-retention`、`chat-alerts` | `v1/*`、`admin/*` |
-| 控制台后端 | `platform-admin-api`（68 节点）、`todos`、`reminders` | `admin/*` |
+| 控制台后端 | `platform-admin-api`（68 节点）、`todos`、`reminders`、`health-report` | `admin/*` |
 | 定时任务 | `daily-agenda`、`daily-brief`、`weekly-review`、`topic-watch`、`selfcheck`、`heartbeat` | `admin/*` |
 | 工具 | `doc-forge`、`smart-summary`、`meeting-actions`、`workflow-tools`、`example-echo` | `admin/tools*`、`admin/docforge` |
 | 内部服务 | `memory`、`notify`、`stream-log` | `internal/*` |
 | 外部入口 | `mcp-server`、`telegram-bridge`、`lobehub-config`、`kb-ingest` | `mcp`、`admin/*` |
+
+`health-report` 是「一键出验收报告」：`POST /webhook/admin/report/health`（Bearer `CHAT_API_KEY`）把最近一条 `selfcheck_runs.report` 渲染成一份 doc-forge 文档（`kind=custom`），自己**不落库**，也不改 selfcheck。
+
+- `audience=internal`（默认）：全部断言名 + 失败明细 + 内部主机名；默认**不签名**（不给免登录链接）。
+- `audience=client`：只给分组计数（infra/gateway/stream/channel/data）与结论，不含任何断言名与明细；默认签名出 `?t=` 免登录链接（默认 7 天），`push:true` 再走 `/webhook/internal/notify` 推送。
+- 新鲜度守卫：`checked_at` 超过 `max_age_hours`（默认 24）→ `409 stale_selfcheck`，必须显式传 `force:true` 才放行，且结果标 `stale_but_forced`；一条记录都没有 → `404 no_selfcheck_run`。
+- 脱敏**失败即拒**：37 条黑名单扫「渲染结果 + 调用方传的 title」，命中就 `500 scrub_failed` 且**不创建文档**（fail closed，不会先写后删）。
 
 ### 4.3 调度（从 workflow JSON 的 Schedule 节点提取）
 
@@ -213,6 +220,11 @@ node n8n/scripts/validate-workflows.mjs
 # 集成冒烟（需已部署实例）
 N8N_URL=... CHAT_API_KEY=... node n8n/scripts/smoke-test.mjs
 
+# 验收报告（把最近一次 selfcheck 结果转成文档；audience=client 走脱敏 + 签名链接）
+curl -sS -X POST "$N8N_URL/webhook/admin/report/health" \
+  -H "Authorization: Bearer $CHAT_API_KEY" -H 'content-type: application/json' \
+  -d '{"audience":"client"}'
+
 # 控制台本地开发
 cd frontent && bun install && bun run dev        # http://localhost:3000
 cd frontent && bun run typecheck
@@ -277,7 +289,7 @@ node n8n/scripts/lobehub-config.mjs                           # LobeHub ↔ 网�
 | D13 | `.probe.txt` 是 docker 探测输出残留 | `.probe.txt:1-4` | 无功能影响，易误认为凭证 |
 | D14 | backup 容器只读挂载整个 `.env` | `docker-compose.yml:547` | 容器内任意执行即可读到全部密钥 |
 | D15 | 用字符串拼接绕过密钥扫描：`stream-bridge` 的 `'Bea'+'rer '`，`smoke-test.mjs` 的 `"proc"+"ess"` 与 `["DASH","SCOPE_API","_KEY"].join("")` | `stream-bridge/server.js:23`、`n8n/scripts/smoke-test.mjs:348` | 规避密钥扫描的写法，审计时要认得出 |
-| D16 | 断言数以代码为准：`selfcheck.json` 现有 **49** 条 `add()`（含新增的 `schedules fresh`；README 写 42/42、47 项、45 通过，三处互不相同），`smoke-test.mjs` 现有 **65** 处 `check()` 调用，而它打印的 `total` 只算实际跑到的 pass/fail，缺 env 时整组 SKIP | `n8n/workflows/selfcheck.json`、`n8n/scripts/smoke-test.mjs:51,268,350,423,451` vs `README.md:52,447,476-477,1096` | README 那些数字是历史运行输出，引用前先数代码 |
+| D16 | 断言数以代码为准：`selfcheck.json` 现有 **49** 条 `add()`（含新增的 `schedules fresh`；README 里同一个数写了 20 / 42 / 43 / 47 / 48 五种，全是历史运行输出），`smoke-test.mjs` 现有 **65** 处 `check()` 调用，而它打印的 `total` 只算实际跑到的 pass/fail，缺 env 时整组 SKIP | `n8n/workflows/selfcheck.json`、`n8n/scripts/smoke-test.mjs:51,268,350,423,451` vs `README.md:52,78,447,476-477,487,744,944,1096` | README 那些数字是历史运行输出，引用前先数代码 |
 
 ## 12. 安全现状（必须知道）
 
@@ -292,8 +304,8 @@ node n8n/scripts/lobehub-config.mjs                           # LobeHub ↔ 网�
 grep -nE "^  [a-z-]+:" docker-compose.yml
 
 # workflow 数与 webhook 数
-ls n8n/workflows/*.json | wc -l                          # 25
-grep -ho '"path": *"[^"]*"' n8n/workflows/*.json | sort -u | wc -l   # 40
+ls n8n/workflows/*.json | wc -l                          # 26
+grep -ho '"path": *"[^"]*"' n8n/workflows/*.json | sort -u | wc -l   # 41
 
 # 控制台路由与死页面
 find frontent/src/app/api -name route.ts | wc -l         # 27

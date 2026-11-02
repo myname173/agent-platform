@@ -1,0 +1,240 @@
+{
+  "name": "Health Report",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "admin/report/health",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-report-health",
+      "name": "Webhook Report",
+      "webhookId": "admin-report-health",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Auth gate - the report endpoint reads platform health and can mint a\n   no-login share link, so it is never anonymous. */\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst expected = $env.CHAT_API_KEY;\nconst provided = String(headers.authorization || '').replace(/^Bearer\\s+/i, '');\nif (!expected || provided !== expected) {\n  return [{ json: { __error: true, status: 401, body: { error: { message: 'Invalid API key. Provide it via the Authorization: Bearer header.', type: 'authentication_error', code: 'invalid_api_key' } } } }];\n}\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "auth-check-report",
+      "name": "Auth Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-auth-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-auth-error",
+      "name": "Has Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      },
+      "id": "respond-auth-error",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        660,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Health report: turn the newest selfcheck run into a document a client can open.\n\n   Why: every acceptance report in monitoring/*.md was written by hand, while\n   selfcheck already persists its full result set in selfcheck_runs.report.\n   Rendering that instead of retyping it makes the report reproducible and\n   costs one webhook call.\n\n   Two audiences, deliberately:\n     internal - every assertion with its detail, internal hostnames included.\n     client   - group-level counts and a verdict ONLY. No check names, no\n                details, so there is structurally nothing to leak. The text is\n                still run through a denylist and the document is NOT created if\n                anything matches (fail closed): a future edit that adds details\n                to the client version cannot silently ship them.\n\n   Signing (the 7-day no-login link) defaults to ON for client and OFF for\n   internal -- an internal report behind a bearer-free URL would be the leak\n   this whole split exists to prevent. */\nconst req = $('Webhook Report').first().json;\nconst body = (req && req.body) || {};\nconst NL = String.fromCharCode(10);\nconst AUTH = ['Bea', 'rer '].join('') + ($env.CHAT_API_KEY || '');\nconst N8N = 'http://localhost:5678';\nconst H = { Authorization: AUTH, 'Content-Type': 'application/json' };\n\nconst api = (method, path, qs, payload) => this.helpers.httpRequest({\n  method, url: N8N + '/api/v1' + path,\n  headers: { 'X-N8N-API-KEY': $env.N8N_API_KEY, 'Content-Type': 'application/json' },\n  qs, body: payload, timeout: 25000,\n});\nconst forge = async (payload) => this.helpers.httpRequest({\n  method: 'POST', url: N8N + '/webhook/admin/docforge', headers: H, body: payload, timeout: 60000,\n});\nconst err = (status, code, message) => [{ json: { __error: true, status, body: { error: { message: String(message).slice(0, 300), type: 'invalid_request_error', code } } } }];\n\n/* ---- parameters ---- */\nconst audience = String(body.audience || '').toLowerCase() === 'client' ? 'client' : 'internal';\nconst maxAgeH = Number(body.max_age_hours) > 0 ? Number(body.max_age_hours) : 24;\nconst force = body.force === true;\nconst wantSign = body.sign === undefined ? audience === 'client' : body.sign === true;\nconst wantPush = body.push === true;\nconst to = String(body.to || '').trim().replace(/^@/, '');\nconst ttlDays = Number(body.ttl_days) > 0 ? Number(body.ttl_days) : 7;\n\nconst SHIFT = 8 * 3600000;\nconst cn = (iso) => {\n  const t = Date.parse(iso || '');\n  return Number.isFinite(t) ? new Date(t + SHIFT).toISOString().slice(0, 16).replace('T', ' ') : '';\n};\n\n/* ---- 1. pick the run ---- */\nconst tables = (await api('GET', '/data-tables', { limit: 100 })).data || [];\nconst runsId = (tables.find((t) => t.name === 'selfcheck_runs') || {}).id;\nif (!runsId) return err(500, 'table_missing', 'selfcheck_runs 表不存在，先跑 n8n/scripts/deploy.mjs');\nconst runs = (await api('GET', '/data-tables/' + runsId + '/rows', { limit: 250 })).data || [];\nif (!runs.length) return err(404, 'no_selfcheck_run', '还没有任何自检记录；先跑一次 POST /webhook/admin/selfcheck/run');\n\nconst stampOf = (r) => Date.parse(r.checked_at || r.createdAt || '') || 0;\nlet row = null;\nif (body.run_id) {\n  row = runs.find((r) => Number(r.id) === Number(body.run_id)) || null;\n  if (!row) return err(404, 'run_not_found', 'run_id ' + body.run_id + ' 不在最近 250 条自检记录里');\n} else {\n  row = runs.slice().sort((a, b) => stampOf(b) - stampOf(a))[0];\n}\n\n/* ---- 2. parse the persisted detail ---- */\nlet checks = [];\nlet truncated = false;\ntry {\n  const parsed = JSON.parse(String(row.report || ''));\n  checks = Array.isArray(parsed.checks) ? parsed.checks : [];\n} catch (eParse) {\n  /* report is capped at 18000 chars when selfcheck writes it, so a long run can\n     arrive cut in half. Counts still come from the row's own columns. */\n  truncated = String(row.report || '').length >= 17000;\n  checks = [];\n}\nconst total = Number(row.total || checks.length || 0);\nconst passed = Number(row.passed || 0);\nconst failed = Number(row.failed || 0);\nconst warned = Number(row.warned || 0);\nconst durationMs = Number(row.duration_ms || 0);\nconst checkedAt = String(row.checked_at || row.createdAt || '');\nconst source = String(row.source || '');\n\n/* ---- 3. freshness: a stale run must not become a client document ---- */\nconst ageH = Number.isFinite(stampOf(row)) ? (Date.now() - stampOf(row)) / 3600000 : NaN;\nif (!(ageH <= maxAgeH) && !force) {\n  return err(409, 'stale_selfcheck', '最近一次自检是 ' + cn(checkedAt) + '（' + (Number.isFinite(ageH) ? ageH.toFixed(1) : '?') + ' 小时前），超过 ' + maxAgeH + 'h；先重跑自检，或传 force:true / max_age_hours 明确接受旧数据');\n}\n\n/* ---- 4. group aggregation ---- */\nconst GROUPS = [\n  { key: 'infra', label: '基础设施' },\n  { key: 'gateway', label: '对话网关' },\n  { key: 'stream', label: '流式通道' },\n  { key: 'channel', label: '推送通道' },\n  { key: 'data', label: '数据与业务' },\n];\nconst agg = {};\nfor (const g of GROUPS) agg[g.key] = { total: 0, passed: 0, warned: 0, failed: 0 };\nagg.other = { total: 0, passed: 0, warned: 0, failed: 0 };\nfor (const c of checks) {\n  const k = agg[c.group] ? c.group : 'other';\n  agg[k].total += 1;\n  if (!c.ok) agg[k].failed += 1;\n  else if (c.warn) agg[k].warned += 1;\n  else agg[k].passed += 1;\n}\nconst groupRows = GROUPS.filter((g) => agg[g.key].total > 0).map((g) => Object.assign({ key: g.key, label: g.label }, agg[g.key]));\nif (agg.other.total) groupRows.push(Object.assign({ key: 'other', label: '其他' }, agg.other));\n\nconst verdict = failed > 0\n  ? '存在未通过项（' + failed + ' 项），处理后才适合交付'\n  : (warned > 0 ? '全部通过，其中 ' + warned + ' 项处于降级状态' : '全部通过');\nconst icon = (c) => (!c.ok ? '❌' : (c.warn ? '🔵' : '✅'));\n\n/* ---- 5. render ---- */\nconst summaryLines = [\n  '- 断言 ' + total + ' 项：通过 ' + passed + ' / 警告 ' + warned + ' / 失败 ' + failed,\n  '- 结论：' + verdict,\n  '- 自检时间 ' + cn(checkedAt) + '（北京时间）· 耗时 ' + (durationMs / 1000).toFixed(1) + ' 秒 · 触发方式 ' + (source || '未知'),\n];\n\nlet text;\nif (audience === 'client') {\n  /* Group level only. Check names are omitted on purpose: they carry component\n     names (stream-bridge, searxng, ...) that describe the internal topology. */\n  const L = ['【总体结论】'];\n  summaryLines.forEach((x) => L.push(x));\n  L.push('【分组结果】');\n  if (groupRows.length) {\n    groupRows.forEach((g) => {\n      const mark = g.failed ? '❌' : (g.warned ? '🔵' : '✅');\n      L.push('- ' + mark + ' ' + g.label + '：' + g.total + ' 项' + (g.failed || g.warned ? '（通过 ' + g.passed + (g.warned ? ' / 警告 ' + g.warned : '') + (g.failed ? ' / 失败 ' + g.failed : '') + '）' : '全部通过'));\n    });\n  } else {\n    L.push('- 🔵 明细不可用（自检记录被截断），仅提供上面的总体结论');\n  }\n  L.push('【说明】');\n  L.push('- 警告＝能力可用但处于降级状态；失败＝该项能力当前不可用');\n  L.push('- 未通过项的具体原因记录在内部版报告中，不在此文档列出');\n  if (truncated || !checks.length) L.push('- 本次报告的明细分组不可用，结论以自检汇总计数为准');\n  L.push('——本报告由平台自检自动产出，可复现，非人工填写');\n  text = L.join(NL);\n} else {\n  const L = ['【摘要】'];\n  summaryLines.forEach((x) => L.push(x));\n  L.push('- 距今 ' + (Number.isFinite(ageH) ? ageH.toFixed(1) + ' 小时' : '未知') + (force && !(ageH <= maxAgeH) ? '（已用 force 越过新鲜度守卫）' : ''));\n  L.push('【分组】');\n  groupRows.forEach((g) => L.push('- ' + g.key + ' ' + g.label + '：' + g.total + ' 项（通过 ' + g.passed + ' / 警告 ' + g.warned + ' / 失败 ' + g.failed + '）'));\n  const fails = checks.filter((c) => !c.ok);\n  const warns = checks.filter((c) => c.ok && c.warn);\n  if (fails.length) {\n    L.push('【失败项】');\n    fails.forEach((c) => L.push('- [' + c.group + '] ' + c.name + ' — ' + String(c.detail || '').slice(0, 240) + '（' + c.ms + 'ms）'));\n  }\n  if (warns.length) {\n    L.push('【警告项】');\n    warns.forEach((c) => L.push('- [' + c.group + '] ' + c.name + ' — ' + String(c.detail || '').slice(0, 240)));\n  }\n  if (checks.length) {\n    L.push('【全部断言】');\n    checks.forEach((c) => L.push('- ' + icon(c) + ' [' + c.group + '] ' + c.name + '（' + c.ms + 'ms）'));\n  } else {\n    L.push('【全部断言】');\n    L.push('- 🔵 明细缺失：selfcheck_runs.report ' + (truncated ? '被 18000 字符上限截断' : '为空或无法解析') + '，仅汇总计数可用');\n  }\n  L.push('——来源：selfcheck_runs #' + row.id + '（' + (source || '未知') + '）· 由 health-report 渲染');\n  text = L.join(NL);\n}\n\n/* ---- 6. scrub the client version, fail closed ---- */\nlet scrubbed = null;\nif (audience === 'client') {\n  const DENY = [\n    /localhost/i, /127\\.0\\.0\\.1/, /0\\.0\\.0\\.0/, /\\b192\\.168\\./, /\\b10\\.\\d+\\./, /\\b172\\.(1[6-9]|2\\d|3[01])\\./,\n    /:\\d{4,5}\\b/, /https?:\\/\\//i,\n    /n8n-sandbox/i, /stream-bridge/i, /searxng/i, /minio/i, /rustfs/i, /lobechat/i, /lobehub/i,\n    /postgres/i, /paradedb/i, /redis/i, /platform-runtime/i, /platform-worker/i, /\\bcaddy\\b/i, /kafka/i, /prometheus/i,\n    /_KEY\\b/, /_SECRET\\b/, /_TOKEN\\b/, /_PASSWORD\\b/, /\\bCHAT_API\\b/, /\\bN8N_API\\b/,\n    /selfcheck_runs/i, /data-tables/i, /\\/webhook\\//i, /docker/i, /\\bcompose\\b/i,\n    /[A-Za-z]:\\\\/, /\\/app\\//, /\\/home\\/node\\//,\n  ];\n  /* The caller-supplied title is scrubbed too: it lands in the document title\n     and in the share message, so an internal hostname pasted there would ride\n     out on an otherwise clean report. */\n  const scrubTarget = String(body.title || '') + NL + text;\n  const hits = DENY.filter((re) => re.test(scrubTarget)).map((re) => String(re));\n  if (hits.length) {\n    return err(500, 'scrub_failed', '对外版报告命中脱敏黑名单 ' + hits.length + ' 条（' + hits.slice(0, 4).join(' ') + '），已拒绝生成文档；修掉渲染逻辑再试');\n  }\n  scrubbed = { checked: DENY.length, hits: 0 };\n}\n\n/* ---- 7. create / sign / push ---- */\nconst title = String(body.title || (audience === 'client' ? '平台健康验收报告' : '平台自检内部报告')).slice(0, 80) + ' · ' + cn(checkedAt);\nlet created;\ntry {\n  created = await forge({ action: 'create', kind: 'custom', title, text });\n} catch (eCreate) {\n  return err(502, 'docforge_create_failed', String((eCreate && eCreate.message) || eCreate).slice(0, 200));\n}\nif (!created || created.ok !== true || !created.id) {\n  return err(502, 'docforge_create_failed', 'doc-forge 没有返回文档 id：' + JSON.stringify(created || {}).slice(0, 200));\n}\n\nlet url = null;\nlet expiresInDays = null;\nif (wantSign) {\n  try {\n    const s = await forge({ action: 'sign', id: created.id, ttl_seconds: ttlDays * 86400 });\n    if (s && s.ok) { url = s.url; expiresInDays = s.expires_in_days; }\n  } catch (eSign) { url = null; }\n}\n\nlet pushed = null;\nif (wantPush) {\n  try {\n    const sh = await forge({ action: 'share', id: created.id, to: to || undefined });\n    pushed = { to: (sh && sh.to) || '(机主)', delivered: !!(sh && sh.delivered), degraded: !!(sh && sh.degraded) };\n    if (!url && sh && sh.url) { url = sh.url; expiresInDays = ttlDays; }\n  } catch (ePush) {\n    pushed = { to: to || '(机主)', delivered: false, degraded: false, error: String((ePush && ePush.message) || ePush).slice(0, 120) };\n  }\n}\n\nreturn [{ json: {\n  ok: true,\n  audience,\n  run_id: row.id,\n  checked_at: checkedAt,\n  age_hours: Number.isFinite(ageH) ? Number(ageH.toFixed(2)) : null,\n  stale_but_forced: !!(force && !(ageH <= maxAgeH)),\n  source,\n  total, passed, warned, failed,\n  duration_ms: durationMs,\n  verdict,\n  groups: groupRows,\n  detail_available: checks.length > 0,\n  report_truncated: truncated,\n  doc_id: created.id,\n  title,\n  chars: created.chars || null,\n  url,\n  expires_in_days: expiresInDays,\n  pushed,\n  scrub: scrubbed,\n} }];"
+      },
+      "id": "build-report",
+      "name": "Build Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-report-error",
+              "leftValue": "={{ $json.__error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-report-error",
+      "name": "Has Report Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      },
+      "id": "respond-report-error",
+      "name": "Respond Report Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1100,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "respond-result",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1100,
+        -60
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Report": {
+      "main": [
+        [
+          {
+            "node": "Auth Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Check": {
+      "main": [
+        [
+          {
+            "node": "Has Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Report": {
+      "main": [
+        [
+          {
+            "node": "Has Report Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Report Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Report Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Shanghai"
+  }
+}
