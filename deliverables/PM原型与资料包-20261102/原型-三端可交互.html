@@ -1,0 +1,1313 @@
+<!doctype html>
+<html lang="zh-CN" data-surface="console" class="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PivotAI Agent 中台 · 三端高保真原型（控制台 / LobeChat / Telegram）</title>
+<style>
+/* ============================================================================
+   TOKENS —— 全部照抄仓库真实值，未自造
+   控制台浅色：frontent/src/styles/themes/vercel.css :1-54（oklch）
+   控制台深色：同文件 .dark 块 :56-107
+   运营指挥台暗色：features/workflows/components/operations-dashboard.tsx:40-49
+   前台 PivotAI：custom-theme/pivot-theme-v2.css :13-66（v2 绿色系，非 README 旧蓝色）
+   字体：components/themes/font.config.ts:22-30（Geist / Geist Mono）
+   ========================================================================== */
+:root{
+  --radius:0.5rem;
+  --spacing:0.25rem;
+  --header-height:calc(var(--spacing) * 12 + 1px);
+  --font-sans:'Geist','Geist Sans',system-ui,'Segoe UI','Microsoft YaHei',sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+  --font-serif:Georgia,serif;
+
+  /* vercel.css 浅色块 */
+  --background:oklch(0.99 0 0);
+  --foreground:oklch(0 0 0);
+  --card:oklch(1 0 0);
+  --card-foreground:oklch(0 0 0);
+  --popover:oklch(0.99 0 0);
+  --primary:oklch(0 0 0);
+  --primary-foreground:oklch(1 0 0);
+  --secondary:oklch(0.94 0 0);
+  --secondary-foreground:oklch(0 0 0);
+  --muted:oklch(0.97 0 0);
+  --muted-foreground:oklch(0.44 0 0);
+  --accent:oklch(0.94 0 0);
+  --accent-foreground:oklch(0 0 0);
+  --destructive:oklch(0.63 0.19 23.03);
+  --destructive-foreground:oklch(1 0 0);
+  --border:oklch(0.92 0 0);
+  --input:oklch(0.94 0 0);
+  --ring:oklch(0 0 0);
+  --chart-1:oklch(0.81 0.17 75.35);
+  --chart-2:oklch(0.55 0.22 264.53);
+  --chart-3:oklch(0.72 0 0);
+  --chart-4:oklch(0.92 0 0);
+  --chart-5:oklch(0.56 0 0);
+  --sidebar:oklch(0.99 0 0);
+  --sidebar-foreground:oklch(0 0 0);
+  --sidebar-primary:oklch(0 0 0);
+  --sidebar-primary-foreground:oklch(1 0 0);
+  --sidebar-accent:oklch(0.94 0 0);
+  --sidebar-accent-foreground:oklch(0 0 0);
+  --sidebar-border:oklch(0.94 0 0);
+  --shadow-xs:0px 1px 2px 0px hsl(0 0% 0% / 0.09);
+  --shadow-sm:0px 1px 2px 0px hsl(0 0% 0% / 0.18),0px 1px 2px -1px hsl(0 0% 0% / 0.18);
+  --shadow-md:0px 1px 2px 0px hsl(0 0% 0% / 0.18),0px 2px 4px -1px hsl(0 0% 0% / 0.18);
+  --shadow-lg:0px 1px 2px 0px hsl(0 0% 0% / 0.18),0px 4px 6px -1px hsl(0 0% 0% / 0.18);
+  /* 语义色（状态徽标用，来源：chat-alerts 的 warn/critical、selfcheck 的 pass/fail） */
+  --ok:#10B981; --warn:#F59E0B; --bad:#EF4444; --info:#3B82F6; --cyan:#06B6D4;
+}
+html.dark{
+  --background:oklch(0 0 0);
+  --foreground:oklch(1 0 0);
+  --card:oklch(0.14 0 0);
+  --card-foreground:oklch(1 0 0);
+  --popover:oklch(0.18 0 0);
+  --primary:oklch(1 0 0);
+  --primary-foreground:oklch(0 0 0);
+  --secondary:oklch(0.25 0 0);
+  --secondary-foreground:oklch(1 0 0);
+  --muted:oklch(0.23 0 0);
+  --muted-foreground:oklch(0.72 0 0);
+  --accent:oklch(0.32 0 0);
+  --accent-foreground:oklch(1 0 0);
+  --destructive:oklch(0.69 0.2 23.91);
+  --destructive-foreground:oklch(0 0 0);
+  --border:oklch(0.26 0 0);
+  --input:oklch(0.32 0 0);
+  --ring:oklch(0.72 0 0);
+  --chart-2:oklch(0.58 0.21 260.84);
+  --chart-3:oklch(0.56 0 0);
+  --chart-4:oklch(0.44 0 0);
+  --chart-5:oklch(0.92 0 0);
+  --sidebar:oklch(0.18 0 0);
+  --sidebar-foreground:oklch(1 0 0);
+  --sidebar-primary:oklch(1 0 0);
+  --sidebar-primary-foreground:oklch(0 0 0);
+  --sidebar-accent:oklch(0.32 0 0);
+  --sidebar-border:oklch(0.32 0 0);
+}
+
+/* 运营指挥台（Operations 页专用，深色系） */
+.ops{--background:#0B1220;--card:#111827;--border:#1F2937;--foreground:#E5E7EB;
+  --muted-foreground:#9CA3AF;--ops-primary:#3B82F6;--ops-accent:#06B6D4;
+  --ops-ok:#10B981;--ops-danger:#EF4444;--ops-warn:#F59E0B;}
+
+/* 前台 PivotAI v2（LobeChat 注入主题） */
+.pivot{--p-primary:#16A34A;--p-accent:#34D399;--p-bg:#030712;
+  --p-glass:rgba(10,16,31,.68);--p-glass-card:rgba(15,23,42,.62);
+  --p-border:rgba(34,197,94,.22);--p-glow-green:rgba(34,197,94,.35);--p-glow-mint:rgba(52,211,153,.4);
+  --p-text:#f8fafc;--p-text-2:#94a3b8;}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:var(--font-sans);font-size:14px;line-height:1.5;background:#0a0a0a;color:var(--foreground);
+  -webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+
+/* ---------- 顶部：端切换 + 明暗 + 追溯开关（原型导航条，非产品 UI） ---------- */
+.proto-bar{position:sticky;top:0;z-index:80;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+  padding:10px 16px;background:#0a0a0a;color:#e5e5e5;border-bottom:1px solid #1f1f1f}
+.proto-bar .brand{font-weight:600;font-size:13px;letter-spacing:.02em;margin-right:6px}
+.proto-bar .brand span{color:#737373;font-weight:400}
+.seg{display:flex;background:#171717;border:1px solid #262626;border-radius:9px;padding:2px}
+.seg button{border:0;background:transparent;color:#a3a3a3;padding:5px 12px;border-radius:7px;cursor:pointer;font-size:12.5px}
+.seg button[aria-pressed="true"]{background:#e5e5e5;color:#0a0a0a;font-weight:600}
+.ghost{border:1px solid #262626;background:#171717;color:#a3a3a3;border-radius:8px;padding:5px 11px;
+  font-size:12.5px;cursor:pointer}
+.ghost[aria-pressed="true"]{border-color:#3B82F6;color:#93C5FD;background:#0d1b33}
+.proto-bar .spacer{flex:1}
+.proto-bar .snap{font-size:11.5px;color:#737373;font-family:var(--font-mono)}
+
+/* ---------- 舞台 ---------- */
+.stage{display:none;overflow-x:auto}
+/* 窄窗口下让舞台内部横向滚动，而不是把整个文档撑出滚动条（评审常用 1440，但侧边预览也要能看） */
+.stage-console .app{min-width:1160px}
+.front-wrap{overflow-x:auto}
+.front{min-width:980px}
+html[data-surface="console"] .stage-console,
+html[data-surface="front"] .stage-front,
+html[data-surface="tg"] .stage-tg{display:block}
+
+/* ---------- 控制台外壳 ---------- */
+.app{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:calc(100vh - 45px);
+  background:var(--background);color:var(--foreground)}
+.side{background:var(--sidebar);color:var(--sidebar-foreground);border-right:1px solid var(--sidebar-border);
+  display:flex;flex-direction:column;padding:12px 10px;gap:2px;position:sticky;top:45px;
+  max-height:calc(100vh - 45px);overflow:auto}
+.side-head{display:flex;align-items:center;gap:9px;padding:6px 8px 12px}
+.logo{width:28px;height:28px;border-radius:8px;background:var(--sidebar-primary);color:var(--sidebar-primary-foreground);
+  display:grid;place-items:center;font-weight:700;font-size:13px}
+.side-head b{font-size:13.5px}
+.side-head small{display:block;color:var(--muted-foreground);font-size:11px;font-weight:400}
+.grp{padding:12px 10px 5px;font-size:11px;text-transform:none;color:var(--muted-foreground);letter-spacing:.04em}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:calc(var(--radius) - 2px);
+  color:var(--sidebar-foreground);cursor:pointer;font-size:13.5px;border:1px solid transparent}
+.nav:hover{background:var(--sidebar-accent)}
+.nav[data-active="true"]{background:var(--sidebar-accent);font-weight:600;border-color:var(--sidebar-border)}
+.nav .ico{width:16px;height:16px;flex:none;opacity:.85}
+.nav .kbd{margin-left:auto;display:flex;gap:3px;opacity:0}
+.nav:hover .kbd{opacity:.6}
+.kbd i{font-style:normal;font-family:var(--font-mono);font-size:10px;border:1px solid var(--border);
+  border-radius:4px;padding:0 4px;background:var(--background);color:var(--muted-foreground)}
+.side-foot{margin-top:auto;padding:10px 8px;border-top:1px solid var(--sidebar-border);font-size:11.5px;
+  color:var(--muted-foreground)}
+
+.main{display:flex;flex-direction:column;min-width:0}
+.topbar{height:var(--header-height);display:flex;align-items:center;gap:12px;padding:0 20px;
+  border-bottom:1px solid var(--border);background:var(--background);position:sticky;top:45px;z-index:20}
+.topbar .crumb{font-size:12.5px;color:var(--muted-foreground)}
+.topbar .cmdk{margin-left:auto;display:flex;align-items:center;gap:8px;border:1px solid var(--border);
+  background:var(--card);border-radius:9px;padding:5px 10px;font-size:12px;color:var(--muted-foreground);min-width:210px}
+.avatar{width:26px;height:26px;border-radius:50%;background:var(--primary);color:var(--primary-foreground);
+  display:grid;place-items:center;font-size:11px;font-weight:600}
+
+.page{padding:22px 24px 40px;display:flex;flex-direction:column;gap:18px}
+.page-head{display:flex;align-items:flex-start;gap:16px}
+.page-head h1{margin:0;font-size:19px;font-weight:640}
+.page-head p{margin:4px 0 0;color:var(--muted-foreground);font-size:13px}
+.page-head .act{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+
+/* ---------- 原子组件 ---------- */
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g21{grid-template-columns:2fr 1fr}
+.g12{grid-template-columns:1fr 2fr}
+@media (max-width:1180px){.g4{grid-template-columns:repeat(2,1fr)}.g3,.g21,.g12{grid-template-columns:1fr}}
+
+.card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);
+  border-radius:var(--radius);box-shadow:var(--shadow-xs);display:flex;flex-direction:column;min-width:0}
+.card-h{padding:15px 16px 0;display:flex;align-items:flex-start;gap:12px}
+.card-h h3{margin:0;font-size:14px;font-weight:600}
+.card-h p{margin:3px 0 0;font-size:12px;color:var(--muted-foreground);line-height:1.45}
+.card-h .r{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.card-b{padding:14px 16px 16px;display:flex;flex-direction:column;gap:10px;font-size:13px}
+.card-b.tight{gap:8px}
+
+.section-label{display:flex;align-items:center;gap:10px;margin:6px 0 -4px}
+.section-label b{font-size:12.5px;letter-spacing:.03em}
+.section-label span{font-size:12px;color:var(--muted-foreground)}
+.section-label:after{content:"";height:1px;background:var(--border);flex:1}
+
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 15px;
+  box-shadow:var(--shadow-xs)}
+.kpi .lbl{font-size:12px;color:var(--muted-foreground)}
+.kpi .val{font-size:24px;font-weight:650;letter-spacing:-.02em;margin-top:5px;font-variant-numeric:tabular-nums}
+.kpi .sub{font-size:11.5px;color:var(--muted-foreground);margin-top:5px;display:flex;gap:6px;align-items:center}
+.delta{font-family:var(--font-mono);font-size:11px;padding:1px 5px;border-radius:4px}
+.delta.up{background:color-mix(in oklab,var(--ok) 14%,transparent);color:var(--ok)}
+.delta.down{background:color-mix(in oklab,var(--bad) 14%,transparent);color:var(--bad)}
+.delta.flat{background:var(--muted);color:var(--muted-foreground)}
+
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--card);
+  color:var(--card-foreground);border-radius:calc(var(--radius) - 2px);padding:6px 11px;font-size:12.5px;
+  cursor:pointer;box-shadow:var(--shadow-xs);white-space:nowrap}
+.btn:hover{background:var(--accent)}
+.btn.pri{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+.btn.pri:hover{opacity:.9;background:var(--primary)}
+.btn.dgr{color:var(--destructive);border-color:color-mix(in oklab,var(--destructive) 40%,var(--border))}
+.btn.sm{padding:3px 8px;font-size:11.5px;border-radius:6px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn.is-loading{position:relative;pointer-events:none;color:transparent;min-width:74px}
+.btn.is-loading:after{content:"";position:absolute;inset:0;margin:auto;width:13px;height:13px;border-radius:50%;
+  border:2px solid color-mix(in oklab,currentColor 40%,transparent);border-top-color:var(--primary);
+  animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(1turn)}}
+
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:2px 8px;border-radius:999px;
+  border:1px solid var(--border);background:var(--muted);color:var(--muted-foreground);white-space:nowrap}
+.badge.ok{color:#065F46;background:color-mix(in oklab,var(--ok) 15%,transparent);border-color:color-mix(in oklab,var(--ok) 35%,transparent)}
+.badge.warn{color:#92400E;background:color-mix(in oklab,var(--warn) 16%,transparent);border-color:color-mix(in oklab,var(--warn) 40%,transparent)}
+.badge.bad{color:#991B1B;background:color-mix(in oklab,var(--bad) 14%,transparent);border-color:color-mix(in oklab,var(--bad) 38%,transparent)}
+.badge.info{color:#1E40AF;background:color-mix(in oklab,var(--info) 12%,transparent);border-color:color-mix(in oklab,var(--info) 34%,transparent)}
+html.dark .badge.ok,html.dark .badge.warn,html.dark .badge.bad,html.dark .badge.info{color:var(--foreground)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;font-weight:550;color:var(--muted-foreground);font-size:11.5px;padding:8px 10px;
+  border-bottom:1px solid var(--border);white-space:nowrap;background:var(--muted)}
+td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+tbody tr:hover{background:var(--accent)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.mono{font-family:var(--font-mono);font-size:11.5px}
+.dim{color:var(--muted-foreground)}
+.nowrap{white-space:nowrap}
+.scroll{overflow:auto}
+
+.empty{padding:22px 16px;text-align:center;color:var(--muted-foreground);font-size:12.5px;
+  border:1px dashed var(--border);border-radius:calc(var(--radius) - 2px);background:var(--muted)}
+.skel{height:12px;border-radius:6px;background:linear-gradient(90deg,var(--muted),var(--accent),var(--muted));
+  background-size:200% 100%;animation:sh 1.2s infinite}
+@keyframes sh{to{background-position:-200% 0}}
+.flash{display:none;border-radius:calc(var(--radius) - 2px);padding:9px 12px;font-size:12.5px;border:1px solid}
+.flash.on{display:block}
+.flash.good{background:color-mix(in oklab,var(--ok) 10%,transparent);border-color:color-mix(in oklab,var(--ok) 40%,transparent);color:#065F46}
+.flash.err{background:color-mix(in oklab,var(--bad) 8%,transparent);border-color:color-mix(in oklab,var(--bad) 40%,transparent);color:#991B1B}
+.flash.info{background:color-mix(in oklab,var(--info) 8%,transparent);border-color:color-mix(in oklab,var(--info) 35%,transparent);color:#1E40AF}
+html.dark .flash.good,html.dark .flash.err,html.dark .flash.info{color:var(--foreground)}
+
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);padding:0 16px}
+.tabs button{border:0;background:transparent;padding:9px 12px;font-size:12.5px;color:var(--muted-foreground);
+  cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--foreground);border-bottom-color:var(--primary);font-weight:600}
+
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12px;color:var(--muted-foreground)}
+.ctl{border:1px solid var(--input);background:var(--background);border-radius:calc(var(--radius) - 2px);
+  padding:7px 10px;font-size:13px;width:100%}
+.ctl:focus{outline:2px solid color-mix(in oklab,var(--ring) 30%,transparent);outline-offset:-1px}
+textarea.ctl{min-height:96px;resize:vertical;font-family:var(--font-mono);font-size:12px}
+.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--border);background:var(--card);border-radius:999px;padding:3px 10px;font-size:11.5px;cursor:pointer}
+.chip[data-on="true"]{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+
+/* 追溯徽标 */
+.req{display:none;font-family:var(--font-mono);font-size:10px;color:var(--info);border:1px dashed color-mix(in oklab,var(--info) 45%,transparent);
+  border-radius:4px;padding:0 4px;background:color-mix(in oklab,var(--info) 8%,transparent);white-space:nowrap}
+html[data-trace="on"] .req{display:inline-flex}
+.api{display:none;font-family:var(--font-mono);font-size:10.5px;color:var(--cyan)}
+html[data-trace="on"] .api{display:block}
+html[data-trace="on"] .card{outline:1px dashed color-mix(in oklab,var(--info) 25%,var(--border));outline-offset:2px}
+
+/* 图表（内联 SVG，颜色取 operations-dashboard 的 C 常量） */
+.bars{display:flex;align-items:flex-end;gap:6px;height:120px}
+.bars .b{flex:1;border-radius:3px 3px 0 0;min-width:6px;position:relative}
+.bars .b em{position:absolute;bottom:-17px;left:50%;transform:translateX(-50%);font-style:normal;
+  font-size:9.5px;color:var(--muted-foreground);font-family:var(--font-mono)}
+.bar-track{display:flex;flex-direction:column;gap:7px}
+.dist{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;font-size:12px}
+.dist .t{height:7px;border-radius:4px;background:var(--muted);overflow:hidden}
+.dist .t i{display:block;height:100%;border-radius:4px}
+.prog{height:8px;border-radius:5px;background:var(--muted);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--primary)}
+
+/* dialog */
+dialog{border:1px solid var(--border);background:var(--card);color:var(--card-foreground);border-radius:var(--radius);
+  padding:0;box-shadow:var(--shadow-lg);width:min(560px,92vw)}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+.dlg-h{padding:16px 18px 0}.dlg-h h3{margin:0;font-size:15px}
+.dlg-h p{margin:4px 0 0;font-size:12.5px;color:var(--muted-foreground)}
+.dlg-b{padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.dlg-f{padding:0 18px 16px;display:flex;gap:8px;justify-content:flex-end}
+.secret{font-family:var(--font-mono);font-size:12px;background:var(--muted);border:1px dashed var(--border);
+  padding:9px 11px;border-radius:6px;word-break:break-all}
+
+/* ---------- LobeChat 前台（PivotAI v2 玻璃拟态） ---------- */
+.front-wrap{min-height:calc(100vh - 45px);background:var(--p-bg);padding:26px;display:flex;justify-content:center}
+.front{width:min(1280px,100%);height:820px;border-radius:18px;overflow:hidden;display:grid;
+  grid-template-columns:272px minmax(0,1fr);position:relative;color:var(--p-text);
+  background-color:var(--p-bg);
+  background-image:radial-gradient(circle at 10% 15%,rgba(52,211,153,.22) 0%,transparent 48%),
+    radial-gradient(circle at 85% 85%,rgba(34,197,94,.24) 0%,transparent 52%),
+    radial-gradient(circle at 50% 40%,rgba(16,185,129,.15) 0%,transparent 62%)}
+.front canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.f-side{position:relative;z-index:2;padding:14px;display:flex;flex-direction:column;gap:10px;
+  background:var(--p-glass);backdrop-filter:blur(24px) saturate(190%);border-right:1px solid var(--p-border)}
+.f-brand{display:flex;gap:9px;align-items:center;padding:4px 6px 10px}
+.f-brand .m{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#4ADE80,#34D399);
+  display:grid;place-items:center;color:#052e16;font-weight:800;font-size:13px}
+.f-brand b{font-size:14px;letter-spacing:.01em}
+.f-brand small{display:block;font-size:10.5px;color:var(--p-text-2);letter-spacing:.04em}
+.f-new{border:1px solid var(--p-border);background:rgba(34,197,94,.12);color:#dcfce7;border-radius:10px;
+  padding:8px 11px;font-size:12.5px;cursor:pointer;display:flex;gap:7px;align-items:center;justify-content:center}
+.f-new:hover{background:rgba(52,211,153,.2)}
+.f-list{display:flex;flex-direction:column;gap:2px;overflow:auto;flex:1}
+.f-list .h{font-size:10.5px;color:#7d8aa0;padding:9px 8px 4px;letter-spacing:.05em}
+.f-item{padding:8px 10px;border-radius:9px;font-size:12.5px;color:#cbd5e1;cursor:pointer;border-left:3px solid transparent;
+  display:flex;gap:8px;align-items:center}
+.f-item:hover{background:rgba(15,23,42,.6)}
+.f-item[data-on="true"]{background:rgba(15,23,42,.6);color:#f1f5f9;border-left-color:var(--p-accent)}
+.f-item i{font-style:normal;font-size:10.5px;color:#64748b;margin-left:auto;font-family:var(--font-mono)}
+.f-foot{border-top:1px solid var(--p-border);padding-top:10px;display:flex;gap:8px;align-items:center;font-size:12px;color:var(--p-text-2)}
+.f-foot .av{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#22c55e,#06b6d4);
+  display:grid;place-items:center;color:#04231a;font-weight:700;font-size:11px}
+.f-main{position:relative;z-index:2;display:flex;flex-direction:column;min-width:0}
+.f-top{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid rgba(34,197,94,.14);
+  backdrop-filter:blur(18px) saturate(180%)}
+.f-top .ttl{font-size:13.5px;font-weight:600}
+.f-model{border:1px solid var(--p-border);background:rgba(15,23,42,.6);color:#e2e8f0;border-radius:8px;
+  padding:5px 9px;font-size:12px;cursor:pointer}
+.f-tag{font-size:10.5px;color:#6ee7b7;border:1px solid rgba(52,211,153,.4);border-radius:999px;padding:2px 8px}
+.f-body{flex:1;overflow:auto;padding:20px 22px;display:flex;flex-direction:column;gap:16px}
+.msg{display:flex;gap:12px;max-width:88%}
+.msg .av{width:28px;height:28px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:11px;font-weight:700}
+.msg.u{margin-left:auto;flex-direction:row-reverse}
+.msg.u .av{background:#1e293b;color:#93c5fd}
+.msg.a .av{background:linear-gradient(135deg,#16a34a,#34d399);color:#04231a}
+.bub{border-radius:14px;padding:11px 14px;font-size:13.5px;line-height:1.6;
+  background:var(--p-glass-card);border:1px solid var(--p-border);backdrop-filter:blur(18px) saturate(180%);
+  box-shadow:0 12px 36px -4px rgba(52,211,153,.2),0 0 0 1px rgba(34,197,94,.35)}
+.msg.u .bub{background:rgba(15,23,42,.72);border-color:rgba(52,211,153,.16);box-shadow:none}
+.think{border-left:2px solid rgba(52,211,153,.5);padding:6px 10px;margin-bottom:9px;font-size:12px;color:#94a3b8;
+  background:rgba(15,23,42,.4);border-radius:0 8px 8px 0}
+.think b{color:#6ee7b7;font-weight:600;font-size:11.5px;display:block;margin-bottom:3px}
+.tool{border:1px solid rgba(52,211,153,.2);border-radius:9px;padding:7px 10px;margin-top:8px;font-size:11.5px;
+  font-family:var(--font-mono);color:#a7f3d0;background:rgba(34,197,94,.06)}
+.tool .st{color:#6ee7b7}.tool .ms{color:#94a3b8}
+.f-composer{margin:0 22px 20px;border-radius:16px;padding:12px;background:rgba(15,23,42,.6);
+  backdrop-filter:blur(30px) saturate(200%);border:1px solid rgba(34,197,94,.22);
+  box-shadow:0 24px 60px rgba(0,0,0,.75),0 0 0 1px rgba(52,211,153,.2)}
+.f-composer textarea{width:100%;border:0;background:transparent;color:#f1f5f9;font-size:13.5px;resize:none;outline:none;min-height:44px;font-family:inherit}
+.f-tools{display:flex;gap:7px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.f-btn{border:1px solid rgba(34,197,94,.22);background:rgba(15,23,42,.6);color:#94a3b8;border-radius:8px;
+  padding:5px 9px;font-size:11.5px;cursor:pointer;display:inline-flex;gap:5px;align-items:center}
+.f-btn[data-on="true"]{color:#dcfce7;border-color:rgba(52,211,153,.6);background:rgba(52,211,153,.16)}
+.f-send{margin-left:auto;width:30px;height:30px;border-radius:9px;border:0;cursor:pointer;color:#04231a;font-weight:800;
+  background:linear-gradient(135deg,#22c55e,#34d399);box-shadow:0 6px 26px rgba(52,211,153,.65),0 0 16px rgba(34,197,94,.5)}
+.f-note{font-size:11px;color:#64748b;margin:8px 24px 0}
+
+/* ---------- Telegram ---------- */
+.tg-wrap{min-height:calc(100vh - 45px);padding:26px;display:flex;gap:26px;flex-wrap:wrap;
+  background:#0e1621;justify-content:center;align-items:flex-start}
+.phone{width:392px;background:#0e1621;border-radius:26px;border:1px solid #1f2b3a;overflow:hidden;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);display:flex;flex-direction:column}
+.ph-top{display:flex;gap:10px;align-items:center;padding:12px 14px;background:#17212b;border-bottom:1px solid #0d151d}
+.ph-top .av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#16a34a,#34d399);
+  display:grid;place-items:center;font-weight:800;color:#04231a;font-size:13px}
+.ph-top b{font-size:13.5px;color:#f1f5f9;display:block}
+.ph-top small{font-size:11px;color:#7d8aa0}
+.ph-top .ic{margin-left:auto;color:#7d8aa0;font-size:15px}
+.tg-body{padding:14px 12px;display:flex;flex-direction:column;gap:11px;background:#0e1621;
+  background-image:radial-gradient(circle at 20% 10%,rgba(52,211,153,.05),transparent 40%);min-height:560px}
+.tg-day{align-self:center;font-size:10.5px;color:#7d8aa0;background:#17212b;border-radius:999px;padding:2px 10px}
+.tg-m{max-width:88%;align-self:flex-start;background:#17212b;color:#e9edf2;border-radius:5px 13px 13px 13px;
+  padding:8px 11px;font-size:12.8px;line-height:1.55;box-shadow:0 1px 2px rgba(0,0,0,.35);position:relative}
+.tg-m.me{align-self:flex-end;background:#2b5278;border-radius:13px 5px 13px 13px}
+.tg-m .hd{font-size:11.5px;font-weight:700;color:#8be3ad;margin-bottom:5px;display:flex;gap:6px;align-items:center}
+.tg-m .hd .pin{font-size:9.5px;color:#7d8aa0;font-weight:400}
+.tg-m .sec{margin:7px 0 0}
+.tg-m .sec b{color:#a7f3d0;font-weight:650;font-size:12px}
+.tg-m li{list-style:none;margin:2px 0;font-size:12.2px}
+.tg-m ul{margin:0;padding:0}
+.tg-m a{color:#7db8e8}
+.tg-m .meta{font-size:10px;color:#7d8aa0;text-align:right;margin-top:4px}
+.tg-m .clip{font-size:11px;color:#9aa8b8;font-style:italic;margin-top:5px}
+.tg-btns{display:flex;flex-direction:column;gap:1px;margin-top:-4px}
+.tg-btns.r{flex-direction:row}
+.tg-b{background:#17212b;color:#6fc4ff;font-size:12.2px;padding:7px 10px;border-radius:5px;cursor:pointer;
+  text-align:center;border:0;flex:1;font-family:inherit}
+.tg-b:hover{background:#1d2a38}
+.tg-b[data-clicked="true"]{color:#5c6b7a;background:#141d26}
+.tg-b.pri{color:#8be3ad}
+.ph-in{display:flex;gap:9px;align-items:center;padding:10px 12px;background:#17212b;border-top:1px solid #0d151d}
+.ph-in .box{flex:1;background:#242f3d;border-radius:18px;padding:8px 13px;color:#7d8aa0;font-size:12.5px}
+.ph-in .mic{width:32px;height:32px;border-radius:50%;background:#2b5278;color:#cfe6ff;display:grid;place-items:center;cursor:pointer}
+.tg-side{width:min(420px,94vw);background:#141d26;border:1px solid #1f2b3a;border-radius:16px;padding:16px;color:#cbd5e1}
+.tg-side h3{margin:0 0 4px;font-size:14px;color:#f1f5f9}
+.tg-side p{margin:0 0 12px;font-size:12px;color:#7d8aa0;line-height:1.5}
+.tg-side .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12px;margin-bottom:14px}
+.tg-side .kv b{color:#8be3ad;font-weight:600}
+.tg-side code{font-family:var(--font-mono);font-size:11px;color:#7db8e8}
+.chain{display:flex;flex-direction:column;gap:8px}
+.chain .n{border-left:2px solid #2b5278;padding:0 0 8px 12px;position:relative;font-size:12px;color:#cbd5e1}
+.chain .n:before{content:"";position:absolute;left:-6px;top:3px;width:9px;height:9px;border-radius:50%;background:#34d399}
+.chain .n b{display:block;color:#f1f5f9;font-size:12.5px}
+.chain .n i{font-style:normal;font-family:var(--font-mono);font-size:10.5px;color:#7d8aa0}
+
+/* 图例 / 脚注 */
+.legend{padding:12px 24px;background:#0a0a0a;color:#8a8a8a;font-size:11.5px;border-top:1px solid #1f1f1f;
+  display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+.legend b{color:#d4d4d4;font-weight:600}
+.legend .sw{display:inline-flex;gap:5px;align-items:center}
+.legend .sw i{width:9px;height:9px;border-radius:3px;display:inline-block}
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <div class="brand">PivotAI Agent 中台 · 三端高保真原型 <span>v1 · 2026-11-02</span></div>
+  <div class="seg" role="group" aria-label="切换端">
+    <button data-go="console" aria-pressed="true">运营控制台 :3000</button>
+    <button data-go="front" aria-pressed="false">LobeChat 前台 :3210</button>
+    <button data-go="tg" aria-pressed="false">Telegram 通道</button>
+  </div>
+  <button class="ghost" id="trace-btn" aria-pressed="false">需求追溯</button>
+  <button class="ghost" id="theme-btn" aria-pressed="false">深色</button>
+  <div class="spacer"></div>
+  <div class="snap" id="snap">数据口径：2026-10-30 实机快照</div>
+</div>
+
+<!-- ============================ 控制台 ============================ -->
+<div class="stage stage-console">
+  <div class="app">
+    <aside class="side">
+      <div class="side-head">
+        <div class="logo">K</div>
+        <div><b>Kiranism</b><small>PivotAI 运营中控台</small></div>
+      </div>
+      <div id="nav"></div>
+      <div class="side-foot">
+        Clerk 会话守卫 · 14 项导航<br/>
+        <span class="mono">27 条 api route → n8n</span>
+      </div>
+    </aside>
+    <div class="main">
+      <div class="topbar">
+        <div class="crumb" id="crumb">今日 / Overview</div>
+        <div class="cmdk"><span>搜索命令…</span><span style="margin-left:auto" class="mono">⌘K</span></div>
+        <div class="badge"><span class="dot" style="color:var(--ok)"></span>引擎正常</div>
+        <div class="avatar">黄</div>
+      </div>
+      <div class="page" id="page"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ LobeChat 前台 ============================ -->
+<div class="stage stage-front"><div class="front-wrap"><div class="front" id="front"></div></div></div>
+
+<!-- ============================ Telegram ============================ -->
+<div class="stage stage-tg"><div class="tg-wrap" id="tgwrap"></div></div>
+
+<div class="legend">
+  <b>数据来源图例</b>
+  <span class="sw"><i style="background:#10B981"></i>实机快照 2026-10-30（validate 24/0、39 路径、smoke 71/71 0 SKIP、stats totals 331/324/7）</span>
+  <span class="sw"><i style="background:#F59E0B"></i>示意填充（结构真实、数值为占位，如按会话拆分、行级样本）</span>
+  <span class="sw"><i style="background:#64748b"></i>模板自带（Kiranism demo，非平台数据，如 Notifications）</span>
+  <span>原型是<b>设计稿级</b>产物，不接真实接口；每个模块上的徽标是需求 ID，可点「需求追溯」查看它对应哪条 API 与验收标准。</span>
+</div>
+
+<script>
+/* ==========================================================================
+   快照数据 —— 真实来源标注
+   实机快照（2026-10-30，栈在跑）：n8n/scripts/smoke-test.mjs 71/71 0 SKIP、
+   stats/executions totals、Data Table 行数、validate-workflows 24/0、39 webhook 路径。
+   其余按窗口/按行拆分的数值是【示意】，只为让版式成立，不作对外引用。
+   ========================================================================== */
+const S = {
+  totals:{ total:331, success:324, error:7, error_rate:0.021 },
+  cost:{ total_usd:0.474466, d24h:0.009056, d7d:0.113315, budget24h:2, critical5:5 },
+  gates:{ validate:'24 files / 0 warnings', smoke:'71/71 · 0 SKIP', mcp:'25/27 · FAILED',
+          eval:'5/12 · FAILED', selfcheck:'48 项' },
+  counts:{ tables:23, workflows:24, paths:39, tools:17, routes:27,
+           selfcheck_runs:138, heartbeats:35, cron_runs:100, ops_alerts:4,
+           kb_usage:1, daily_briefs:31, idem:32, sandbox:5, tool_contract:1 },
+  /* ↓ 以下按窗口/按维度拆分的数值为示意，快照里没有对应字段 */
+  demo:{ msg24h:38, latency:1840, p95:4620, sessions:12, tokIn:118400, tokOut:26910,
+         kbDocs:14, kbChunks:812, quotaPct:23, quotaTokens:231400 }
+};
+const u = n => '$'+Number(n).toFixed(4).replace(/0+$/,'').replace(/\.$/,'');
+
+/* 图标（对齐 nav-config.ts 的 icon 键 → components/icons.tsx 的 tabler 组件） */
+const I = {
+  dashboard:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  fileTypeDoc:'<path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6z"/><path d="M9 13h6M9 17h5"/>',
+  notification:'<path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  teams:'<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16.5 14.2c2.5.4 4.5 2.6 4.5 5.1"/>',
+  sparkles:'<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z"/><path d="M18 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>',
+  kanban:'<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="9.5" y="4" width="5" height="11" rx="1.5"/><rect x="16" y="4" width="5" height="14" rx="1.5"/>',
+  lock:'<rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14v2"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5 5l2.1 2.1M16.9 16.9L19 19M19 5l-2.1 2.1M7.1 16.9L5 19"/>',
+  profile:'<circle cx="12" cy="8" r="4"/><path d="M4.5 21c0-4.1 3.4-7.5 7.5-7.5s7.5 3.4 7.5 7.5"/>'
+};
+const ic = k => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
+
+/* 导航：nav-config.ts:36-160 的 5 组 14 项（13 个业务页 + Clerk Profile），逐条照搬 */
+const NAV = [
+  { g:'今日', items:[['Overview','overview','dashboard',['o','o']]] },
+  { g:'内容', items:[['Docs','docs','fileTypeDoc',['d','c']],['Knowledge','knowledge','fileTypeDoc',['k','b']],
+                     ['Topics','topics','notification',['t','w']],['Briefs','briefs','fileTypeDoc',['b','r']]] },
+  { g:'协作', items:[['People','people','teams',['p','p']],['Playground','ai-chat','sparkles',['p','g']]] },
+  { g:'平台', items:[['Operations','workflows','kanban',['p','o']],['Keys','keys','lock',['k','k']],
+                     ['Alerts','alerts','notification',['a','l']],['Models','models','sparkles',['m','o']],
+                     ['Settings','settings','settings',['s','e']]] },
+  { g:'Account', items:[['Profile','profile','profile'],['Notifications','notifications','notification']] }
+];
+const CRUMB = { overview:'今日 / Overview', docs:'内容 / Docs', knowledge:'内容 / Knowledge',
+  topics:'内容 / Topics', briefs:'内容 / Briefs', people:'协作 / People', 'ai-chat':'协作 / Playground',
+  workflows:'平台 / Operations', keys:'平台 / Keys', alerts:'平台 / Alerts', models:'平台 / Models',
+  settings:'平台 / Settings', profile:'Account / Profile', notifications:'Account / Notifications' };
+
+/* ---------- 渲染原子 ---------- */
+const card = (o)=>`<section class="card" data-req="${o.req||''}">
+  <div class="card-h"><div><h3>${o.t||''}${o.req?` <span class="req">${o.req}</span>`:''}</h3>${o.d?`<p>${o.d}</p>`:''}</div>
+  <div class="r">${o.act||''}</div></div>
+  ${o.tabs||''}
+  <div class="card-b ${o.tight?'tight':''}">${o.api?`<span class="api">${o.api}</span>`:''}${o.body||''}</div>
+</section>`;
+const kpi = (l,v,s,cls)=>`<div class="kpi"><div class="lbl">${l}</div><div class="val">${v}</div><div class="sub">${s||''}</div></div>`;
+const badge = (t,c)=>`<span class="badge ${c||''}"><span class="dot"></span>${t}</span>`;
+const b = (t,act,cls)=>`<button class="btn ${cls||''}" data-act="${act||''}">${t}</button>`;
+const btnD = t=>`<button class="btn sm" data-confirm="1">${t}</button>`;
+const table = (cols,rows)=>`<div class="scroll"><table><thead><tr>${cols.map(c=>`<th class="${c.n?'num':''}">${c.t||c}</th>`).join('')}</tr></thead>
+  <tbody>${rows.map(r=>`<tr>${r.map(c=>{const v=c==null?'<span class="dim">—</span>':(typeof c==='string'||typeof c==='number'?c:c.v);
+    return `<td class="${typeof c==='object'&&c&&c.n?'num':''}">${v}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`;
+const empty = t=>`<div class="empty">${t}</div>`;
+const flash = id=>`<div class="flash" id="${id}"></div>`;
+const dist = (name,pct,color,val)=>`<div class="dist"><span class="nowrap">${name}</span><span class="t"><i style="width:${pct}%;background:${color}"></i></span><span class="mono dim">${val}</span></div>`;
+
+/* ============================ 1 · Overview ============================ */
+function pOverview(){
+  const delegation = table(
+    ['负责人','开放','逾期','待回执','平均回执','近 7 天完成','从不回执','通道'],
+    [
+      ['黄泽华（机主）',{v:'4',n:1},{v:'1',n:1},{v:'0',n:1},'<span class="dim">—</span>',{v:'6',n:1},{v:'0',n:1},badge('TG','ok')],
+      ['阿哲',{v:'2',n:1},{v:'2',n:1},{v:'1',n:1},{v:'3.2h',n:1},{v:'5',n:1},{v:'0',n:1},badge('TG','ok')],
+      ['Lily',{v:'1',n:1},{v:'0',n:1},{v:'0',n:1},{v:'11h',n:1},{v:'2',n:1},{v:'0',n:1},badge('Webhook','info')],
+      ['老周',{v:'0',n:1},{v:'0',n:1},{v:'0',n:1},{v:'—',n:1},{v:'0',n:1},{v:'3',n:1},badge('无通道','warn')]
+    ]);
+  return `
+  <div class="page-head"><div><h1>Platform Overview</h1>
+    <p>平台运行总览：对话、告警、知识库与嵌入额度。</p></div>
+    <div class="act">${b('刷新','refresh')}${b('立即自检','selfcheck','pri')}</div></div>
+  ${flash('ov-flash')}
+  <div class="grid g4">
+    ${kpi('近 24h 对话量',S.demo.msg24h+'<span class="dim" style="font-size:13px"> 轮</span>','<span class="delta up">▲ 9</span> 昨日同时段 <span class="req">R-OV-01</span>')}
+    ${kpi('错误率',(S.totals.error_rate*100).toFixed(1)+'%','<span class="badge warn">口径见脚注</span> 累计 '+S.totals.error+'/'+S.totals.total)}
+    ${kpi('平均延迟',S.demo.latency+'<span class="dim" style="font-size:13px"> ms</span>','p95 '+S.demo.p95+' ms')}
+    ${kpi('近 24h 成本',u(S.cost.d24h),'<span class="delta flat">预算 $'+S.cost.budget24h+'</span> 用量 0.5%')}
+  </div>
+  <div class="grid g3">
+    ${card({t:'最近告警',req:'R-OV-02',d:'chat-alerts 每 15 分钟一轮；warn→critical 升级不受 24h 去重限制。',api:'GET /api/n8n/alerts → /webhook/admin/alerts',
+      body:table(['时间','类型','级别','消息','触达'],[
+        ['11-02 09:41','error_rate',badge('warn','warn'),'错误率 60.0%（6/10，窗口 60 分钟）超过阈值 50%',badge('已触达','ok')],
+        ['11-01 22:05','cost_budget',badge('warn','warn'),'24h 花费 $2.14 超过预算 $2',badge('已触达','ok')],
+        ['10-31 15:20','embedding_quota',badge('critical','bad'),'嵌入额度 96% 已用（1M tokens/模型）',badge('触达失败','bad')]
+      ])})}
+    ${card({t:'知识库',req:'R-OV-03',d:'文档数 / 分块数 / 嵌入额度；摄取分块超限会让当日自检失败，而不是静默毁掉检索。',api:'GET /api/n8n/overview',
+      body:`<div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px">
+        <div><div class="kpi"><div class="lbl">文档</div><div class="val" style="font-size:19px">${S.demo.kbDocs}</div><div class="sub">生效中 12 · 已下架 2</div></div></div>
+        <div><div class="kpi"><div class="lbl">分块</div><div class="val" style="font-size:19px">${S.demo.kbChunks}</div><div class="sub">HNSW · 1024 维</div></div></div>
+        <div><div class="kpi"><div class="lbl">嵌入额度</div><div class="val" style="font-size:19px">${S.demo.quotaPct}%</div><div class="sub">${(S.demo.quotaTokens/1000).toFixed(0)}k / 1M</div></div></div>
+      </div><div class="prog" style="margin-top:4px"><i style="width:${S.demo.quotaPct}%"></i></div>`})}
+    ${card({t:'推送与触达',req:'R-OV-04',d:'晨报自动推送当前关闭；告警与提醒正常推送。手动「发送测试」走同一条投递链路。',api:'POST /api/n8n/alerts → /webhook/admin/alerts/test',
+      body:`<div class="row dim" style="font-size:12px">触达渠道：Telegram <span class="badge ok">已配置</span> · 团队 Webhook <span class="badge">未配置</span></div>
+        ${b('发送测试推送','push-test')}`})}
+  </div>
+
+  <div class="section-label"><b>今日</b><span>需要你动手或等别人回话的事</span></div>
+  <div class="grid g3">
+    ${card({t:'待办',req:'R-TD-01',d:'开放循环登记；待办不自动变提醒、提醒不自动变待办（设计红线）。',api:'POST /api/n8n/todos/complete → /webhook/admin/todos/complete',
+      act:b('新增','todo-add'),
+      body:`<div class="bar-track">
+        ${[['周五交房租','逾期 1 天','bad'],['整理季度 OKR','今日到期','warn'],['约阿哲对账流程','11-05','info'],['给 Lily 发模板','11-08','info']]
+          .map(([t,d,c])=>`<div style="display:flex;gap:8px;align-items:center"><input type="checkbox" style="width:15px;height:15px" data-act="todo-done"><div style="flex:1"><div>${t}</div><div class="dim" style="font-size:11px">${d}</div></div>${b('完成','todo-done','sm')}</div>`).join('')}
+        </div>`})}
+    ${card({t:'提醒',req:'R-RM-01',d:'到点由 reminders 工作流投递；控制台「取消」与 TG 上的「知道了」写同一行。',api:'POST /api/n8n/reminders/cancel → /webhook/admin/reminders/cancel',
+      body:`<div class="dim" style="font-size:11.5px">⚠ 现网缺陷：n8n 2.37.7 把响应里的裸 status 当 HTTP 状态码，create/cancel 写成功却回 500，会留下孤儿提醒。此处按钮状态以实机为准。</div>
+        ${table(['标题','触发时间','状态','操作'],[
+          ['15:00 提醒对账','11-02 15:00',badge('待触发','info'),b('取消','rem-cancel','sm')],
+          ['周报材料归档','11-03 09:00',badge('待触发','info'),b('取消','rem-cancel','sm')],
+          ['缴费','10-30 10:00',badge('已触发',''),b('取消','rem-cancel','sm')]])}`})}
+    ${card({t:'派发',req:'R-DP-01',d:'负责人无通道时回落机主并标 degraded；催办 24h 一次，第 3 次升级为逾期升级给机主。',api:'GET /api/n8n/delegation → /webhook/admin/delegation',
+      body:delegation+`<div class="row"><span class="dim" style="font-size:11.5px">负责人</span>
+        <select class="ctl" style="width:auto"><option>阿哲</option><option>Lily</option><option>老周</option><option>机主</option></select>
+        ${b('改派','reassign')}</div>`})}
+  </div>
+
+  <div class="section-label"><b>平台</b><span>运行状态与已经沉淀下来的内容</span></div>
+  <div class="grid g2">
+    ${card({t:'平台自检',req:'R-SC-01',d:'48 项检查，覆盖基础设施 7 端点 / 网关 golden / 流式链路 / 通道 / 数据新鲜度。',api:'POST /api/n8n/selfcheck → /webhook/admin/selfcheck/run',
+      act:b('立即自检','selfcheck','pri')+b('历史记录','sc-history'),
+      body:`<div class="row" style="align-items:center">
+        <div style="flex:1"><div style="font-size:12.5px">最近一次：<b>${S.gates.selfcheck} 全绿</b> · 11-02 04:15</div>
+        <div class="dim" style="font-size:11.5px">手动与定时<b>分别统计</b>——否则手动跑一次就把定时停摆盖住</div></div>
+        <div class="chips"><span class="chip" data-on="true">基础设施 7</span><span class="chip" data-on="true">网关 golden</span>
+        <span class="chip" data-on="true">流式</span><span class="chip" data-on="true">通道</span><span class="chip" data-on="true">数据</span></div>
+        <div id="sc-state" class="dim" style="font-size:11.5px">自检中…约 15–30 秒</div></div>`})}
+    ${card({t:'模型成本',req:'R-CF-01',d:'按牌价折算的实际花费。超过 24h 预算会写入告警（warn），超过 critical 阈值升级为 critical。',api:'GET /api/n8n/overview → /webhook/v1/stats/executions (cost)',
+      act:b('刷新','refresh'),
+      body:`<div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px">
+        <div class="kpi"><div class="lbl">24h</div><div class="val" style="font-size:19px">${u(S.cost.d24h)}</div></div>
+        <div class="kpi"><div class="lbl">7d</div><div class="val" style="font-size:19px">${u(S.cost.d7d)}</div></div>
+        <div class="kpi"><div class="lbl">累计</div><div class="val" style="font-size:19px">${u(S.cost.total_usd)}</div></div></div>
+        <div class="dim" style="font-size:11.5px">预算进度（24h / $${S.cost.budget24h}）</div><div class="prog"><i style="width:0.5%"></i></div>
+        ${dist('deepseek-chat',78,'#3B82F6',u(0.3696))}
+        ${dist('deepseek-reasoner',22,'#06B6D4',u(0.1049))}
+        <div class="dim" style="font-size:11px">告警<b>复用</b> Chat Stats 的成本数、不自己重算——各算一遍会出现「卡片 $1.9、告警 $2 触发」的错位。</div>`})}
+    ${card({t:'周报',req:'R-WK-01',d:'每周日 20:00 自动生成并推送 TG；这里可查看历次回顾，或手动试跑一次。',api:'POST /api/n8n/weekly → /webhook/admin/weekly-review/run',
+      act:b('立即生成','weekly-run')+b('生成团队视图','weekly-team'),
+      body:`<div style="font-size:12.5px"><b>本周回顾 · 10-26 ~ 11-02</b></div>
+        <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;text-align:center">
+        ${[['待办完成','12'],['开放/逾期','4 / 1'],['对话轮次','S 84'],['新记忆','7']].map(([k,v])=>`<div class="kpi" style="padding:9px"><div class="lbl" style="font-size:11px">${k}</div><div class="val" style="font-size:17px">${v}</div></div>`).join('')}</div>
+        <div class="dim" style="font-size:11px">⚠ 已知：自检的 weekly dry-run 会绕过「本周已跑」守卫写 marker，可能把周日周报吞掉（weekly_reviews 仅 1 行）。手动试跑请带 force。</div>`})}
+    ${card({t:'记忆',req:'R-ME-01',d:'它记住的东西（只读）：平台记忆（TG 对话提取）+ LobeHub 自动提取。',api:'POST /api/n8n/memory → /webhook/internal/memory',
+      body:`<div class="row" style="gap:6px"><span class="badge info">平台 41 条</span><span class="badge">LobeHub 88 条</span></div>
+        <ul style="margin:4px 0 0;padding-left:16px;font-size:12.5px;line-height:1.7">
+        <li>用户偏好：回复用中文、结论先行</li><li>身份：财务数字员工中控台团队成员</li>
+        <li>经历：招商成交日报每天 12:00 推送</li></ul>
+        <div class="dim" style="font-size:11px">双库单向互通：TG 可读 LobeHub 记忆，LobeHub 暂不读本机库（v2 计划）。</div>`})}
+  </div>
+  <p class="dim" style="font-size:11.5px">脚注 · 错误率口径：stats 的错误率只覆盖<b>网关</b> chat_executions，admin webhook 侧的 500 不计入——所以「2.1% 错误率」与「提醒创建全挂」可以同时为真。计数器随容器重启归零，331/324/7 是 10-30 那段窗口的数。</p>`;
+}
+
+/* ============================ 2 · Docs ============================ */
+function pDocs(){
+  return `
+  <div class="page-head"><div><h1>文档</h1>
+    <p>纪要、晨报与周报的成文与投递。文档由 docforge 工作流生成，控制台只做编排与分发。</p></div>
+    <div class="act">${b('整理会议纪要','dlg-meeting','pri')+b('导出本周周报','export-week')+b('导出最新晨报','export-brief')}</div></div>
+  ${flash('doc-flash')}
+  ${card({t:'文档',req:'R-DC-01',api:'GET/POST /api/n8n/docs → /webhook/admin/docforge（list/create/share/sign/archive/get）',
+    body:table(['标题','类型','摘要','来源','生成时间','操作'],[
+      ['11-01 季度目标对齐',badge('纪要','info'),'3 项行动项：数据看板口径（阿哲，11-05）/ 上线检查表（机主）/ 模板库（Lily）','手贴原文','11-01 16:22',
+        [b('打开','doc-open','sm'),b('推送','doc-push','sm'),b('复制链接','doc-link','sm'),b('归档','doc-archive','sm')].join(' ')],
+      ['晨报 · 2026-11-02',badge('晨报',''),'AI 大模型 3 条 / 工作流自动化 2 条 / 要闻 3 条 + 待办速览（逾期 1、今日 2）','daily-brief','11-02 08:30',
+        [b('打开','doc-open','sm'),b('推送','doc-push','sm')].join(' ')],
+      ['本周回顾 · 10-26~11-02',badge('周报',''),'待办 12 完成、4 开放；84 轮对话；7 条新记忆','weekly-review','11-02 09:00',b('打开','doc-open','sm')],
+      ['智能摘要 · 中台选型长文',badge('摘要','info'),'一句话摘要 + 5 要点，已自动归档知识库','smart_summary','10-31 21:14',
+        [b('打开','doc-open','sm'),b('复制链接','doc-link','sm')].join(' ')]
+    ])})}
+  <dialog id="dlg-meeting"><div class="dlg-h"><h3>整理会议纪要</h3><p>粘贴会议原文，工作流抽成「人 / 事 / 期限」，相对日期自动换算成绝对日期，行动项直接进待办。</p></div>
+    <div class="dlg-b">
+      <div class="field"><label>标题</label><input class="ctl" value="11-03 数据看板口径对齐"/></div>
+      <div class="field"><label>会议原文</label><textarea>张三：看板先用「自然周」口径……下周三前给初稿，李四提供埋点字段。</textarea></div>
+      <div class="dim" style="font-size:11.5px">抽取结果预览：阿哲 — 出看板初稿（11-06 前）｜Lily — 提供埋点字段清单（11-04 前）</div>
+    </div>
+    <div class="dlg-f">${b('取消','close-dlg')}<button class="btn pri" data-act="meeting-run" data-loading="抽取中…">生成并写入待办</button></div>
+  </dialog>`;
+}
+
+/* ============================ 3 · Knowledge ============================ */
+function pKnowledge(){
+  return `
+  <div class="page-head"><div><h1>私域知识库</h1><p>私域知识库：文档摄取、状态与嵌入额度。</p></div>
+    <div class="act">${b('摄取新文档','dlg-ingest','pri')}</div></div>
+  ${flash('kb-flash')}
+  <div class="grid g3">
+    ${kpi('文档',S.demo.kbDocs,'生效中 12 · 已下架 2 <span class="req">R-KB-01</span>')}
+    ${kpi('分块',S.demo.kbChunks,'pgvector · HNSW · 1024 维')}
+    ${kpi('嵌入额度',S.demo.quotaPct+'%',(S.demo.quotaTokens/1000).toFixed(0)+'k / 1M tokens · 模型 qwen3.7-text-embedding-flash')}
+  </div>
+  ${card({req:'R-KB-02',api:'GET /api/n8n/kb → /webhook/admin/kb/ingest（list）· POST /api/n8n/overview',
+    tabs:`<div class="tabs"><button data-tab="kb-docs" aria-selected="true">文档库 (14)</button><button data-tab="kb-search" aria-selected="false">检索演练</button></div>`,
+    body:`<div data-panel="kb-docs">${table(['标题','来源','状态','分块','创建时间','操作'],[
+      ['中台架构说明 v3','上传 PDF',badge('生效中','ok'),{v:'128',n:1},'10-28 10:04',b('下架','kb-off','sm dgr')],
+      ['埋点字段清单','上传 XLSX',badge('生效中','ok'),{v:'42',n:1},'10-27 15:30',b('下架','kb-off','sm dgr')],
+      ['招商日报口径','粘贴文本',badge('生效中','ok'),{v:'17',n:1},'10-25 09:12',b('下架','kb-off','sm dgr')],
+      ['旧版部署手册','上传 MD',badge('已下架',''),{v:'96',n:1},'09-30 11:20',b('恢复','kb-on','sm')],
+      ['LobeHub 配置约定','上传 DOCX',badge('生效中','ok'),{v:'23',n:1},'09-14 20:41',b('下架','kb-off','sm dgr')]
+    ])}<div class="dim" style="font-size:11px">分块守卫：单块超长会让<b>当日自检失败</b>，而不是静默把检索质量拖垮。</div></div>
+    <div data-panel="kb-search" hidden>
+      <div class="row"><div class="field" style="flex:1"><label>查询</label><input class="ctl" value="数据看板口径按自然周还是滚动 7 天？"/></div>
+        <div class="field"><label>Top K</label><input class="ctl" type="range" min="1" max="10" value="5" style="width:150px"/><span class="dim mono">k=5</span></div>
+        ${b('检索','kb-search','pri')}</div>
+      <div class="chips">${['埋点字段','幂等窗口','嵌入额度','保留策略','派发升级','沙箱审批'].map(t=>`<span class="chip">${t}</span>`).join('')}</div>
+      <div class="bar-track" style="margin-top:6px">
+        ${[['中台架构说明 v3 §4.2','0.81','口径统一按自然周（ISO 周），滚动 7 天只用于成本窗口。'],['埋点字段清单 · 表头','0.74','week_start / week_end 两列落 weekly_reviews.stats_json'],['招商日报口径 §1','0.52','日报按「成交日期」而非「录入日期」统计']].map(([t,s,x])=>
+          `<div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px"><div style="display:flex;gap:8px"><b style="font-size:12.5px">${t}</b><span class="badge ok" style="margin-left:auto">${s}</span></div><div class="dim" style="font-size:12px;margin-top:3px">${x}</div></div>`).join('')}</div>
+      <div class="dim" style="font-size:11px">空态原文：「未找到相关内容…」；未提交时「在上方输入查询…」。检索演练不改数据，可放心试。</div>
+    </div>`})}
+  <dialog id="dlg-ingest"><div class="dlg-h"><h3>摄取新文档</h3><p>解析在浏览器端完成（PDF/DOCX/TXT/MD），文件不上传服务器；只把分块与向量写入库。</p></div>
+    <div class="dlg-b">
+      <div style="border:1px dashed var(--border);border-radius:8px;padding:18px;text-align:center" class="dim">拖拽文件到此，或多选 / 直接粘贴文本</div>
+      <div class="field"><label>分块预览</label><div class="scroll" style="border:1px solid var(--border);border-radius:6px;padding:8px;font-family:var(--font-mono);font-size:11.5px">
+        chunk#0 612 tokens · chunk#1 588 · chunk#2 640 · <span style="color:var(--warn)">chunk#3 1980 ⚠ 超阈值</span></div></div>
+    </div>
+    <div class="dlg-f">${b('取消','close-dlg')}<button class="btn pri" data-act="ingest-run" data-loading="摄取中…">摄取 4 篇</button>${b('查看任务','view-task')}</div>
+  </dialog>`;
+}
+
+/* ============================ 4 · Topics ============================ */
+function pTopics(){
+  return `
+  <div class="page-head"><div><h1>动态监控</h1><p>关键词 → SearXNG 搜索 → 模型筛选 1–3 条要点；每晚定时扫描，有新发现推 TG，同夜按 seen 去重。</p></div>
+    <div class="act">${b('立即扫描全部','topic-scan','pri')}</div></div>
+  ${flash('tp-flash')}
+  <div class="grid g3">
+    ${card({t:'添加关键词',req:'R-TP-01',api:'POST /api/n8n/topics → /webhook/admin/tools/topic-watch',tight:true,
+      body:`<div class="row"><input class="ctl" placeholder="如：n8n 自托管 更新" style="flex:1"/>${b('添加','topic-add','pri')}</div>
+        <div class="dim" style="font-size:11px">对话里也可以说「跑一下 动态监控，添加：关键词」。</div>`})}
+    ${card({t:'本次扫描',req:'R-TP-02',tight:true,body:`<div class="dim" style="font-size:12px">上次：11-02 09:13 · 命中 2 条 · 推送 2 条<br/>time_range=day，同夜去重</div>${b('立即扫描','topic-scan')}`})}
+    ${card({t:'监控中的关键词',req:'R-TP-03',api:'topic_watch 数据表',body:`<div class="bar-track">
+      ${[['AI Agent 编排框架','命中 5','ok'],['n8n 自托管 更新','命中 2','ok'],['DeepSeek 价格调整','已停用','warn'],['财务数字化 案例','从未扫描','info']].map(([k,s,c])=>
+        `<div style="display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border);padding:6px 0">
+         <div style="flex:1"><div style="font-size:12.5px">${k}</div><div class="dim" style="font-size:11px">${s}</div></div>
+         ${b('立即扫描','topic-scan','sm')}${b('移除','topic-rm','sm dgr')}</div>`).join('')}</div>`})}
+  </div>
+  ${card({t:'最新发现',req:'R-TP-04',d:'推送形态与 TG 一致：首行「📡 动态监控 · 新发现 N 条」，每关键词 ▸ 标题，要点 + 链接 ≤60 字。',
+    body:`<div class="bar-track">${[['11-02 09:13','n8n 自托管 更新','官方镜像 2.37.7 改了数据表响应体解析，裸 status 字段会被当 HTTP 码——我们这轮的提醒 500 就是它','https://docs.n8n.io/release-notes/'],
+      ['11-01 21:00','DeepSeek 价格调整','缓存命中价下调，PRICING 表需要同步改，否则 cost_usd 与牌价脱钩','https://api-docs.deepseek.com/']].map(([t,k,x,l])=>
+      `<div style="border-left:2px solid var(--ok);padding:7px 10px"><div class="dim mono" style="font-size:11px">${t} · ▸ ${k}</div><div style="font-size:12.5px;margin:2px 0">${x}</div><a class="mono" style="font-size:11px;color:var(--cyan)">${l}</a></div>`).join('')}</div>
+      <div class="dim" style="font-size:11px">⚠ 上游护栏：SearXNG 引擎被封时会返回 HTTP 200 + results:[]。网关此时给结果打 empty:true 并透传 notice，模型会说「搜索后端故障，不代表查不到」。</div>`})}
+  ${empty('还没有关键词。先加一个，或让 Agent 在对话里说「跑一下 动态监控，添加：关键词」。')}`;
+}
+
+/* ============================ 5 · Briefs ============================ */
+function pBriefs(){
+  return `
+  <div class="page-head"><div><h1>晨报</h1><p>每天 08:30 自动生成（多时间点补跑：30 8,11,15）。同一日已有 daily_briefs 记录即跳过，避免一天出三份。</p></div>
+    <div class="act">${b('立即生成','brief-run','pri')+b('刷新','refresh')+b('推送到 IM','brief-push')}</div></div>
+  ${flash('br-flash')}
+  ${card({t:'晨报 · 2026-11-02',req:'R-BR-01',d:'分段顺序固定：首行标题 → 各主题 2–3 条（一句话 + 链接）→ 平台状态 1–2 句；全文 ≤500 字。',api:'GET/POST /api/n8n/briefs → admin/briefs · admin/briefs/run · 推送走 /webhook/internal/notify',
+    body:`<div style="font-size:12.8px;line-height:1.65">
+      <b>晨报 · 2026-11-02</b>
+      <div class="sec"><b>AI 大模型 最新进展</b><ul><li>• 某开源模型把工具调用轮次压到 2 轮以内 —— <a>标题</a></li><li>• 长上下文检索评测新基线 —— <a>标题</a></li></ul></div>
+      <div class="sec"><b>工作流自动化与 Agent 平台</b><ul><li>• n8n 2.37.7 数据表响应体变更（影响我们的提醒）—— <a>标题</a></li></ul></div>
+      <div class="sec"><b>科技互联网要闻</b><ul><li>• …</li><li>• …</li></ul></div>
+      <div class="sec"><b>平台状态</b><div>昨日 84 轮对话、错误率 2.1%、自检全绿。</div></div>
+      <div class="sec"><b>待办速览</b>
+        <ul><li>• 逾期 1 条：周五交房租（10-31）</li><li>• 今日到期 2 条：整理季度 OKR、约阿哲对账流程</li><li>• 其他未完成 2 条</li></ul>
+        <div class="dim" style="font-size:11px">尾注原文：（完成任意一条：直接说「XXX 办完了」）· 该段由 Parse Summary 节点确定性拼接，best-effort。</div></div>
+      <div class="dim" style="font-size:11px">⚠ 自动推送状态在 README 与工作流 JSON 之间<b>表述冲突</b>（README 说 Push Brief 节点 disabled，JSON 里无 disabled 字段且接在 Save Brief 后）。原型按「手动推送可用、自动推送待实机确认」呈现。</div></div>`})}
+  ${card({t:'历史晨报',req:'R-BR-02',d:'daily_briefs 表现有 '+S.counts.daily_briefs+' 条（实机行数）。',
+    body:table(['日期','主题数','字数','推送','操作'],[
+      ['2026-11-02',{v:'3',n:1},{v:'468',n:1},badge('手动推送','ok'),b('打开','br-open','sm')],
+      ['2026-11-01',{v:'3',n:1},{v:'491',n:1},badge('未推送',''),b('打开','br-open','sm')],
+      ['2026-10-31',{v:'3',n:1},{v:'433',n:1},badge('已推送','ok'),b('打开','br-open','sm')]
+    ])})}
+  ${empty('还没有晨报／每天 08:30 自动生成，也可点右上「立即生成」。')}`;
+}
+
+/* ============================ 6 · People ============================ */
+function pPeople(){
+  return `
+  <div class="page-head"><div><h1>人员目录</h1><p>派发对象与他们的投递通道。没有通道的人会回落给机主并标记 degraded，这是设计而不是失败。</p></div>
+    <div class="act">${b('新增人员','dlg-person','pri')}</div></div>
+  ${flash('pp-flash')}
+  ${card({t:'人员目录',req:'R-PE-01',api:'GET /api/n8n/people → admin/people · admin/people/manage',
+    body:`${table(['名称','角色','投递通道','时区','状态','备注','创建时间','操作'],[
+      ['黄泽华','机主',badge('TG','ok'),'Asia/Shanghai',badge('启用','ok'),'<span class="dim">不可删除</span>','09-12 10:00',b('编辑','dlg-person','sm')+b('停用','pp-toggle','sm')],
+      ['阿哲','执行者',badge('TG','ok'),'Asia/Shanghai',badge('启用','ok'),'看板口径','09-20 14:12',b('编辑','dlg-person','sm')+b('停用','pp-toggle','sm')+btnD('删除')],
+      ['Lily','执行者',badge('Webhook','info'),'Asia/Shanghai',badge('启用','ok'),'模板库','09-22 09:30',b('编辑','dlg-person','sm')+b('停用','pp-toggle','sm')+btnD('删除')],
+      ['老周','审阅者',badge('无通道','warn'),'Asia/Shanghai',badge('停用',''),'<span class="dim">派发将回落机主</span>','10-02 16:40',b('编辑','dlg-person','sm')+b('启用','pp-toggle','sm')+btnD('删除')]
+    ])}<div class="dim" style="font-size:11px">机主行的「删除」按钮禁用；其余删除为二次点击（文案变「确认删除?」）——本页不用 toast，用页内彩色 flash。</div>`})}
+  ${empty('暂无人员 —— 先把派发对象录进来，否则「派给谁」这一环没有落点。')}
+  <dialog id="dlg-person"><div class="dlg-h"><h3>新增 / 编辑人员</h3><p>通道至少填一项：telegram_chat_id 或 webhook_url。</p></div>
+    <div class="dlg-b"><div class="row">
+      <div class="field" style="flex:1"><label>名称</label><input class="ctl" value="阿哲"/></div>
+      <div class="field"><label>角色</label><select class="ctl"><option>执行者</option><option>审阅者</option><option>机主</option></select></div>
+    </div><div class="row"><div class="field" style="flex:1"><label>投递通道</label><select class="ctl"><option>Telegram</option><option>Webhook</option><option>无</option></select></div>
+      <div class="field" style="flex:1"><label>时区</label><select class="ctl"><option>Asia/Shanghai</option><option>UTC</option></select></div></div>
+      <div class="field"><label>备注</label><input class="ctl" value="看板口径"/></div></div>
+    <div class="dlg-f">${b('取消','close-dlg')}<button class="btn pri" data-act="person-save" data-loading="保存中…">保存</button></div></dialog>`;
+}
+
+/* ============================ 7 · Playground ============================ */
+function pPlayground(){
+  const bub=(who,html)=>`<div class="msg ${who}"><div class="av">${who==='u'?'黄':'AI'}</div><div class="bub" style="background:var(--card);border-color:var(--border);color:var(--card-foreground);box-shadow:none">${html}</div></div>`;
+  return `
+  <div class="page-head"><div><h1>Agent 联调工作台 · Live Gateway</h1>
+    <p>绕开 LobeChat 直接打 stream-bridge，用来验工具循环、流式与降级路径。</p></div>
+    <div class="act">${b('清空','pg-clear')}<span class="badge info">STREAM_BRIDGE :3211</span></div></div>
+  <div class="row" style="margin-bottom:2px">
+    <div class="field" style="width:230px"><label>session_id</label><input class="ctl mono" value="pg-20261102-a"/></div>
+    <div class="field" style="width:210px"><label>模型</label><select class="ctl"><option>deepseek-chat</option><option>deepseek-reasoner</option><option>qwen3-asr-flash</option><option>text-embedding-3-small → qwen3.7-text-embedding-flash</option></select></div>
+    <div class="field" style="width:150px"><label>tool_rounds</label><input class="ctl" value="2（MAX_TOOL_ROUNDS）"/></div>
+    <label class="dim" style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" checked style="width:15px;height:15px"/>流式</label>
+  </div>
+  ${card({req:'R-PG-01',api:'POST /api/chat → STREAM_BRIDGE_URL/chat/completions',
+    body:`<div style="display:flex;flex-direction:column;gap:14px;background:var(--muted);border-radius:8px;padding:16px">
+      ${bub('u','帮我把「11 月看板口径」这件事派给阿哲，周五到期；顺手记一条待办。')}
+      ${bub('a',`<div class="think"><b>思考过程与工具调用 · 展开（2 轮 / 上限 2）</b>
+        round1 → todo_add(title="11 月看板口径对齐", due=2026-11-06, assignee=阿哲)<br/>round1 → 幂等命中：同 session + 工具 + sha256(args) 已存在 → 折叠，不重复建</div>
+        <div>已建 1 条待办并派给阿哲（11-06 到期）。他 TG 上有通道，投递走本人；到 24h 未回执会催办，第 3 次升级给你。</div>
+        <div class="tool"><span class="st">✔ todo_add</span> <span class="ms">· 812 ms · idempotency=implicit_hit · 写入 admin_audit</span></div>`)}
+      ${bub('a',`<div class="think"><b>深度思考 · 实时（首字 1.4s）</b>…流式帧中，工具轮自动降级到网关完成完整循环后再以打字机回灌</div>
+        <div>要不要我把这条也加进「今日」视图的置顶？</div>`)}
+      </div>
+      <div class="row"><textarea class="ctl" style="min-height:52px" placeholder="说一句：例如「跑一下 会议行动项，正文：…」"></textarea></div>
+      <div class="row" style="align-items:center">${b('发送','pg-send','pri')+b('停止','pg-stop')}
+        <span class="badge warn">MAX_TOOL_ROUNDS 到达时追加 BUDGET_NOTE</span>
+        <span class="dim" style="font-size:11px">⚠ BUDGET_NOTE 的收口效果<b>未证实</b>（10-21 A/B 两边都承认信息不足，且那轮测的其实是坏掉的搜索后端）。</span></div>`})}
+  ${empty('准备好体验真流式 Agent 了吗？')}
+  <div class="chips">${['跑一下 智能摘要','web_search 一次','把这条存进知识库','今天有什么待办'].map(t=>`<span class="chip">${t}</span>`).join('')}</div>`;
+}
+
+/* ============================ 8 · Operations（暗色指挥台） ============================ */
+function pOperations(){
+  const ring=(pct)=>{const c=pct>=95?'#10B981':pct>=90?'#F59E0B':'#EF4444';const r=34,C=2*Math.PI*r;
+    return `<svg width="84" height="84" viewBox="0 0 84 84"><circle cx="42" cy="42" r="${r}" fill="none" stroke="#1F2937" stroke-width="6"/>
+      <circle cx="42" cy="42" r="${r}" fill="none" stroke="${c}" stroke-width="6" stroke-linecap="round"
+        stroke-dasharray="${C}" stroke-dashoffset="${(C*(1-pct/100)).toFixed(1)}" transform="rotate(-90 42 42)"/>
+      <text x="42" y="46" text-anchor="middle" fill="#E5E7EB" font-size="16" font-family="Geist Mono">${pct}%</text></svg>`;};
+  const bars=[[38,1],[62,1],[45,1],[91,0],[52,1],[77,1],[120,0],[64,1],[49,1],[58,1],[103,0],[71,1],[44,1],[66,1]];
+  return `<div class="ops" style="margin:-22px -24px 0;padding:22px 24px 40px;background:#0B1220;color:#E5E7EB;display:flex;flex-direction:column;gap:16px">
+    <div class="page-head"><div><h1 style="color:#F1F5F9">运行态势</h1><p style="color:#9CA3AF">Chat Gateway · 实时执行健康度</p></div>
+      <div class="act">
+        <span class="badge ok">引擎正常</span>
+        <div class="chips">${['全部','1h','24h','7d'].map((t,i)=>`<span class="chip" data-on="${i===2?'true':'false'}" style="${i===2?'background:#3B82F6;color:#fff;border-color:#3B82F6':''}">${t}</span>`).join('')}</div>
+        ${b('刷新','ops-refresh')}<label class="dim" style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" checked style="width:15px;height:15px"/>15s 自动</label></div></div>
+    ${flash('ops-flash')}
+    <div class="grid g4">
+      <div class="kpi" style="background:#111827;border-color:#1F2937"><div class="lbl" style="color:#9CA3AF">总调用</div><div class="val" style="color:#F1F5F9">${S.totals.total}</div><div class="sub" style="color:#9CA3AF">窗口内 · 计数器随重启归零</div></div>
+      <div class="kpi" style="background:#111827;border-color:#1F2937;display:flex;align-items:center;gap:12px"><div><div class="lbl" style="color:#9CA3AF">成功率</div><div class="sub" style="color:#9CA3AF">${S.totals.success} / ${S.totals.total}</div></div><div style="margin-left:auto">${ring(97.9)}</div></div>
+      <div class="kpi" style="background:#111827;border-color:#1F2937"><div class="lbl" style="color:#9CA3AF">平均延迟</div><div class="val" style="color:#F1F5F9">${S.demo.latency}<span style="font-size:13px"> ms</span></div><div class="sub" style="color:#9CA3AF">p95 ${S.demo.p95} ms · 示意</div></div>
+      <div class="kpi" style="background:#111827;border-color:#1F2937"><div class="lbl" style="color:#9CA3AF">独立会话</div><div class="val" style="color:#F1F5F9">${S.demo.sessions}</div><div class="sub" style="color:#9CA3AF">unique_sessions</div></div>
+    </div>
+    <div class="grid g21">
+      <section class="card" style="background:#111827;border-color:#1F2937" data-req="R-OP-01"><div class="card-h"><div><h3 style="color:#F1F5F9">最近执行（按延迟）<span class="req">R-OP-01</span></h3>
+        <p style="color:#9CA3AF">柱色 = success 绿 / error 红；点击行可展开错误原文（error_raw，截断 2000 字符）。</p></div>
+        <div class="r"><span class="api" style="display:none">GET /api/n8n/executions → /api/v1/executions · stats → /webhook/v1/stats/executions</span></div></div>
+        <div class="card-b"><div class="bars">${bars.map(([h,ok],i)=>`<span class="b" style="height:${Math.min(100,h*0.85)}%;background:${ok?'#10B981':'#EF4444'}"><em>${i%3===0?h+'ms':''}</em></span>`).join('')}</div>
+        <div class="scroll" style="margin-top:16px">
+          <table style="color:#D1D5DB"><thead><tr style="background:#0D1526"><th>时间</th><th>状态</th><th>模型</th><th>来源</th><th>Session</th><th class="num">延迟</th><th class="num">Token</th><th>错误</th></tr></thead>
+          <tbody>${[
+            ['10:42:07',badge('success','ok'),'deepseek-chat','lobechat','pg-…-a',{v:'1.9s',n:1},{v:'1.4k',n:1},'<span class="dim">—</span>'],
+            ['10:41:52',badge('error','bad'),'deepseek-chat','stream-bridge','tg-…-7',{v:'0.6s',n:1},{v:'—',n:1},'<span style="color:#EF4444">upstream 429</span>'],
+            ['10:41:30',badge('success','ok'),'deepseek-reasoner','curl-test','kb-…-3',{v:'4.6s',n:1},{v:'3.1k',n:1},'<span class="dim">—</span>'],
+            ['10:40:11',badge('success','ok'),'deepseek-chat','lobechat','pg-…-a',{v:'2.2s',n:1},{v:'0.9k',n:1},'<span class="dim">—</span>']
+          ].map(r=>`<tr style="border-color:#1F2937">${r.map(c=>`<td class="${typeof c==='object'&&c.n?'num':''}" style="border-color:#1F2937">${typeof c==='string'?c:c.v}</td>`).join('')}</tr>`).join('')}</tbody></table>
+          <div class="dim" style="font-size:11px">空态原文三句：「还没有执行记录」／「暂无执行数据」／「没有符合筛选条件的执行」。</div></div></div></section>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <section class="card" style="background:#111827;border-color:#1F2937" data-req="R-OP-02"><div class="card-h"><div><h3 style="color:#F1F5F9">按 Model 分布<span class="req">R-OP-02</span></h3></div></div>
+          <div class="card-b tight" style="color:#D1D5DB">${dist('deepseek-chat',78,'#3B82F6','258')}${dist('deepseek-reasoner',17,'#06B6D4','57')}${dist('未知 key',5,'#6B7280','16')}</div></section>
+        <section class="card" style="background:#111827;border-color:#1F2937" data-req="R-OP-03"><div class="card-h"><div><h3 style="color:#F1F5F9">按 Client 分布<span class="req">R-OP-03</span></h3><p style="color:#9CA3AF">clientColor()：lobechat 蓝 / curl·curl-test 青 / 其余 #6B7280</p></div></div>
+          <div class="card-b tight" style="color:#D1D5DB">${dist('lobechat',61,'#3B82F6','202')}${dist('stream-bridge',24,'#06B6D4','80')}${dist('curl-test',9,'#06B6D4','30')}${dist('unknown',6,'#6B7280','19 · smoke 实跑后会出现')}</div></section>
+        <section class="card" style="background:#111827;border-color:#1F2937" data-req="R-OP-04"><div class="card-h"><div><h3 style="color:#F1F5F9">异步任务<span class="req">R-OP-04</span></h3><p style="color:#9CA3AF">输入 task_id 查询，3 秒轮询直到终态。</p></div></div>
+          <div class="card-b tight"><div class="row"><input class="ctl mono" style="flex:1;background:#0D1526;border-color:#1F2937;color:#E5E7EB" value="task_9f3c…"/>${b('查询','job-q')}</div>
+            <div class="chips">${['排队中','执行中','等待重试','已完成','失败'].map((t,i)=>`<span class="chip" data-on="${i===1?'true':'false'}">${t}</span>`).join('')}</div></div></section>
+      </div>
+    </div>
+    <div class="row" style="gap:8px"><input class="ctl" style="flex:1;background:#0D1526;border-color:#1F2937;color:#E5E7EB" placeholder="搜索 session / 模型 / 错误关键字"/>
+      <div class="chips">${['仅错误','status=success','client=lobechat','cost>0.01'].map((t,i)=>`<span class="chip" data-on="${i===0?'true':'false'}">${t}</span>`).join('')}</div></div>
+    <div class="flash err on" style="background:#2a1414;border-color:#7f1d1d;color:#fca5a5;display:block">
+      401 降级横幅（真实文案）：n8n 拒绝了控制台的请求（CHAT_API_KEY 无效或已变更）—— 这是服务端之间的问题，不是你的登录过期。<span class="api" style="color:#93C5FD">frontent/src/lib/api-guard.ts:32-40</span></div>
+  </div>`;
+}
+
+/* ============================ 9 · Keys ============================ */
+function pKeys(){
+  return `
+  <div class="page-head"><div><h1>API Keys</h1><p>主 key 之外为其他客户端签发托管 key：哈希存储、泄露即废、可单独吊销与限速。</p></div>
+    <div class="act">${b('签发新 Key','dlg-key','pri')}</div></div>
+  ${flash('key-flash')}
+  ${card({t:'API Keys',req:'R-KK-01',d:'27 条控制台 api route 中，keys 页代理 2 条；原始 key 只在创建响应里出现一次，库里只有 SHA-256。',api:'GET /api/n8n/keys → admin/keys · admin/keys/manage（issue/disable/enable/set-limit/set-budget/rm）',
+    act:`<span class="badge">3 个托管 Key</span>`,
+    body:`${table(['名称','状态','限流 (rpm)','预算（日 / 月）','滚动已用','累计成本','指纹','创建时间','操作'],[
+      ['phone',badge('启用','ok'),{v:'10',n:1},'$3 / $40',{v:'6 / 60s',n:1},{v:'$0.1120',n:1},'<span class="mono">a91f…c2</span>','10-18 11:02',
+        b('停用','key-toggle','sm')+b('限额','dlg-limit','sm')+b('预算','dlg-budget','sm')+btnD('删除')],
+      ['kiosk-web',badge('启用','ok'),{v:'30',n:1},'$10 / $120',{v:'12 / 60s',n:1},{v:'$0.2431',n:1},'<span class="mono">7bd0…19</span>','10-22 09:40',
+        b('停用','key-toggle','sm')+b('限额','dlg-limit','sm')+b('预算','dlg-budget','sm')+btnD('删除')],
+      ['legacy-app',badge('已吊销','bad'),{v:'0',n:1},'<span class="dim">不限</span>',{v:'0 / 60s',n:1},{v:'$0.0310',n:1},'<span class="mono">f1e4…88</span>','09-28 17:21',
+        b('启用','key-toggle','sm')+btnD('删除')]
+    ])}
+    <div class="dim" style="font-size:11px">限流按 key 维护 60 秒滚动窗口（以 chat_executions 落库计数），超限返回 429；每次成功请求按牌价折算写 cost_usd 并累计到 key 的 total_cost。<b>牌价调整要同步改 chat-gateway 的 Prep Success Log 节点 PRICING 表</b>，否则成本与真实花费脱钩。</div>`})}
+  ${empty('暂无托管 Key —— 主 key 仍然可用，但一旦泄露就是全量泄露；给外部客户端发之前先在这里建一个。')}
+  <dialog id="dlg-key"><div class="dlg-h"><h3>签发新 Key</h3><p>原始 key 只显示这一次，关掉就查不回来。</p></div>
+    <div class="dlg-b"><div class="row"><div class="field" style="flex:1"><label>名称</label><input class="ctl" value="finance-bot"/></div>
+      <div class="field"><label>限流 rpm</label><input class="ctl" type="number" value="10" style="width:110px"/></div></div>
+      <div class="field"><label>预算（日 / 月 USD）</label><div class="row"><input class="ctl" type="number" value="3"/><input class="ctl" type="number" value="40"/></div></div></div>
+    <div class="dlg-f">${b('取消','close-dlg')}<button class="btn pri" data-act="key-issue" data-loading="签发中…">签发</button></div></dialog>
+  <dialog id="dlg-created"><div class="dlg-h"><h3>Key 已创建（只显示这一次）</h3><p>请立刻复制并保存到密钥管理器；控制台与数据库都不再保留明文。</p></div>
+    <div class="dlg-b"><div class="secret mono">sk-pivot_7c1f9a2d4b8e6f05a3c7d9e1b2f4a6c8</div>${b('复制','copy-key')}</div>
+    <div class="dlg-f">${b('我已保存','close-dlg','pri')}</div></dialog>
+  <dialog id="dlg-limit"><div class="dlg-h"><h3>调整限流</h3><p>每分钟请求数上限（0 = 不限）</p></div>
+    <div class="dlg-b"><input class="ctl" type="number" value="10"/></div>
+    <div class="dlg-f">${b('取消','close-dlg')}<button class="btn pri" data-act="limit-save">保存</button></div></dialog>
+  <dialog id="dlg-budget"><div class="dlg-h"><h3>调整预算</h3><p>日 / 月预算（USD）。超预算会由 cost_budget 规则写入告警。</p></div>
+    <div class="dlg-b"><div class="row"><div class="field"><label>日</label><input class="ctl" type="number" value="3"/></div>
+      <div class="field"><label>月</label><input class="ctl" type="number" value="40"/></div></div></div>
+    <div class="dlg-f">${b('取消','close-dlg')}<button class="btn pri" data-act="budget-save">保存</button></div></dialog>`;
+}
+
+/* ============================ 10 · Alerts ============================ */
+function pAlerts(){
+  return `
+  <div class="page-head"><div><h1>告警</h1><p>chat-alerts 每 15 分钟一轮；阈值来自 .env，控制台只读展示实际生效值。</p></div>
+    <div class="act">${b('立即跑一轮','alerts-run','pri')}</div></div>
+  ${flash('al-flash')}
+  <div class="grid g21">
+    ${card({t:'触达渠道',req:'R-AL-01',d:'未配置时告警仍会写库，只是投递不出去——所以这里要把「没渠道」说清楚，而不是静默。',api:'POST /api/n8n/alerts → /webhook/admin/alerts/test',
+      body:`<div class="row" style="align-items:center"><span class="badge ok">Telegram · 机主</span><span class="badge">团队 Webhook · 未配置</span></div>
+        <div class="dim" style="font-size:12px">未配置提示原文：告警会记录但无法送达；配置 TELEGRAM_BOT_TOKEN/CHAT_ID 或 webhook_url 后点「发送测试通知」验证链路。</div>
+        <div class="row"><span class="dim" style="font-size:12px">ALERT_WEBHOOK_FORMAT</span><select class="ctl" style="width:auto"><option>telegram</option><option>raw</option></select>${b('发送测试通知','alerts-test')}</div>
+        <div class="dim" style="font-size:11px">silence（维护窗口）只停止投递、仍然记录——避免升级窗口里把真实故障也吞了。</div>`})}
+    ${card({t:'规则与阈值',req:'R-AL-02',api:'GET /api/n8n/settings → /webhook/admin/settings（只读）',
+      body:table(['规则','触发条件','升级','去重口径'],[
+        ['error_rate','窗口 60 分钟 · 样本 ≥5 · 错误率 ≥50%','≥80% → critical','冷却 60 分钟'],
+        ['cost_budget','24h 花费 ≥ $2','≥ $5 → critical','同类 24h 一次，但 warn→critical 升级<b>不受去重限制</b>'],
+        ['embedding_quota','kb_usage ≥ 80% of 1M','≥ 95% → critical','同类 24h 一次'],
+        ['备份新鲜度','>30h 警告；>40h 或失败 = 自检不通过','—','<span class="dim">属 selfcheck，不在 chat-alerts</span>']
+      ])})}
+  </div>
+  ${card({t:'告警历史',req:'R-AL-03',d:'ops_alerts 表现有 '+S.counts.ops_alerts+' 条（实机行数）。',api:'GET /api/n8n/alerts → /webhook/admin/alerts {"mode":"list"}',
+    body:table(['时间','类型','消息','错误率','触达'],[
+      ['11-02 09:41','error_rate','错误率 60.0%（6/10，窗口 60 分钟）超过阈值 50%',{v:'60.0%',n:1},badge('已触达','ok')],
+      ['11-01 22:05','cost_budget','24h 花费 $2.14 超过预算 $2',undefined,badge('已触达','ok')],
+      ['10-31 15:20','embedding_quota','嵌入额度 96% 已用',undefined,badge('触达失败','bad')],
+      ['10-30 04:20','selfcheck','备份心跳 41.2h 未更新，超过 40h 阈值',undefined,badge('未配置渠道','warn')]
+    ])})}
+  ${empty('暂无告警记录——平台安静运行中。')}`;
+}
+
+/* ============================ 11 · Models ============================ */
+function pModels(){
+  return `
+  <div class="page-head"><div><h1>模型路由</h1><p>别名 → 上游模型的映射与计价。本页只读，调整要改 chat-gateway 工作流。</p></div></div>
+  ${card({t:'模型路由总览',req:'R-MD-01',api:'GET /api/n8n/models → /webhook/admin/models',
+    body:`${table(['别名','上游模型','工具','计价 / 1M tokens（入 / 缓存 / 出）','近 30 天调用','近 30 天成本'],[
+      ['deepseek-chat',badge('默认','ok'),{v:'deepseek-chat',n:0},'<span class="badge ok">支持</span>','<span class="mono">$0.27 / $0.07 / $1.10</span>',{v:'2,410',n:1},{v:'$0.4201',n:1}],
+      ['deepseek-reasoner','<span class="badge">开关</span>','deepseek-reasoner','<span class="badge ok">支持</span>','<span class="mono">$0.55 / $0.14 / $2.19</span>',{v:'512',n:1},{v:'$0.0544',n:1}],
+      ['text-embedding-3-small → qwen3.7-text-embedding-flash','—','qwen3.7-text-embedding-flash','<span class="badge">不支持</span>','<span class="mono">额度制 1M tokens/模型</span>',{v:'812',n:1},'<span class="dim">按额度计</span>'],
+      ['qwen3-asr-flash / qwen-tts（语音）','—','qwen3-asr-flash · qwen-tts','<span class="badge">不支持</span>','<span class="dim">侧车直连，不走网关计价</span>',{v:'64',n:1},'<span class="dim">—</span>']
+    ])}
+    <div class="dim" style="font-size:11px">⚠ 计价列是<b>示意</b>：真实值以 chat-gateway「Prep Success Log」节点的 PRICING 表为准，README 未记录牌价明细。别名映射（OpenAI 风格名一律落到 DashScope 模型）是真实行为。</div>`})}
+  ${card({t:'如何调整',req:'R-MD-02',body:`<div style="font-size:12.8px;line-height:1.7">
+    ① 改牌价：编辑 n8n 工作流 <span class="mono">chat-gateway → Prep Success Log</span> 的 PRICING 表 → 保存并激活。<br/>
+    ② 换 embedding 模型：需要<b>全量重嵌</b>，两个模型向量空间不通用。<br/>
+    ③ 加模型别名：在网关的模型映射处加一条，并同步 stream-bridge 的工具定义（历史上这里漂没过四份副本）。<br/>
+    ④ 停用：把对应 key 限流设 0 或在网关侧摘掉别名，不要只改前端。</div>`})}
+  ${card({t:'模型列表加载失败',req:'R-MD-03',d:'错误态真实文案（本页唯一可能的反馈）',api:'upstreamError() → 502',
+    body:'<div class="flash err on">n8n 拒绝了控制台的请求（CHAT_API_KEY 无效或已变更）</div>'})}`;
+}
+
+/* ============================ 12 · Settings ============================ */
+function pSettings(){
+  const kv=(rows)=>`<div class="bar-track">${rows.map(([k,v,n])=>`<div style="display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--border)">
+    <span style="width:150px;color:var(--muted-foreground);font-size:12px">${k}</span><span class="mono" style="font-size:12.5px">${v}</span>${n?`<span class="dim" style="font-size:11px;margin-left:auto">${n}</span>`:''}</div>`).join('')}</div>`;
+  return `
+  <div class="page-head"><div><h1>设置</h1><p>只读快照：显示的是<b>实际生效</b>的配置，不是前端猜的数。阈值改动走 .env + 重建容器。</p></div></div>
+  <div class="grid g2">
+    ${card({t:'告警配置',req:'R-ST-01',api:'GET /api/n8n/settings → /webhook/admin/settings',body:kv([
+      ['检查窗口','ALERT_WINDOW_MIN = 60'],
+      ['错误率阈值','ALERT_RATE_THRESHOLD = 0.5','critical 0.8'],
+      ['最小样本数','ALERT_MIN_TOTAL = 5'],
+      ['冷却时间','ALERT_COOLDOWN_MIN = 60'],
+      ['触达渠道','TELEGRAM_*','团队 webhook 未配置']])})}
+    ${card({t:'知识库与保留策略',req:'R-ST-02',body:kv([
+      ['嵌入额度','1,000,000 tokens / 模型','≥80% 告警'],
+      ['消息保留','RETENTION_DAYS_MESSAGES = 30'],
+      ['执行记录保留','RETENTION_DAYS_EXECUTIONS = 90'],
+      ['幂等记录保留','RETENTION_DAYS_IDEMPOTENCY = 7'],
+      ['幂等窗口','IDEMPOTENCY_WINDOW_SEC = 300','0 = 关停'],
+      ['工具轮上限','MAX_TOOL_ROUNDS = 2']] )})}
+  </div>
+  ${card({t:'如何修改',req:'R-ST-03',d:'本页刻意不做写入：阈值和密钥的生效路径只有一条，做成表单项就会和 .env 分叉。',
+    body:`<div class="secret mono"># 1) 改 .env<br/>ALERT_RATE_THRESHOLD=0.4&nbsp;&nbsp;ALERT_COST_24H_USD=2<br/><br/># 2) 让容器重新读取<br/>docker compose up -d n8n<br/><br/># 3) 自测<br/>控制台「发送测试」或 POST /webhook/admin/alerts/test</div>
+      <div class="dim" style="font-size:11px">设计决定：<b>调阈值不在 UI</b>。理由与 README 的成本通路一致——卡片显示实际生效值才可信；UI 里能改却不写回 .env，就会造出第二个真值来源。</div>`})}`;
+}
+
+/* ============================ 13 · Profile / Notifications ============================ */
+function pProfile(){
+  return `
+  <div class="page-head"><div><h1>Profile</h1><p>Account / Profile</p></div></div>
+  ${card({t:'Clerk UserProfile（组件自带）',req:'R-PF-01',d:'本页在代码里只渲染 Clerk 的 &lt;UserProfile/&gt;，没有平台内容 —— 原型不发明字段。',api:'@clerk/nextjs',
+    body:`<div class="grid g2" style="min-height:230px;align-items:center">
+      <div class="empty" style="padding:40px">Kiranism 模板自带的 Clerk 账户面板<br/><span class="mono" style="font-size:11px">features/profile/components/profile-view-page.tsx:6</span></div>
+      <div><div class="dim" style="font-size:12.5px;line-height:1.8">登录方：Clerk（控制台唯一登录入口）<br/>守卫：每条 api route 的 requireUser()<br/>失效文案：「登录状态已失效，请重新登录后再试」<br/><br/>已知缺口：n8n 自己的 owner 账号密码重置邮件<b>永远收不到</b>（出站邮件未配置），走库内 reset-token 处理。</div></div></div>`})}`;
+}
+function pNotifications(){
+  const n=(t,t2,c,unread)=>`<div style="display:flex;gap:10px;padding:11px 0;border-bottom:1px solid var(--border)">
+    ${badge(c==='ok'?'已读':'未读',c)}<div style="flex:1"><div style="font-size:13px;font-weight:550">${t}</div><div class="dim" style="font-size:12px">${t2}</div></div>
+    <span class="dim mono" style="font-size:11px">2h ago</span></div>`;
+  return `
+  <div class="page-head"><div><h1>Notifications</h1><p>View and manage all your notifications.</p></div>
+    <div class="act">${b('Mark all as read','nf-all')}</div></div>
+  ${card({req:'R-NF-01',d:'⚠ 这是 Kiranism 模板自带的 demo 页：Zustand mock 数据，<b>不接平台任何接口</b>。列在这里是为了诚实标注边界——平台的真实通知通道是 TG + 告警历史。',api:'（无 API · mock）',
+    tabs:`<div class="tabs"><button data-tab="nf-all" aria-selected="true">All</button><button data-tab="nf-un" aria-selected="false">Unread</button><button data-tab="nf-r" aria-selected="false">Read</button></div>`,
+    body:`<div style="max-width:640px">${n('Your server is running out of storage','10% left','bad',1)}${n('New comment on your post','Anna mentioned you in a comment','info',1)}${n('Payment successful','Your invoice is ready','ok')}</div>
+      <div class="dim" style="font-size:11px">空态原文：「No notifications」。若要把平台事件接进来，应复用 ops_alerts 与 weekly_reviews，而不是让这页继续当摆设。</div>`})}
+  ${empty('No notifications')}`;
+}
+
+/* ============================ 注册与外壳渲染 ============================ */
+const PAGES = { overview:pOverview, docs:pDocs, knowledge:pKnowledge, topics:pTopics, briefs:pBriefs,
+  people:pPeople, 'ai-chat':pPlayground, workflows:pOperations, keys:pKeys, alerts:pAlerts,
+  models:pModels, settings:pSettings, profile:pProfile, notifications:pNotifications };
+const PAGE_EL = document.getElementById('page');
+let CUR = 'overview';
+
+function renderNav(){
+  document.getElementById('nav').innerHTML = NAV.map(g=>`<div class="grp">${g.g}</div>`+
+    g.items.map(([t,k,icn,kb])=>`<div class="nav" data-nav="${k}" data-active="${k===CUR}">${ic(icn)}<span>${t}</span>
+      ${kb?`<span class="kbd"><i>${kb[0]}</i><i>${kb[1]}</i></span>`:''}</div>`).join('')).join('');
+}
+function go(k){
+  if(!PAGES[k]) return;
+  CUR=k; renderNav();
+  PAGE_EL.innerHTML = PAGES[k]();
+  document.getElementById('crumb').textContent = CRUMB[k];
+  window.scrollTo({top:0});
+}
+function say(cls,text,api){
+  let el = PAGE_EL.querySelector('.flash');
+  if(!el){ el=document.createElement('div'); el.className='flash'; PAGE_EL.insertBefore(el,PAGE_EL.firstChild); }
+  el.className='flash on '+cls;
+  el.innerHTML = text + (api?` <span class="mono dim" style="font-size:11px">${api}</span>`:'');
+  el.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+/* ============================ LobeChat 前台（PivotAI v2） ============================ */
+function buildFront(){
+  const F = document.getElementById('front');
+  F.innerHTML = `
+  <canvas id="stars"></canvas>
+  <aside class="f-side">
+    <div class="f-brand"><div class="m">P</div><div><b>PivotAI</b><small>从对话到执行 · Chat less. Ship more.</small></div></div>
+    <button class="f-new" data-act="f-new">＋ 新建对话</button>
+    <div class="f-list">
+      <div class="h">今天</div>
+      <div class="f-item" data-on="true">🗂 看板口径与埋点整理<i>10:41</i></div>
+      <div class="f-item">📡 动态监控复核<i>09:13</i></div>
+      <div class="h">更早</div>
+      <div class="f-item">🧾 发票结构化试点<i>10-31</i></div>
+      <div class="f-item">⏱ 提醒为什么没响<i>10-29</i></div>
+      <div class="h" style="color:#8be3ad">⚠ 会话列表的真实初始状态</div>
+      <div class="f-item" style="cursor:default;color:#7d8aa0">切到服务端数据库模式后，v1 存在浏览器本地的会话不在服务端 ⇒ 列表初始为空，需要「导入本地会话」或重新发起。<i>已知</i></div>
+    </div>
+    <div class="f-foot"><div class="av">黄</div><div style="flex:1">黄泽华<div style="font-size:10.5px;color:#64748b">设置 · 外观 · 记忆：开</div></div></div>
+  </aside>
+  <div class="f-main">
+    <div class="f-top"><div class="ttl">看板口径与埋点整理</div>
+      <select class="f-model"><option>deepseek-chat</option><option>deepseek-reasoner</option><option>text-embedding-3-small</option><option>qwen-tts（音色 Cherry）</option></select>
+      <span class="f-tag">流式 · 首字 1–3s</span><span class="f-tag">服务端工具 16 + wf_* · 上限 2 轮</span>
+      <span style="margin-left:auto;font-size:11px;color:#7d8aa0">左上 LobeHub / 右上 PivotAI —— 品牌不一致是已知未修缺口</span></div>
+    <div class="f-body" id="fbody">
+      <div class="msg u"><div class="av">黄</div><div class="bub">帮我把「11 月看板口径」派给阿哲，周五到期；顺便把上周的对账笔记存进知识库。</div></div>
+      <div class="msg a"><div class="av">AI</div><div class="bub">
+        <div class="think"><b>深度思考 · 实时流（2 轮工具循环）</b>先落待办 → 校验负责人通道 → 再走 kb_save；两步都是副作用工具，需要幂等保护。</div>
+        <div>已建待办并派给阿哲（<b>11-06 到期</b>）。他 TG 有通道，投递走本人；24h 没回执会催办，第 3 次自动升级给你。对账笔记已存进知识库，切了 17 个分块。</div>
+        <div class="tool"><span class="st">✔ todo_add</span> <span class="ms">· 812 ms · idem=implicit_hit(session+tool+sha256(args))</span></div>
+        <div class="tool"><span class="st">✔ kb_save</span> <span class="ms">· 2.4 s · 17 chunks · 累计 embed_tokens +9,120（额度 23%）</span></div>
+      </div></div>
+      <div class="msg u"><div class="av">黄</div><div class="bub"><div style="display:flex;gap:8px;align-items:center">📎 上传 · 对账笔记.docx（浏览器端解析，文件不上传服务器）</div></div></div>
+      <div class="msg a"><div class="av">AI</div><div class="bub">
+        <div>检索到 3 段相关内容（最高相似度 0.81）：<i>「口径统一按自然周（ISO 周），滚动 7 天只用于成本窗口」</i>。</div>
+        <div class="tool"><span class="st">✔ kb_search</span> <span class="ms">· top_k=5 · HNSW ef=64</span></div>
+      </div></div>
+      <div class="msg a"><div class="av">AI</div><div class="bub">
+        <div class="tool" style="border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.08);color:#fcd34d">
+          ⚠ web_search empty:true · notice=「搜索后端故障，不代表查不到」 · unresponsive_engines=[brave, duckduckgo, google cse, startpage]</div>
+        <div>这一步我没能拿到外部资料（SearXNG 引擎全部被封）。要我把这条也写进今天的自检告警吗？</div>
+      </div></div>
+    </div>
+    <div class="f-composer">
+      <textarea placeholder="问点什么，或说「跑一下 会议行动项，正文：…」"></textarea>
+      <div class="f-tools">
+        <button class="f-btn" data-toggle="1" data-on="true">🌊 流式</button>
+        <button class="f-btn" data-toggle="1" data-on="true">🧠 深度思考</button>
+        <button class="f-btn" data-toggle="1" data-on="true">📚 知识库</button>
+        <button class="f-btn" data-toggle="1" data-on="true">🧷 记忆</button>
+        <button class="f-btn" data-toggle="1">🎙 语音（来语音→回语音）</button>
+        <button class="f-btn" data-toggle="1">🖼 图片（&gt;8MB 直接失败）</button>
+        <button class="f-send" data-act="f-send">↑</button>
+      </div>
+    </div>
+    <div class="f-note">链路：LobeHub → stream-bridge :3211/v1 → 上游 SSE；含工具调用时自动降级到网关跑完整循环再回灌打字机。图片轮次可走真流式（本地 URL 已内联成 data URL）。</div>
+  </div>`;
+  stars();
+}
+function stars(){
+  const c=document.getElementById('stars'); if(!c) return;
+  const ctx=c.getContext('2d'); let w,h,ps;
+  const fit=()=>{w=c.width=c.offsetWidth*devicePixelRatio;h=c.height=c.offsetHeight*devicePixelRatio;
+    ps=Array.from({length:110},()=>({x:Math.random()*w,y:Math.random()*h,z:Math.random(),v:Math.random()*.18+.03}))};
+  fit(); addEventListener('resize',fit);
+  (function loop(){ctx.clearRect(0,0,w,h);
+    for(const p of ps){p.y-=p.v*(1+p.z*2); if(p.y<-4){p.y=h+4;p.x=Math.random()*w}
+      const r=(0.6+p.z*1.7)*devicePixelRatio;
+      ctx.beginPath();ctx.arc(p.x,p.y,r,0,7);
+      ctx.fillStyle=`rgba(${p.z>.7?'134,239,172':'52,211,153'},${0.25+p.z*0.55})`;ctx.fill();}
+    for(let i=0;i<ps.length;i++)for(let j=i+1;j<ps.length;j++){
+      const a=ps[i],b2=ps[j],dx=a.x-b2.x,dy=a.y-b2.y,d=dx*dx+dy*dy;
+      if(d<8000*devicePixelRatio){ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b2.x,b2.y);
+        ctx.strokeStyle=`rgba(34,197,94,${0.14*(1-d/(8000*devicePixelRatio))})`;ctx.stroke();}}
+    requestAnimationFrame(loop)})();
+}
+
+/* ============================ Telegram 通道 ============================ */
+const tgMsg=(hd,inner,btns,cls)=>`<div class="tg-m ${cls||''}">${hd?`<div class="hd">${hd}</div>`:''}${inner}
+  ${btns?`<div class="tg-btns">${btns}</div>`:''}<div class="meta">10:4${Math.floor(Math.random()*9)}</div></div>`;
+const tb=(label,act,cls)=>`<button class="tg-b ${cls||''}" data-tg="${act}">${label}</button>`;
+
+function buildTG(){
+  document.getElementById('tgwrap').innerHTML = `
+  <div class="phone"><div class="ph-top"><div class="av">P</div><div><b>PivotAI</b><small>bot · 推送与提醒</small></div><div class="ic">⋮</div></div>
+    <div class="tg-body">
+      <div class="tg-day">今天 08:30 · daily-brief</div>
+      ${tgMsg('📰 晨报 · 2026-11-02',`<ul>
+        <li><b>AI 大模型 最新进展</b></li><li>• 工具调用轮次压到 2 轮以内 —— <a>标题</a></li>
+        <li><b>工作流自动化与 Agent 平台</b></li><li>• n8n 2.37.7 数据表响应体变更 —— <a>标题</a></li>
+        <li><b>科技互联网要闻</b></li><li>• … —— <a>标题</a></li></ul>
+        <div class="sec"><b>平台状态</b><ul><li>昨日 84 轮对话 · 错误率 2.1% · 自检 48 项全绿</li></ul></div>
+        <div class="sec"><b>## 待办速览</b><ul>
+          <li>• 逾期 1 条：周五交房租（10-31）</li><li>• 今日到期 2 条：整理季度 OKR、约阿哲对账流程</li>
+          <li>• 其他未完成 2 条</li></ul>
+          <div class="clip">（完成任意一条：直接说「XXX 办完了」）</div></div>
+        <div class="clip">…（内容较长已截断，完整版见控制台「Briefs」）</div>`)}
+      <div class="tg-day">21:00 · topic-watch</div>
+      ${tgMsg('📡 动态监控 · 新发现 2 条',`<ul>
+        <li>▸ n8n 自托管 更新<ul><li>• 2.37.7 改了 rows 响应体解析——裸 status 会被当 HTTP 码——https://…</li></ul></li>
+        <li>▸ AI Agent 编排框架<ul><li>• 新基线把长上下文检索拉高 6 个点——https://…</li></ul></li></ul>
+        <div class="clip">每关键词 1–3 条 · ≤60 字/条 · time_range=day · 同夜按 seen 去重</div>`)}
+      <div class="tg-day">周日 09:14 · weekly-review</div>
+      ${tgMsg('🗓️ 本周回顾 · 10-26 ~ 11-02（更新至 09:14）',`<ul>
+        <li>【待办】✅ 完成 12 · 🔵 开放 4（逾期 1）</li>
+        <li>【提醒】⏳ 触发 9 · 待触发 2</li>
+        <li>【对话】84 轮（TG 51 / 其它 33 · 最活跃：周三）</li>
+        <li>【新记忆】🧠 7 条 ·【晨报】7 份</li></ul>
+        <div class="clip">—— 本周把「看得见」补成了「会报警」，成本通路闭环。</div>
+        <div class="clip" style="color:#fca5a5">⚠ 自检的 weekly dry-run 会绕过「本周已跑」守卫写 marker ⇒ 周报有被吞风险（weekly_reviews 仅 1 行）。手动试跑请带 {"force":true}。</div>`)}
+    </div>
+    <div class="ph-in"><div class="box">Message</div><div class="mic">🎙</div></div>
+  </div>
+
+  <div class="phone"><div class="ph-top"><div class="av" style="background:linear-gradient(135deg,#22c55e,#06b6d4)">哲</div><div><b>阿哲</b><small>执行者 · Telegram 已绑定</small></div><div class="ic">⋮</div></div>
+    <div class="tg-body">
+      <div class="tg-day">机主派发 → 阿哲</div>
+      ${tgMsg('📌 新任务 · 11 月看板口径对齐 <span class="pin">到期 11-06</span>',`<ul><li>出看板初稿：自然周口径 + 埋点字段清单</li><li>来自机主，已写入 todos</li></ul>`,
+        tb('我收到了','ta')+`<div class="tg-btns r">${tb('已完成','td')}</div>`)}
+      <div class="tg-day">24h 后 · 第一次催办（remind_count 0→1）</div>
+      ${tgMsg('⏰ 待办催办 · 已逾期 1 天','<ul><li>11 月看板口径对齐（到期 11-06）</li><li>第 1 次催办，24h 冷却</li></ul>',
+        `<div class="tg-btns r">${tb('我收到了','ta')}${tb('已完成','td','pri')}</div>`)}
+      <div class="tg-day">再 24h · 第二次催办（remind_count 1→2）</div>
+      ${tgMsg('⏰ 待办催办 · 第 2 次','<ul><li>仍未回执，还会再等一天</li></ul>',
+        `<div class="tg-btns r">${tb('我收到了','ta')}${tb('已完成','td','pri')}</div>`)}
+      <div class="tg-day">第 3 次 · 升级给机主（escalated=1，之后不再动）</div>
+      ${tgMsg('🚨 逾期升级 · 来自 阿哲','<ul><li>11 月看板口径对齐 · 逾期 3 天、催办 2 次无回执</li></ul>',
+        `<div class="tg-btns r">${tb('已完成','td','pri')}${tb('推迟 1 天','ts')}</div>`,'me')}
+      <div class="tg-day">回落示例 · 老周没有通道</div>
+      ${tgMsg('📌 新任务（回落机主）','<ul><li>审阅财务模板</li><li class="clip">（注：老周 没有可用通道，已改投机主）</li><li>status 标 degraded，不是失败</li></ul>',
+        `<div class="tg-btns r">${tb('已完成','td','pri')}${tb('推迟 1 天','ts')}</div>`,'me')}
+      <div class="tg-day" id="tg-note">点上面的按钮看写回口径</div>
+    </div>
+    <div class="ph-in"><div class="box">Message</div><div class="mic">🎙</div></div>
+  </div>
+
+  <div class="phone"><div class="ph-top"><div class="av">P</div><div><b>PivotAI</b><small>提醒 · 告警 · 命令</small></div><div class="ic">⋮</div></div>
+    <div class="tg-body">
+      <div class="tg-day">15:00 · reminders Check Due</div>
+      ${tgMsg('⏰ 提醒 · 15:00 提醒对账','<ul><li>与财务对一遍 10 月成交口径</li></ul>',
+        tb('知道了','rd')+tb('1 小时后再提醒','rs'))}
+      <div class="tg-day">09:41 · chat-alerts</div>
+      ${tgMsg('','<div style="font-family:var(--font-mono);font-size:11.8px;color:#fca5a5">[PivotAI 告警] error_rate · 错误率 60.0%（6/10，窗口 60 分钟）超过阈值 50%</div><div class="clip">ALERT_WEBHOOK_FORMAT=telegram · ≤4000 字 · 投递状态回写 ops_alerts.delivered</div>')}
+      <div class="tg-day">语音与图片的降级</div>
+      ${tgMsg('','<ul><li>🎙 你发来 22 秒语音 → qwen3-asr-flash 识别 → 进全链路（记忆/工具照常）</li><li>回复 ≤900 字才合成语音（qwen-tts · Cherry）；<b>&gt;900 字自动降级文字</b></li><li>识别失败：「语音识别没成功…」/「这条语音我没听清…」</li><li>图片 &gt;8MB → image too large；取图失败：「图片没取到…」</li></ul>')}
+      <div class="tg-day">快捷命令（免模型直查）</div>
+      ${tgMsg('','<div style="font-family:var(--font-mono);font-size:11.5px">/todos</div><ul><li>开放待办 4 项（已指派 2）：<br>#12 整理季度 OKR<br>#14 约阿哲对账流程<br>#15 11 月看板口径 → 阿哲（已催办 2 次）</li></ul>')}
+      ${tgMsg('',`<div style="font-family:var(--font-mono);font-size:11.5px">/tools</div><ul><li>• meeting_actions — 会议行动项（说「跑一下 会议行动项」）</li><li>• smart_summary — 智能摘要</li><li>• topic_watch — 动态监控</li><li>• echo_demo — 回声示例（活的最小样例）</li></ul>
+        <div class="clip">AI 只有<b>点火权</b>：不建 / 不改 / 不删流程，副作用由搭建者负责。</div>`)}
+      ${tgMsg('',`<div class="clip">另有 /help /reset /todo @人 /ack /done /waiting /people /memory /reminders</div>`)}
+    </div>
+    <div class="ph-in"><div class="box">Message</div><div class="mic">🎙</div></div>
+  </div>
+
+  <div class="tg-side">
+    <h3>派发状态机（原型里按钮点下去会发生什么）</h3>
+    <p>这不是装饰：每个按钮对应一次真实写库，且点完会清空按钮（editMessageReplyMarkup）防止重复点击。</p>
+    <div class="chain">
+      <div class="n"><b>我收到了（ta）</b>写 <i>todos.ack_at</i> ⇒ <b>停催但不关单</b>。这是最容易做错的一条：确认收到 ≠ 完成。<br/><i>非机主只能对派给自己的 todo 做 ta / td。</i></div>
+      <div class="n"><b>已完成（td）</b>调 <i>POST /webhook/admin/todos/complete</i> ⇒ status=done，催办链当场停止。</div>
+      <div class="n"><b>推迟 1 天（ts:24）</b>写 <i>todos.due_date += 24h</i>，remind_count 保留。</div>
+      <div class="n"><b>知道了（ap:rd:&lt;id&gt;）</b>调 <i>/admin/reminders/cancel</i> ⇒ reminders.status=canceled。<br/><span style="color:#fca5a5">⚠ 现网：n8n 2.37.7 下写成功却回 500，会留下孤儿提醒。</span></div>
+      <div class="n"><b>1 小时后再提醒（ap:rs:&lt;id&gt;:1）</b>写 <i>reminders.due_at</i> + status=pending。</div>
+      <div class="n"><b>阶梯与冷却</b>只催「已指派 + open + 逾期 + 未 ack」；remind_count 0/1 催本人，≥2 升级机主并置 escalated=1，&gt;2 不再动；两级间 24h 冷却（last_remind_at）。</div>
+      <div class="n"><b>投递失败</b>attempts ≥2 ⇒ reminders.status=failed，否则保持 pending 等下一轮。</div>
+      <div class="n" style="border-left-color:#34d399"><b>为什么把「待办 ≠ 提醒」画成红线</b>混用会让一条待办在被催 3 次后自动变成一个提醒，用户看到的是一条他从未要求过的推送。</div>
+    </div>
+  </div>`;
+}
+
+/* ============================ 交互 ============================ */
+const WRITEBACK = {
+  ta:['todos.ack_at 已写入 → <b>停催不关单</b>；按钮已清空（editMessageReplyMarkup）','ok'],
+  td:['POST /webhook/admin/todos/complete → status=done，催办链停止','ok'],
+  ts:['todos.due_date += 24h，remind_count 保留','info'],
+  rd:['POST /webhook/admin/reminders/cancel → status=canceled<br/><span style="color:#fca5a5">但现网 n8n 2.37.7 会回 500 并留下孤儿提醒 —— 这条是真实缺陷</span>','bad'],
+  rs:['reminders.due_at = now + 1h，status=pending','ok']
+};
+document.addEventListener('click',e=>{
+  const t=e.target;
+  const hit=sel=>t.closest(sel);
+
+  /* 端切换 / 明暗 / 追溯 */
+  if(hit('[data-go]')){ document.documentElement.dataset.surface=hit('[data-go]').dataset.go;
+    document.querySelectorAll('.seg button').forEach(x=>x.setAttribute('aria-pressed',x===hit('[data-go]'))); return; }
+  if(hit('#theme-btn')){ const dark=document.documentElement.classList.toggle('dark');
+    document.documentElement.classList.toggle('light',!dark);
+    hit('#theme-btn').textContent=dark?'浅色':'深色'; hit('#theme-btn').setAttribute('aria-pressed',dark); return; }
+  if(hit('#trace-btn')){ const on=document.documentElement.dataset.trace==='on';
+    document.documentElement.dataset.trace=on?'off':'on'; hit('#trace-btn').setAttribute('aria-pressed',!on); return; }
+  /* 导航 */
+  if(hit('[data-nav]')){ go(hit('[data-nav]').dataset.nav); return; }
+  /* chips / tabs / 前台开关 */
+  if(hit('.chip')){ const on=hit('.chip').dataset.on==='true'; hit('.chip').dataset.on=on?'false':'true'; return; }
+  if(hit('[data-toggle]')){ const on=hit('[data-toggle]').dataset.on==='true'; hit('[data-toggle]').dataset.on=on?'false':'true'; return; }
+  if(hit('.tabs button')){ const b2=hit('.tabs button'), card2=b2.closest('.card'), k=b2.dataset.tab;
+    card2.querySelectorAll('.tabs button').forEach(x=>x.setAttribute('aria-selected',x===b2));
+    card2.querySelectorAll('[data-panel]').forEach(p=>p.hidden=p.dataset.panel!==k); return; }
+  /* 弹窗 */
+  if(hit('[data-act^="dlg-"]')){ const d=document.getElementById(hit('[data-act^="dlg-"]').dataset.act.slice(4)); if(d) d.showModal(); return; }
+  if(hit('[data-act="close-dlg"]')){ hit('dialog')?.close(); return; }
+  /* TG 按钮 */
+  if(hit('[data-tg]')){ const k=hit('[data-tg]').dataset.tg, w=WRITEBACK[k];
+    hit('.tg-m').querySelectorAll('.tg-b').forEach(x=>{x.dataset.clicked='true';x.disabled=true});
+    const note=document.getElementById('tg-note');
+    if(note&&w){ note.innerHTML='写回：'+w[0]; note.style.color= w[1]==='bad'?'#fca5a5':'#8be3ad'; }
+    return; }
+  /* 二次确认删除/下架 */
+  if(hit('[data-confirm]')){ const b2=hit('[data-confirm]');
+    if(!b2.dataset.armed){ b2.dataset.armed='1'; b2.textContent=b2.textContent.replace(/^(下架|删除|停用)/,'确认$1?'); b2.classList.add('dgr'); return; }
+    b2.closest('tr')?.remove(); say('info','已删除该行（前端演示，不写库）'); return; }
+  /* 通用动作 */
+  const act=hit('[data-act]')?.dataset.act; if(!act) return;
+  const btn=hit('[data-act]');
+  const loading=()=>{ if(btn?.dataset.loading){ const txt=btn.textContent; btn.classList.add('is-loading');
+      setTimeout(()=>{btn.classList.remove('is-loading')},1400); } };
+  switch(act){
+    case 'selfcheck': btn.classList.add('is-loading'); say('info','自检中…约 15–30 秒（原型模拟 2s）');
+      setTimeout(()=>{btn.classList.remove('is-loading');
+        say('good','自检完成：<b>48/48 项通过</b>（2026-10-30 实机值）。报告落 selfcheck_runs，失败会自动推 TG。','POST /webhook/admin/selfcheck/run');},1800); break;
+    case 'refresh': say('info','已刷新（控制台读缓存 TTL 3s · CONSOLE_ADMIN_READ_CACHE_TTL_MS）'); break;
+    case 'push-test': say('good','测试推送已发出 → /webhook/internal/notify。没收到就是通道问题，不是记录问题。'); break;
+    case 'todo-done': say('info','POST /webhook/admin/todos/complete；幂等窗口内重复点击不会建第二条'); break;
+    case 'todo-add': say('info','控制台不直接建待办 —— 建待办的入口是对话（todo_add）。这里刻意只留「完成」。'); break;
+    case 'rem-cancel': say('bad','取消请求已发出，但上游返回 500：提醒<b>可能已写成功</b>（孤儿提醒）。这是 n8n 2.37.7 的真实缺陷，不是本原型的 bug。','502 ← api-guard.upstreamError()'); break;
+    case 'weekly-run': say('info','手动试跑<b>会真的推送 TG</b>。加 {"force":true} 才能非周日跑；自检的 dry-run 曾绕过周守卫，注意别把周报吞了。'); break;
+    case 'weekly-team': say('info','scope=team 会多出【团队】人员分布段。'); break;
+    case 'meeting-run': loading(); hit('dialog')?.close(); say('good','已抽取 2 条行动项并写入 todos（相对日期已换算成绝对日期）','POST /webhook/admin/tools/meeting_actions'); break;
+    case 'export-week': case 'export-brief': say('info','导出走 docforge 的 get/sign：签名 URL 有时效，不暴露 MinIO 公链。'); break;
+    case 'doc-open': say('info','打开签名 URL（docforge action=get）'); break;
+    case 'doc-push': say('good','已推送到 IM'); break;
+    case 'doc-link': say('info','已复制签名链接'); break;
+    case 'doc-archive': say('info','归档不删数据，只改状态'); break;
+    case 'kb-search': say('info','检索演练是只读路径，不改数据'); break;
+    case 'ingest-run': loading(); hit('dialog')?.close();
+      say('warn','已摄取 4 篇；<b>其中 chunk#3 超阈值</b> —— 当日自检会因此失败，而不是让坏分块静默毁掉检索质量。'); break;
+    case 'view-task': go('workflows'); setTimeout(()=>say('info','异步任务面板：输入 task_id 后 3 秒轮询到终态'),50); break;
+    case 'topic-add': say('good','已添加关键词（也可在对话里说「跑一下 动态监控，添加：关键词」）'); break;
+    case 'topic-scan': say('info','扫描中…每关键词 1–3 条 · time_range=day · 同夜 seen 去重'); break;
+    case 'topic-rm': say('info','移除后历史发现仍留在 topic_watch 表'); break;
+    case 'brief-run': loading(); say('good','晨报已生成。<b>同一天已有 daily_briefs 记录 ⇒ 守卫会跳过</b>，不会一天三份。'); break;
+    case 'brief-push': say('good','手动推送可用；自动推送（Push Brief 节点）当前状态待实机确认——README 与工作流 JSON 表述冲突。'); break;
+    case 'br-open': say('info','打开当日晨报全文'); break;
+    case 'person-save': loading(); hit('dialog')?.close(); say('good','人员已保存。没有通道的人会在派发时自动回落机主并标 degraded。'); break;
+    case 'pp-toggle': say('info','停用不影响历史待办，只影响后续投递'); break;
+    case 'key-issue': loading(); hit('dialog')?.close(); setTimeout(()=>document.getElementById('dlg-created')?.showModal(),400); break;
+    case 'copy-key': try{navigator.clipboard?.writeText('sk-pivot_7c1f9a2d4b8e6f05a3c7d9e1b2f4a6c8')}catch(_){}; say('info','已复制到剪贴板（原始 key 只出现这一次，库里只有 SHA-256）'); break;
+    case 'key-toggle': say('info','吊销 = 立刻失效，正在跑的请求不受影响'); break;
+    case 'limit-save': case 'budget-save': hit('dialog')?.close(); say('good','已更新。限流按 key 维护 60 秒滚动窗口，超限 429。'); break;
+    case 'alerts-run': loading(); say('info','跑完一轮（读最近 60 分钟 chat_executions）。注意：admin webhook 侧的 500 <b>不在错误率口径里</b>。'); break;
+    case 'alerts-test': say('good','测试告警已发出（Telegram）'); break;
+    case 'ops-refresh': say('info','已刷新 · 15s 自动开关在同一实现路径上'); break;
+    case 'job-q': say('info','排队中 → 执行中 → 已完成：3 秒轮询 /api/platform/jobs/{id}'); break;
+    case 'pg-send': say('info','发送 → STREAM_BRIDGE :3211/chat/completions（流式；含工具时降级到网关跑完整循环）'); break;
+    case 'pg-stop': say('warn','已中断本轮（客户端断开不会中断上游，成本已发生）'); break;
+    case 'pg-clear': say('info','仅清本地会话显示'); break;
+    case 'nf-all': say('info','模板 demo：清的是 Zustand 本地状态，与平台无关'); break;
+    case 'reassign': say('info','改派会重置催办链吗？——现实现保留 remind_count，这是个需要拍板的产品问题'); break;
+    case 'f-new': say('info','新建会话'); break;
+    case 'f-send': { const body=document.getElementById('fbody'); if(!body) break;
+      const ta=document.querySelector('.f-composer textarea'), v=ta?.value?.trim();
+      if(!v){ say('info','先在输入框里写点什么'); break; }
+      ta.value='';
+      body.insertAdjacentHTML('beforeend',`<div class="msg u"><div class="av">黄</div><div class="bub">${v.replace(/</g,'&lt;')}</div></div>`);
+      const d=document.createElement('div'); d.className='msg a';
+      d.innerHTML='<div class="av">AI</div><div class="bub"><span class="dim" style="color:#8be3ad">● 流式中…</span></div></div>';
+      body.appendChild(d); body.scrollTop=body.scrollHeight;
+      setTimeout(()=>{ d.querySelector('.bub').innerHTML='（原型模拟）真流式首字 1–3s；若这轮出现工具调用，会降级到网关跑完整循环再以打字机回灌。'; body.scrollTop=body.scrollHeight; },1200); break; }
+    default: say('info','（原型未接真实接口）该动作对应 '+act);
+  }
+});
+/* 两个键的快捷键（nav-config.ts 的 shortcut 字段） */
+let seq='';
+document.addEventListener('keydown',e=>{
+  if(document.documentElement.dataset.surface!=='console') return;
+  if(e.target.matches('input,textarea,select')) return;
+  seq=(seq+e.key.toLowerCase()).slice(-2);
+  for(const g of NAV) for(const [t,k,,kb] of g.items)
+    if(kb&&seq===kb[0]+kb[1]) { go(k); seq=''; return; }
+});
+
+renderNav(); go('overview'); buildFront(); buildTG();
+document.documentElement.dataset.trace='off';
+</script>
+</body>
+</html>
