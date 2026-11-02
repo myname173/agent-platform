@@ -1,7 +1,7 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
 verified_at: 2026-10-31
-verified_commit: 2176983
+verified_commit: 6e2ccbc
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
@@ -267,7 +267,7 @@ node n8n/scripts/lobehub-config.mjs                           # LobeHub ↔ 网�
 | D3 | 工具数：README 写 12，网关实际 16；MCP 17 | `README.md:31-32` vs `n8n/workflows/chat-gateway.json`、`n8n/workflows/mcp-server.json` | 计数类断言不可信 |
 | D4 | 数据表：README 写 19，实际 23 | `README.md:51` vs `n8n/scripts/deploy.mjs:46-295` | 同上 |
 | D5 | smoke 断言数 README 内部矛盾（71 / 47） | `README.md:77` vs `README.md:1090-1093` | 以运行输出为准 |
-| D6 | 原 CI 用 `pnpm-lock.yaml`（仓库只有 `bun.lock`）→ 已修复并提交（`0068d27`）：CI 改用 bun + `bun.lock`，bun 固定 1.4.4 | `.github/workflows/ci.yml:9-43` vs `frontent/bun.lock` | 修复前每个 PR 必红 |
+| D6 | 原 CI 用 `pnpm-lock.yaml`（仓库只有 `bun.lock`）→ 已修复并提交（`8400781`）：CI 改用 bun + `bun.lock`，bun 固定 1.4.4 | `.github/workflows/ci.yml:9-43` vs `frontent/bun.lock` | 修复前每个 PR 必红 |
 | D7 | `frontent/AGENTS.md` 过期：写 Next 16.0.10、ESLint/Prettier | `frontent/AGENTS.md` vs `frontent/package.json:15-19` | 按它选工具会装错；以本文件与 `frontent/package.json` 为准 |
 | D8 | README 数据流段落有重复粘贴 | `README.md:262-266` | 阅读噪声 |
 | D9 | `signDocToken` 仅有定义无调用者，文档分享链接不带 `?t=` | `frontent/src/lib/doc-token.ts:23`、`frontent/src/features/docs/components/docs-panel.tsx:226` | 分享功能实际未接通 |
