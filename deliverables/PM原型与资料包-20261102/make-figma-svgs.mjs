@@ -150,12 +150,12 @@ out.push(svgFile('01-控制台-Overview-1440x900.svg',1440,900,
           + kpi(592,124,272,'平均延迟','1,840 ms','p95 4,620 ms（示意）')
           + kpi(876,124,272,'近 24h 成本','$0.0091','预算 $2 · 用量 0.5%')
           /* 三卡 */
-          + cardBox(24,232,368,236,'最近告警','chat-alerts 每 15 分钟一轮；warn→critical 升级不受 24h 去重限制 · R-OV-02')
-          + tableRows(232+70,['t告警','类型','级别','消息','触达'].map((x,i)=>({t:['时间','类型','级别','消息','触达'][i],w:[68,80,56,100,40][i]})),
-              [['10:41','error_rate',{badge:'warn',color:L.warn},'错误率 60%（6/10）',{badge:'已触达',color:L.ok}],
+          + cardBox(24,232,368,236,'最近告警','chat-alerts 每 15 分钟一轮\nwarn→critical 升级不受 24h 去重 · R-OV-02')
+          + tableRows(232+70,['t告警','类型','级别','消息','触达'].map((x,i)=>({t:['时间','类型','级别','消息','触达'][i],w:[48,104,62,96,44][i]})),
+              [['10:41','error_rate',{badge:'warn',color:L.warn},'错误率 60% 6/10',{badge:'已触达',color:L.ok}],
                ['09:12','cost_budget',{badge:'warn',color:L.warn},'24h 花费超预算',{badge:'已触达',color:L.ok}],
-               ['昨日','embedding_quota',{badge:'critical',color:L.bad},'额度 96% 已用',{badge:'触达失败',color:L.bad}]],344,L,24)
-          + cardBox(404,232,368,236,'知识库','文档数 / 分块 / 嵌入额度；分块超长会让当日自检失败 · R-OV-03')
+               ['昨日','embedding_quota',{badge:'critical',color:L.bad},'额度 96% 已用',{badge:'触达失败',color:L.bad}]],354,L,24)
+          + cardBox(404,232,368,236,'知识库','文档数 / 分块 / 嵌入额度\n分块超长会让当日自检失败 · R-OV-03')
           + kpi(420,300,160,'文档','14','生效 12 · 下架 2')
           + kpi(592,300,160,'分块','812','HNSW · 1024 维')
           + rect(420,404,336,8,{fill:L.accent,rx:4})+rect(420,404,77,8,{fill:L.info,rx:4})
@@ -220,7 +220,7 @@ out.push(svgFile('02-控制台-Operations-暗色-1440x900.svg',1440,900,
           const hs=[38,62,45,91,52,77,120,64,49,58,103,71,44,66], ok=[1,1,1,0,1,1,0,1,1,1,0,1,1,1][i];
           const h=Math.min(96,hs[i]*0.7);
           return rect(40+i*48,400-h,34,h,{fill:ok?'#10B981':'#EF4444'});}).join(''),0,0)
-      + tableRows(232+182,['时间','状态','模型','来源','Session','延迟','Token','错误'].map((t,i)=>({t,w:[70,64,96,84,74,50,50,150][i]})),
+      + tableRows(232+182,['时间','状态','模型','来源','Session','延迟','Token','错误'].map((t,i)=>({t,w:[62,58,118,92,66,44,44,120][i]})),
         [['10:42:07',{badge:'success',color:D.ok},'deepseek-chat','lobechat','pg-…-a','1.9s','1.4k','—'],
          ['10:41:52',{badge:'error',color:D.bad},'deepseek-chat','stream-bridge','tg-…-7','0.6s','—','upstream 429'],
          ['10:41:30',{badge:'success',color:D.ok},'deepseek-reasoner','curl-test','kb-…-3','4.6s','3.1k','—']],
@@ -283,7 +283,7 @@ out.push(svgFile('04-控制台-Alerts-1440x900.svg',1440,900,
       + btn(40,212,'发送测试通知')
       + txt(40,262,'silence 维护窗口只停止投递、仍然记录',{size:10.5,fill:L.muted})
       + cardBox(592,124,564,220,'规则与阈值','去重口径是这页的产品核心 · R-AL-02')
-      + tableRows(124+64,['规则','触发条件','升级','去重口径'].map((t,i)=>({t,w:[96,168,90,180][i]})),
+      + tableRows(124+64,['规则','触发条件','升级','去重口径'].map((t,i)=>({t,w:[106,186,100,130][i]})),
         [['error_rate','窗口 60min · 样本≥5 · ≥50%','≥80% critical','冷却 60 分钟'],
          ['cost_budget','24h 花费 ≥ $2','≥ $5 critical','24h 一次，升级不受限'],
          ['embedding_quota','kb_usage ≥ 80%','≥ 95% critical','同类 24h 一次']],532,L,592)

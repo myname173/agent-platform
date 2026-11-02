@@ -25,7 +25,9 @@ const blocks = files.map(f => {
 
 writeFileSync(join(HERE, 'bbox-check.html'), `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <title>SVG 几何越界检查（getBBox）</title><style>body{font:12px system-ui;background:#111;color:#ddd}
-svg{display:block;width:600px;height:auto;background:#1e1e1e}section{margin:0 0 18px}
+/* 关键：不给 svg 加 CSS 缩放。缩到 600px 时 6260 宽的图按 0.096 渲染，
+   Chrome 返回的 text getBBox 会比原始尺寸宽约 20%（实测「最近告警」72 vs 60），字框判定就变成测量伪影。 */
+svg{display:block;background:#1e1e1e}section{margin:0 0 18px}
 .ok{color:#10B981}.bad{color:#EF4444}.warn{color:#F59E0B}table{border-collapse:collapse}
 td,th{border-bottom:1px solid #333;padding:5px 8px;text-align:left}</style></head><body>
 <h3>越界判定：用 Chromium 的 getBBox()，不是我自己量的</h3>
@@ -86,14 +88,22 @@ for (const sec of document.querySelectorAll('#svgs section')) {
     }
   }
   for (const [name, e] of boardAcc) boards.push({ name, shapes: boxOf(e.shapes), n: e.shapes.n, text: boxOf(e.text) });
-  /* 文字压字检测：用 Chromium 的**实际字宽**判定。
-     我原先用 len*fs*0.62 估宽，把 8 处真问题放大成 61 处假阳性 —— 估宽只留给“含文本参考”列用。 */
+  /* 文字压字检测：宽度取「Chromium 实际字宽」与「估宽(CJK 1em / 拉丁 0.58em)」的**较大值**。
+     只用实际字宽会漏 —— Figma 导入后换成自己的字体度量，比回落字体更宽；
+     上一轮 01 表格里 embedding_quota 压 critical 徽标就是这么漏掉的（我本地 0 处、Figma 肉眼可见）。 */
   const textBoxes = [];
   for (const el of sec.querySelectorAll('text')) {
     let b; try { b = el.getBBox(); } catch (e) { continue; }
     if (!b || (b.width === 0 && b.height === 0)) continue;
     const r = toRoot(el, b);
-    textBoxes.push({ x: r.x, y: r.y, w: r.w, h: r.h, t: (el.textContent || '').slice(0, 18) });
+    const fs = parseFloat(el.getAttribute('font-size') || '13');
+    const txt = el.textContent || '';
+    const est = [...txt].reduce((a, c) => a + (/[㐀-＀-￯〰-〿]/.test(c) ? fs : fs * 0.62), 0);
+    const w = Math.max(r.w, est);
+    const anchor = el.getAttribute('text-anchor');
+    let x = r.x;
+    if (anchor === 'middle') x -= (w - r.w) / 2; else if (anchor === 'end') x -= (w - r.w);
+    textBoxes.push({ x, y: r.y, w, h: r.h, t: txt.slice(0, 18) });
   }
   const collisions = [];
   for (let i = 0; i < textBoxes.length; i++) for (let j = i + 1; j < textBoxes.length; j++) {
