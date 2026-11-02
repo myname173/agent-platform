@@ -1,7 +1,7 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
 verified_at: 2026-11-03
-verified_commit: 705e1d0
+verified_commit: 4bd81c6
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
