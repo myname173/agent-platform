@@ -1,7 +1,7 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
 verified_at: 2026-11-03
-verified_commit: 4bd81c6
+verified_commit: 911a0ed
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
@@ -184,7 +184,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 - 镜像 `paradedb/paradedb:latest-pg17`，启动参数预加载 `pg_search,pg_cron`（`docker-compose.yml:156-164`；缺 `pg_cron` 会让全新卷启动失败，注释已记录）。
 - 卷名是 `postgres_data_pg17`（`docker-compose.yml:596-598`），旧卷 `postgres_data` 留作回滚（`README.md:127-129`）。
-- n8n Data Table **24 张**，定义在 `n8n/scripts/deploy.mjs:46-311`：
+- n8n Data Table **24 张**，定义在 `n8n/scripts/deploy.mjs:46-315`：
   `chat_messages, chat_executions, admin_audit, idempotency_records, kb_usage, daily_briefs, workflow_tools, topic_watch, todos, people, projects, tool_contract, mcp_servers, sandbox_approvals, documents, weekly_reviews, selfcheck_runs, heartbeats, telegram_state, reminders, ops_alerts, ops_alert_silence, gateway_keys, agenda_runs`。
 - 实例上还会多出第 25 张 `cron_runs`（列 `job/period/ran_at/source`）：它**不在** `DATA_TABLE_COLUMNS` 里，是 `topic-watch` 与 `weekly-review` 的守卫节点在运行时「查不到就自己建」出来的，因此不受 `ensureColumns` 保护（`n8n/workflows/topic-watch.json` 的 `Already Ran Today` / `Mark Ran`）。
 - 另有 `platform` schema（`CREATE SCHEMA IF NOT EXISTS platform`，`n8n/scripts/platform-schema.sql:7`），runtime 使用 `platform.requests / platform.events / platform.tool_runs`（`platform-runtime/server.js:133-230`）。
@@ -298,7 +298,7 @@ N8N_URL=... N8N_API_KEY=... node n8n/scripts/seed-projects.mjs apply   # 写入�
 | D1 | README 说「8 个服务」/「9 个容器」，实际常驻 **12** | `README.md:9,60,177` vs `docker-compose.yml` | 按 README 数容器会漏掉 redis / stream-bridge / runtime / caddy |
 | D2 | README 说 LobeChat 直接调 n8n；实际经 `stream-bridge` | `README.md:244-247` vs `docker-compose.yml:261,357` | 排查流式/工具问题会找错层 |
 | D3 | 工具数：README 写 12，网关实际 16；MCP 17 | `README.md:31-32` vs `n8n/workflows/chat-gateway.json`、`n8n/workflows/mcp-server.json` | 计数类断言不可信 |
-| D4 | 数据表：README 写 19，实际 23 | `README.md:51` vs `n8n/scripts/deploy.mjs:46-295` | 同上 |
+| D4 | 数据表：README 写 19，实际 24 | `README.md:51` vs `n8n/scripts/deploy.mjs:46-315` | 同上 |
 | D5 | smoke 断言数 README 内部矛盾（71 / 47） | `README.md:77` vs `README.md:1090-1093` | 以运行输出为准 |
 | D6 | 原 CI 用 `pnpm-lock.yaml`（仓库只有 `bun.lock`）→ 已修复并提交（`8400781`）：CI 改用 bun + `bun.lock`，bun 固定 1.4.4 | `.github/workflows/ci.yml:9-43` vs `frontent/bun.lock` | 修复前每个 PR 必红 |
 | D7 | `frontent/AGENTS.md` 过期：写 Next 16.0.10、ESLint/Prettier | `frontent/AGENTS.md` vs `frontent/package.json:15-19` | 按它选工具会装错；以本文件与 `frontent/package.json` 为准 |
