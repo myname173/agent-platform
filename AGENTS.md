@@ -127,7 +127,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 ### 4.1 部署模型（确认）
 
 - `n8n/workflows/*.json` 共 **26** 个可部署 workflow；`n8n/workflows/baseline/` 是 2 个旧快照，**不部署**（`n8n/scripts/deploy.mjs:1-15`、`README.md:1077`）。
-- 有 `id` → PUT 更新；无 `id` → POST 新建；`active:true` 会重新注册 webhook；`@table_name` 引用会先建表（`n8n/scripts/deploy.mjs:1-15`）。
+- 有 `id` 且该 id 在本实例存在 → PUT 更新；否则先按 **name** 找线上同名工作流，恰好一个就 PUT 它并把 id 回写源码，一个都没有才 POST 新建（`n8n/scripts/deploy.mjs:1362-1385`）。这道 name 兜底是给 `daily-agenda` / `health-report` 这类源码里没有 `id` 的文件用的：没有它就会在已有实例上再造一个同名工作流，两个 Daily Agenda = 两份 07:30 推送。`active:true` 会重新注册 webhook；`@table_name` 引用会先建表（`n8n/scripts/deploy.mjs:1-15`）。
 - 共 **43** 个唯一 webhook path（`grep '"path"' n8n/workflows/*.json` 去重计数）。
 - webhook 本身**没有 n8n 原生鉴权**；鉴权在各 Code 节点里比对 `$env.CHAT_API_KEY`（如 `n8n/workflows/todos.json` 的 Auth 节点）。
 
@@ -153,7 +153,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 | workflow | 规则 |
 |---|---|
-| `daily-agenda` | `30 7,11,15 * * *`（07:30 主槽；当天已有成功推送则补跑槽静默） |
+| `daily-agenda` | `30 7,11,15 * * *`（07:30 主槽，**每人一份**；某人当天已送达，补跑槽就对他静默） |
 | `chat-alerts` | 每 15 分钟 |
 | `chat-retention` | `0 3,14 * * *` |
 | `daily-brief` | `30 8,11,15 * * *` |
@@ -163,7 +163,9 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | `reminders` | 每 1 分钟 |
 | `telegram-bridge` | 每 1 分钟 |
 
-`daily-agenda` 的纳入范围：自己的 open todo（必须有 `due_date` 且 ≤ 今天）、未确认的委派（`owner_ref` 非空、`ack_at` 为空，无 due 或 ≤ 今天）、pending 且 ≤ 今天的提醒。指纹（item 身份 + 文本 + bucket + due + owner + 项目 label）不变时不推送，也不写 `agenda_runs`；推送失败同样不写，次日会重试。11:30 / 15:30 是补跑槽，`Already Sent Today` 守卫在当天已有成功记录时直接结束，避免一天推两次。
+`daily-agenda` 是**按人发**的：收件人 = 机主（`owner_ref=''`，走 notify 的默认目标，与改造前逐字节一致）+ `people` 里每个 active 且 role≠owner 的人（走各自的 `channels`；没有可用通道的人**照样发**，由 notify 降级投给机主并在消息尾部注明，不静默丢弃）。机主那份的纳入范围没变：自己的 open todo（必须有 `due_date` 且 ≤ 今天）、未确认的委派（`owner_ref` 非空、`ack_at` 为空，无 due 或 ≤ 今天）、全部 pending 且 ≤ 今天的提醒。成员那份只含派给自己的：逾期、今天到期、以及还没 `/ack` 的（页脚直接告诉他 `/ack` 确认、`/done` 完成）；已确认又没到期的不打扰。
+
+去重与落库都按人独立：`agenda_runs.owner_ref` 标记这一行是谁的，指纹（item 身份 + 文本 + bucket + due + owner + 项目 label）只跟**他自己**上一次成功推送比。改造前写入的旧行没有 `owner_ref`，算作机主的历史，所以升级当天不会给机主白推一次。推送失败不为该人落行，下一个槽或次日重试；`Push Agenda` 带 `onError: continueRegularOutput`，一个人投递失败不影响其他人。`Already Sent Today` 守卫只是快路径——所有人当天都已送达才直接结束；11:30 / 15:30 仍是补跑槽，10:00 才被派活儿的人在 11:30 能收到自己那一份。
 
 ### 4.4 Agent 工具
 
@@ -196,7 +198,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 - 挂了 `project_ref` 的表：`todos`、`documents`。`reminders` **还没有**（提醒目前不按项目分）。
 - 写入侧一律「必须已登记」：`admin/todos/add`、`doc-forge create`、`admin/report/health` 收到未知 slug 直接 400（`unknown_project`），归档项目 400（`project_archived`）——避免一个错别字凭空开出无人认领的项目。slug 与 label 都能匹配，存进去的永远是 slug。
 - 读取侧：`admin/todos?project=<slug|label|none>`、`doc-forge action=list project=…`；响应里额外带 `projects`（登记表）与 `by_project`（分布），`none` 表示未归类。
-- 晨报把项目渲染成行尾 `[label]` 标签，未挂项目的条目**渲染与加这个功能之前完全一致**；项目 label 参与指纹，所以改归属算「有变化」，会重新推送。
+- 今日议程（`daily-agenda`）把项目渲染成行尾 `[label]` 标签，机主与每个成员各自那一份都带；未挂项目的条目**渲染与加这个功能之前完全一致**；项目 label 参与指纹，所以改归属算「有变化」，会重新推送给相关的人。
 - 对外验收报告（`audience=client`）把解析出来的项目 label 也塞进脱敏扫描目标——它和调用方传的 title 一样属于「外部可影响、又会出现在文档标题里」的数据（见 §4.2）。
 - 维护入口有两个：`seed-projects.mjs`（批量、幂等、只填空）与控制台「协作 → Projects」页（`/dashboard/projects` → `/api/n8n/projects` → `GET admin/projects` / `POST admin/projects/manage`）。后者是 `platform-admin-api` 里克隆 `people` 那条链得到的 12 个节点，`create/update/archive/delete` 全部写 `admin_audit`；列表顺带算出每个项目的未完成 / 逾期 / 今日到期待办数与文档数，按未完成数倒序。
 - **删除有引用保护**：`project_ref` 是按名字引用、没有数据库约束，所以 `delete` 会先数 `todos` / `documents` 里还有多少条指向它，非零就 `409 in_use` 并提示改用归档——否则那些记录会变成指向空气的孤儿引用。`name` 建后不可改，同一个道理。
@@ -278,6 +280,7 @@ N8N_URL=... N8N_API_KEY=... node n8n/scripts/seed-projects.mjs apply   # 写入�
 9. `MCP_API_KEY` 不是 `CHAT_API_KEY`；MCP 鉴权走 `gateway_keys` 哈希表。
 10. 提交必须区分人与代理身份：代理用 `git -c user.name="agent-platform" -c user.email="dev@agent-platform.local" commit`（`README.md:315-330`）。
 11. 推送前有 `secret-scan.sh --added` 闸门，新凭证形状（≥16 字符、非 URL）会被拦（`scripts/secret-scan.sh`、`scripts/hooks/pre-push`）；不要用 `--no-verify` 绕过。
+12. Code 节点设了 `mode: runOnceForEachItem` 就必须 `return { json: … }`，**不能**返回数组：数组形式不会报错，但会丢掉 `$('上游节点').item` 的配对（拿到的不是当前 item），于是一条 `Prepare Run Row` 这样的落库节点会静默写错行或什么都不写。多收件人链路（如 `daily-agenda`）依赖这个配对把每人的结果对回他自己那份。已在本地 n8n 2.37.7 实测：裸 item 形式配对正确，穿过 `httpRequest`（含 `onError: continueRegularOutput`）与 `dataTable` 节点后依然正确。
 
 ## 10. 控制台细节（frontent）
 

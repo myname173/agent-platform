@@ -298,15 +298,19 @@ const DATA_TABLE_COLUMNS = {
     { name: 'spend_30d_at', type: 'string' },
   ],
 
-  // Daily Agenda: one row per SUCCESSFUL 07:30 push. The fingerprint is what
-  // makes "no change, no message" work; a failed delivery writes no row, so the
-  // next run retries instead of being suppressed by a send that never happened.
+  // Daily Agenda: one row per SUCCESSFUL push per recipient. The fingerprint is
+  // what makes "no change, no message" work; a failed delivery writes no row, so
+  // the next run retries instead of being suppressed by a send that never
+  // happened. owner_ref is the person the digest went to ('' = the machine
+  // owner's default target); rows written before per-person delivery have none
+  // and count as the owner's history.
   agenda_runs: [
     { name: 'agenda_date', type: 'string' },
     { name: 'fingerprint', type: 'string' },
     { name: 'item_count', type: 'number' },
     { name: 'sent', type: 'number' },
     { name: 'preview', type: 'string' },
+    { name: 'owner_ref', type: 'string' },
   ],
 };
 
@@ -1322,6 +1326,14 @@ async function remapCredentials(wf, raw, available) {
   return { changed: true, persisted };
 }
 
+// Cached list of the workflows that already exist on this instance, used to
+// adopt one by name instead of creating a second copy of it.
+let liveWorkflows = null;
+async function listLiveWorkflows() {
+  if (!liveWorkflows) liveWorkflows = (await api('GET', '/workflows?limit=250')).data || [];
+  return liveWorkflows;
+}
+
 async function deploy(file, availableCredentials) {
   const raw = JSON.parse(readFileSync(file, 'utf8'));
   const wf = await ensureDataTables(raw);
@@ -1355,18 +1367,36 @@ async function deploy(file, availableCredentials) {
       existed = false;
     }
   }
+  // No usable id: before creating anything, check whether this instance already
+  // runs a workflow of the same name. POSTing anyway is how a second "Daily
+  // Agenda" appears - two schedules, two pushes, and no way to tell them apart
+  // in the UI. Adopting the live one keeps the source and the instance in sync.
+  let adopted = false;
+  if (!existed) {
+    const sameName = (await listLiveWorkflows()).filter((w) => w.name === wf.name);
+    if (sameName.length === 1) {
+      id = sameName[0].id;
+      existed = true;
+      adopted = true;
+      console.log(`adopted  ${wf.name} (${id}) — matched by name, no duplicate created`);
+    } else if (sameName.length > 1) {
+      console.log(`  ! ${sameName.length} live workflows are named ${wf.name} — delete the duplicates, then re-run`);
+    }
+  }
   if (existed) {
     await api('PUT', `/workflows/${id}`, payload);
     console.log(`updated  ${wf.name} (${id})`);
-    // Updated in place: the id is unchanged, so only the credential moved.
-    if (creds.persisted) {
+    // Updated in place: the id only moved when it was adopted from a live
+    // workflow the source file did not know about, or a credential was remapped.
+    if (creds.persisted || adopted) {
       const { writeFileSync } = await import('node:fs');
-      writeFileSync(file, JSON.stringify(raw, null, 2) + '\n');
-      console.log(`  persisted credential id into ${file.split(/[\\/]/).pop()}`);
+      writeFileSync(file, JSON.stringify({ ...raw, id }, null, 2) + '\n');
+      console.log(`  persisted ${adopted ? 'adopted' : 'credential'} id into ${file.split(/[\\/]/).pop()}`);
     }
   } else {
     const created = await api('POST', '/workflows', payload);
     id = created.id;
+    liveWorkflows = null;
     console.log(`created  ${wf.name} (${id})`);
     // persist the generated id back into the source file for future updates
     // (also covers recreation on a fresh instance, where the old id no
