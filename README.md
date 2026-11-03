@@ -43,9 +43,9 @@ surface.
   stops the moment they acknowledge.
 - **Pushes you can act on.** Reminders and nudges arrive with inline buttons —
   tap *done* or *snooze* and it writes straight back to the same row.
-- **Runs itself.** Daily agenda at 07:30, one digest per person (each silent
-  when nothing of theirs changed), daily brief at 08:30, topic watch at 21:00,
-  weekly review, a self-test four times a day, and five-artifact nightly backups with a restore drill into a throwaway database.
+- **Runs itself.** Daily agenda in each person's own morning (their timezone,
+  silent when nothing of theirs changed), daily brief at 08:30, topic watch at
+  21:00, weekly review, a self-test four times a day, and five-artifact nightly backups with a restore drill into a throwaway database.
 
 **Numbers** (verified 2026-09-21): 8 containers · 24 workflows · 39 webhook
 paths · 12 agent tools · 19 data tables · 25 console API routes · smoke test

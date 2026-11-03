@@ -127,7 +127,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 ### 4.1 部署模型（确认）
 
 - `n8n/workflows/*.json` 共 **26** 个可部署 workflow；`n8n/workflows/baseline/` 是 2 个旧快照，**不部署**（`n8n/scripts/deploy.mjs:1-15`、`README.md:1077`）。
-- 有 `id` 且该 id 在本实例存在 → PUT 更新；否则先按 **name** 找线上同名工作流，恰好一个就 PUT 它并把 id 回写源码，一个都没有才 POST 新建（`n8n/scripts/deploy.mjs:1362-1385`）。这道 name 兜底是给 `daily-agenda` / `health-report` 这类源码里没有 `id` 的文件用的：没有它就会在已有实例上再造一个同名工作流，两个 Daily Agenda = 两份 07:30 推送。`active:true` 会重新注册 webhook；`@table_name` 引用会先建表（`n8n/scripts/deploy.mjs:1-15`）。
+- 有 `id` 且该 id 在本实例存在 → PUT 更新；否则先按 **name** 找线上同名工作流，恰好一个就 PUT 它并把 id 回写源码，一个都没有才 POST 新建（`n8n/scripts/deploy.mjs:1362-1385`）。这道 name 兜底是给 `daily-agenda` / `health-report` 这类源码里没有 `id` 的文件用的：没有它就会在已有实例上再造一个同名工作流，两个 Daily Agenda = 每人每天两份晨报。`active:true` 会重新注册 webhook；`@table_name` 引用会先建表（`n8n/scripts/deploy.mjs:1-15`）。
 - 共 **43** 个唯一 webhook path（`grep '"path"' n8n/workflows/*.json` 去重计数）。
 - webhook 本身**没有 n8n 原生鉴权**；鉴权在各 Code 节点里比对 `$env.CHAT_API_KEY`（如 `n8n/workflows/todos.json` 的 Auth 节点）。
 
@@ -153,7 +153,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 | workflow | 规则 |
 |---|---|
-| `daily-agenda` | `30 7,11,15 * * *`（07:30 主槽，**每人一份**；某人当天已送达，补跑槽就对他静默） |
+| `daily-agenda` | `*/30 * * * *`（每半小时 tick；**按人**只在他自己时区的 07:30–16:00 窗口内送达一次） |
 | `chat-alerts` | 每 15 分钟 |
 | `chat-retention` | `0 3,14 * * *` |
 | `daily-brief` | `30 8,11,15 * * *` |
@@ -165,7 +165,11 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 `daily-agenda` 是**按人发**的：收件人 = 机主（`owner_ref=''`，走 notify 的默认目标，与改造前逐字节一致）+ `people` 里每个 active 且 role≠owner 的人（走各自的 `channels`；没有可用通道的人**照样发**，由 notify 降级投给机主并在消息尾部注明，不静默丢弃）。机主那份的纳入范围没变：自己的 open todo（必须有 `due_date` 且 ≤ 今天）、未确认的委派（`owner_ref` 非空、`ack_at` 为空，无 due 或 ≤ 今天）、全部 pending 且 ≤ 今天的提醒。成员那份只含派给自己的：逾期、今天到期、以及还没 `/ack` 的（页脚直接告诉他 `/ack` 确认、`/done` 完成）；已确认又没到期的不打扰。
 
-去重与落库都按人独立：`agenda_runs.owner_ref` 标记这一行是谁的，指纹（item 身份 + 文本 + bucket + due + owner + 项目 label）只跟**他自己**上一次成功推送比。改造前写入的旧行没有 `owner_ref`，算作机主的历史，所以升级当天不会给机主白推一次。推送失败不为该人落行，下一个槽或次日重试；`Push Agenda` 带 `onError: continueRegularOutput`，一个人投递失败不影响其他人。`Already Sent Today` 守卫只是快路径——所有人当天都已送达才直接结束；11:30 / 15:30 仍是补跑槽，10:00 才被派活儿的人在 11:30 能收到自己那一份。
+「今天」和「几点」都是**按人算**的：`people.tz` 用 `Intl.DateTimeFormat` 解析（DST 感知），机主取 `role=owner` 那一行的 `tz`；改它走控制台 People 页（`/dashboard/people`）的「时区」字段，默认 `Asia/Shanghai`。时区为空或非法一律回落 `Asia/Shanghai`，非法的那个额外在输出里标 `tz_invalid: true`，不静默用错的时间发。每个人的「今天」、提醒的到期判断、`agenda_date` 都来自他自己那口钟，所以 UTC+9 的成员不会在 UTC+8 的 23:30 被叫起来收「今天」的议程。
+
+投递窗口是每人本地 **07:30–16:00**（对应改造前的 07:30 主槽与 15:30 最后一个补跑槽），窗口外的 tick 直接跳过他（`skipped.reason = outside_window`）。半小时 tick 不是「一天推 48 次」，而是自愈式补跑：谁进了窗口、谁被派了新活儿，最迟半小时后就收到，之后当天对他静默。原来的全局 `Already Sent Today` 守卫节点**已删除**——「今天」一旦按人算，任何全局预判都不可能对；权威判断是 `Load & Build` 里逐人的当日检查。手工触发 `POST /webhook/admin/agenda/run` 传 `{"force":true}` 只绕过窗口，**不**绕过「当天已送达」与指纹去重。
+
+去重与落库都按人独立：`agenda_runs.owner_ref` 标记这一行是谁的，指纹（item 身份 + 文本 + bucket + due + owner + 项目 label）只跟**他自己**上一次成功推送比。改造前写入的旧行没有 `owner_ref`，算作机主的历史，所以升级当天不会给机主白推一次。推送失败不为该人落行，下一个 tick 或次日重试；`Push Agenda` 带 `onError: continueRegularOutput`，一个人投递失败不影响其他人。
 
 ### 4.4 Agent 工具
 
