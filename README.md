@@ -64,10 +64,10 @@ docker compose up -d                                  # 8 containers
 N8N_URL=http://localhost:5678 N8N_API_KEY=<key> node n8n/scripts/deploy.mjs
 ```
 
-Then three one-time steps: create a **DeepSeek credential** in n8n and re-run
+Then four one-time steps: create a **DeepSeek credential** in n8n and re-run
 `deploy.mjs` (it re-points the credential id and prints what it did), create the
-MinIO bucket, and run `node n8n/scripts/lobehub-config.mjs`. Full Chinese
-walkthrough: [部署到一台新机器](#部署到一台新机器).
+MinIO bucket, apply `n8n/scripts/kb-schema.sql` (pgvector + the KB tables), and
+run `node n8n/scripts/lobehub-config.mjs`. Full Chinese walkthrough: [部署到一台新机器](#部署到一台新机器).
 
 **Verification** — four gates, all runnable locally:
 
