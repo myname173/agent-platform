@@ -205,12 +205,6 @@ onSubmit: async ({ value }) => {
 </SheetFooter>
 ```
 
-**Multi-step forms.** `useFormStepper(stepSchemas, { fullSchema })` from
-`@/hooks/use-stepper` gates step navigation: `Next` validates the current
-step's schema and paints its errors; the final submit re-validates the whole
-schema and never submits invalid data. Route every submit through the gate —
-see `features/forms/components/multi-step-product-form.tsx`.
-
 **Number inputs.** `TextField type='number'` already converts at the edge;
 give required numbers a human message: `z.number({ error: 'Price is required' })`.
 
@@ -232,12 +226,3 @@ give required numbers a human message: `z.number({ error: 'Price is required' })
 - Forgetting `mode='array'` on an AppField using `CheckboxGroupField` /
   `TagsField` / `ToggleGroupField` still renders and updates — but keep the
   convention: array mode gives TanStack correct per-item meta tracking.
-
-## Examples in the dashboard
-
-| Page | Route | Demonstrates |
-| --- | --- | --- |
-| Basic Form | `/dashboard/forms/basic` | All 16 field components incl. array-mode groups, pickers, OTP, tags, upload |
-| Advanced | `/dashboard/forms/advanced` | Async validation, linked fields (`onChangeListenTo`), nested paths, raw `form.Field` object-row arrays, listener side effects |
-| Multi-Step | `/dashboard/forms/multi-step` | Per-step schemas, validation gate, review step |
-| Sheet Form | `/dashboard/forms/sheet-form` | Sheet + Dialog forms with external submit buttons |
