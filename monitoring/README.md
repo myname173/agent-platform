@@ -79,6 +79,20 @@ The evaluator reads `chat_executions.tool_trace` for required and forbidden
 tool assertions. It does not use an LLM judge: each task score is based on
 required facts, forbidden markers, answer length and source/citation markers.
 
+## Phase 4.3 assertion hardening
+
+The same command now reads the server tool list from the chat gateway
+workflow instead of carrying a copy of it, and a case that names a tool the
+gateway does not have aborts the run instead of passing quietly. The network
+case asserts against the platform's own tool trace — the trace records
+whether the sandbox refused — rather than against a word in the answer. The
+sandbox refuses code in two layers: the text scan, and a runtime guard inside
+the child that refuses a renamed import, a renamed builtin, a write, a spawn
+and a socket call.
+
+The result, including what was not run, is recorded in
+`monitoring/agent-eval-2026-11-05.md`.
+
 ## Phase 2 async KB save
 
 The Redis Streams worker is optional and only handles `kb_save`:

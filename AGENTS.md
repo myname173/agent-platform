@@ -30,7 +30,7 @@ conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读
 | 3 | `postgres` | `postgres` | `paradedb/paradedb:latest-pg17` | 不暴露 | 主数据库 + pgvector + pg_search | `docker-compose.yml:154-178` |
 | 4 | `redis` | `platform-redis` | `redis:7.4-alpine` | 127.0.0.1:16379 | Platform Runtime 的幂等/锁/限流状态 | `docker-compose.yml:183-199` |
 | 5 | `searxng` | `searxng` | `searxng/searxng:latest` | 8080 | 公网搜索，供 agent 工具 `web_search` | `docker-compose.yml:204-215` |
-| 6 | `n8n-sandbox` | `n8n-sandbox` | build `./n8n/sandbox.Dockerfile` | 仅内网 8000 | 隔离 Python 执行（`/run`，需共享密钥） | `docker-compose.yml:220-246`、`n8n/sandbox_server.py:162-197` |
+| 6 | `n8n-sandbox` | `n8n-sandbox` | build `./n8n/sandbox.Dockerfile` | 仅内网 8000 | 隔离 Python 执行（`/run`，需共享密钥） | `docker-compose.yml:220-246`、`n8n/sandbox_server.py:497-545` |
 | 7 | `lobechat` | `lobechat` | `lobehub/lobehub:latest` | 3210 | 终端用户对话前台（LobeHub 2.x） | `docker-compose.yml:251-308` |
 | 8 | `minio` | `minio` | **`rustfs/rustfs:latest`** | 9000 / 9001 | S3 兼容对象存储（服务名沿用 `minio`） | `docker-compose.yml:313-343` |
 | 9 | `stream-bridge` | `stream-bridge` | `n8nio/runners:latest` + 只读挂载 `./stream-bridge` | 127.0.0.1:3211 | OpenAI 兼容流式旁路，LobeHub 的模型入口 | `docker-compose.yml:348-377` |
@@ -324,7 +324,7 @@ N8N_URL=... N8N_API_KEY=... node n8n/scripts/seed-projects.mjs apply   # 写入�
 
 - **残留凭证（历史）**：`a0bcb35`（2026-09-28）把真实 Postgres 密码写进 `scripts/check-users.mjs`，把真实 MCP Bearer token 与 Telegram chat id 写进 `demo-assets/_data.json`；`ce4a98b` 已从工作树移除，但**值仍在 git 历史**，且仓库 2026-10-29 之前是公开的。处置=**轮换这些值**，删文件不算修好（`git show ce4a98b`）。
 - **当前工作树**：`bash scripts/secret-scan.sh HEAD` 无真实命中（输出只匹配扫描器自身正则）。
-- **边界**：n8n webhook 用 `CHAT_API_KEY`；MCP 用 `MCP_API_KEY`（哈希存 `gateway_keys`）；runtime 用 `x-platform-runtime-key`；控制台用 Clerk；Sandbox 用 `x-sandbox-key`（`n8n/sandbox_server.py:162`）。
+- **边界**：n8n webhook 用 `CHAT_API_KEY`；MCP 用 `MCP_API_KEY`（哈希存 `gateway_keys`）；runtime 用 `x-platform-runtime-key`；控制台用 Clerk；Sandbox 用 `x-sandbox-key`（`n8n/sandbox_server.py:514`）。
 
 ## 13. 如何自行核验本文件
 
