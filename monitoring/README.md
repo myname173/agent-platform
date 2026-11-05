@@ -155,6 +155,18 @@ Kafka is available as an opt-in single-node KRaft profile for event-contract
 and produce/consume validation. It does not replace the Redis Streams
 `kb_save` queue. See `deploy/event-bus/README.md`.
 
+## Runtime `.env` key audit (2026-11-05)
+
+Recorded in `monitoring/env-ledger-2026-11-05.md`. Two silent-failure findings on
+the local `.env` (never tracked; no secret values recorded): `ALERT_WEBHOOK_URL`
+is empty while `docker-compose.yml:91` falls back with `:-`, so alert pushes have
+no downstream and nothing errors; and `ADMIN_PASSWORD_HASH` is assigned twice
+(empty early, real value later). A throwaway-file test showed Compose honours the
+**last** assignment, so the Phase 6.1 external-edge requirement below is currently
+met — but the ordering is fragile, and the two compose files disagree on failure
+mode (`:-` stays silent, `:?` in `deploy/external/` fails loudly). Recommended
+fix is a manual `.env` edit, not a scripted one.
+
 ## Phase 6.1 external access boundary
 
 The Sandbox Gateway now uses a supervised loopback-only bridge at
