@@ -1,6 +1,6 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
-verified_at: 2026-11-03
+verified_at: 2026-11-05
 verified_commit: f88e95c
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
@@ -94,7 +94,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | 目录 | 文件数 | 运行期角色 | 说明 |
 |---|---|---|---|
 | `n8n/` | 68 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`sandbox.Dockerfile` |
-| `frontent/` | 653 | 运行 | 控制台（Next 16 App Router；目录名拼写如此） |
+| `frontent/` | 620 | 运行 | 控制台（Next 16 App Router；目录名拼写如此） |
 | `platform-runtime/` | 8 | 运行 | `platform-runtime/server.js`（533 行）+ 可选 `platform-runtime/worker.js`（phase2 profile） |
 | `stream-bridge/` | 1 | 运行 | 单文件 `stream-bridge/server.js`（639 行） |
 | `caddy/` | 4 | 运行 | `Caddyfile`、域名版示例、探测脚本 |
@@ -295,6 +295,7 @@ N8N_URL=... N8N_API_KEY=... node n8n/scripts/seed-projects.mjs apply   # 写入�
 - **鉴权**：`clerkMiddleware()` 只挂上下文（`frontent/src/proxy.ts:5-12`）；`/dashboard` 段在布局里 `await auth.protect()`（`frontent/src/app/dashboard/layout.tsx:20-22`）。
 - **真实页面**（15 个导航项）：`overview, docs, knowledge, topics, briefs, projects, people, ai-chat, workflows, keys, alerts, models, settings, profile, notifications`（`frontent/src/config/nav-config.ts:36-169`）。
 - **死路由 16 个**：`billing, chat, elements/icons, exclusive, forms/*, kanban, product, product/[productId], react-query, users, workspaces, workspaces/team` 都调用 `notFound()`（模板残留，`find frontent/src/app/dashboard -name page.tsx | xargs grep -l notFound`）。
+- **死组件层已清除**（653→620，33 个文件）：上表那 16 个路由只是栅栏（保留 `notFound()`，防止有人把模板页重新接回来），它们背后的模板实现是无人引用的代码，已删：`features/{chat,kanban,forms,elements,react-query-demo}` 28 个文件、`features/knowledge/components/kb-search-card.tsx`（IA 文档早记为无引用死代码），以及随之失去最后一个调用者的 `components/ui/kanban.tsx`、`components/ui/file-preview.tsx`、`components/forms/demo-form.tsx`、`hooks/use-stepper.tsx`。核验口径：`git grep -n "features/(chat|kanban|forms|react-query-demo|elements)"` 在 `frontent/src` 内已无外部引用；`tsc --noEmit` 通过（并用一个故意的类型错误确认这道门不是空跑）。**没动** `package.json` 的依赖（`@dnd-kit/*` 现在无调用者，删依赖会牵动 `bun.lock` 与 CI 的 `--frozen-lockfile`，属另一次改动）；`frontent/scripts/cleanup.js` 仍列着这些文件夹，但它对缺失目录有 `fs.existsSync` 守卫（`cleanup.js:418`），所以只是文案过期。**同时悬空的模板文案（未改，属 vendored 文档）**：`frontent/AGENTS.md:126` 与 `frontent/README.md:142` 的目录树仍列 `react-query-demo`（两处本就受 D7「以本文件为准」的判定覆盖），以及 `frontent/.claude/skills/kiranism-shadcn-dashboard/SKILL.md:288` 与 `frontent/.agents/skills/.../references/forms-guide.md:223` 仍教人用已删除的 `@/hooks/use-stepper`——读到这两句时不要再去找那个文件。
 - **API**：28 个 route handler；认证 cookie 由 Clerk 管理，前端不存 token。
 - **环境变量**：`frontent/env.example.txt` 只有 Clerk/Sentry/`CHAT_API_KEY`；`N8N_URL`、`N8N_API_KEY`、`PLATFORM_RUNTIME_*` 由 compose 运行期注入（`docker-compose.yml:141-144`）或本地自行补进 `.env.local`。
 
@@ -346,7 +347,7 @@ grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 24
 # §3 的目录文件数：只数受版本控制的文件（构建产物如 tsconfig.tsbuildinfo 不算）
 for d in n8n frontent platform-runtime stream-bridge monitoring deploy scripts; do
   echo "$d=$(git ls-files $d | wc -l)"
-done                                                      # 68 653 8 1 9 23 28
+done                                                      # 68 620 8 1 9 23 28
 
 # 密钥闸门
 node n8n/scripts/validate-workflows.mjs
