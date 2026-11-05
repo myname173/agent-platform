@@ -38,6 +38,15 @@
 - `.env` 比 `.env.example` 少 35 个键，集中在 event-bus / outbox / runtime / Prometheus 那一批（`PLATFORM_OUTBOX_*`、`PLATFORM_KAFKA_TOPIC`、`PLATFORM_EVENT_*`、`PROMETHEUS_*`、`RETENTION_DAYS_IDEMPOTENCY`、`IDEMPOTENCY_WINDOW_SEC`、`MAX_TOOL_ROUNDS`、`PLATFORM_RATE_LIMIT_RPM` 等），另有刚随上游进来的 `CONSOLE_ADMIN_READ_CACHE_TTL_MS`（`monitoring/management-read-cache-2026-10-30.md` 描述的 3 秒读缓存 TTL）。这些在 compose 里都是 `${VAR:-默认}` 形态，实测"compose 以无默认值形式引用、且 `.env` 缺失"的键数为 **0**（无默认值引用的键共 26 个，全部存在），所以不影响启动，只是全按代码默认值跑。正在做 outbox/kafka 的人要注意：默认值不等于试点时想要的值。
 - `.env` 里有 3 个键在 `.env.example` 中未声明：`ZoneID`、`AccountID`、`cloudflare_token`（取值一律不记录）。它们躲得过提交前的密钥闸门，因为 `scripts/secret-scan.sh` 只扫被提交的行，而 `.env` 永不进树。属于"密钥位没有文档化"，不是泄露。
 
+## 扫描器副产物：一条真缺陷与一个闸门盲区
+
+跑 `bash scripts/secret-scan.sh --added origin/main..HEAD` 时，本文档被判了一条 `(cfg) [LOBECHAT_ACCESS_CODE]`。查因（全程不打印该值）：它长度 14、字符类别是「小写 + 连字符」，与仓库目录名同形，所以本文档里引用本机路径时把那串字符带进去了 —— 属于**误报**，不是泄露，且 `git ls-files .env` 与历史都证明值没进过树。
+
+但顺带暴露两件事，值得单独记账：
+
+- 那个访问码本身是一个通用词形状的短值。对话前台的准入若等同「知道项目名」，就不是准入。这里不写出它等于什么，处置方向是改成一个足长随机串，改完注意它是 LobeHub 库内配置、不在 `.env` 之外的任何地方兜底。
+- 闸门盲区：`scripts/secret-scan.sh:14` 写的判据是「≥16 字符、非 URL、非裸域名/IP、非纯数字」，实现落在同文件 `classify()`（35–41 行）的 `if (length(v) < 16) return "cfg"`（第 36 行）—— 14 字符的值只会进「配置类、不拦截」区间。也就是说把 LobeChat 访问码写进被提交的文件，这道门**不会拦**。要让它拦得住，阈值需要按值的「熵 / 是否通用词」判定而不是纯长度，或把这类已知短值显式列入凭据名单。
+
 ## 验证
 
 - 键位与空值统计：以"逐行匹配 `^\s*键名=`"的解析器数得 62 赋值行 / 61 唯一键 / 2 空值行；两个数字口径不一致时先怀疑尺子，最终定位到重复键，而不是解析漏行。
