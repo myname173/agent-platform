@@ -312,6 +312,45 @@ const DATA_TABLE_COLUMNS = {
     { name: 'preview', type: 'string' },
     { name: 'owner_ref', type: 'string' },
   ],
+
+  // Evaluation foundation (Phase E1): one row per eval run, one row per case
+  // attempt. Human labels stay in git (eval-labels/) until a second labeler
+  // shows up. suite_hash makes two runs comparable; without it a "regression"
+  // can just be a silently edited case file.
+  eval_runs: [
+    { name: 'run_id', type: 'string' },
+    { name: 'suite', type: 'string' },
+    { name: 'suite_hash', type: 'string' },
+    { name: 'git_commit', type: 'string' },
+    { name: 'model', type: 'string' },
+    { name: 'judge_model', type: 'string' },
+    { name: 'started_at', type: 'string' },
+    { name: 'finished_at', type: 'string' },
+    { name: 'cases', type: 'number' },
+    { name: 'passed', type: 'number' },
+    { name: 'tsr', type: 'number' },
+    { name: 'pass_k', type: 'number' },
+    { name: 'k', type: 'number' },
+    { name: 'p50_ms', type: 'number' },
+    { name: 'p95_ms', type: 'number' },
+    { name: 'cost_usd', type: 'number' },
+    { name: 'safety_violations', type: 'number' },
+    { name: 'report_json', type: 'string' },
+  ],
+  eval_results: [
+    { name: 'run_id', type: 'string' },
+    { name: 'case_id', type: 'string' },
+    { name: 'category', type: 'string' },
+    { name: 'attempt', type: 'number' },
+    { name: 'passed', type: 'number' },
+    { name: 'score', type: 'number' },
+    { name: 'latency_ms', type: 'number' },
+    { name: 'tokens', type: 'number' },
+    { name: 'cost_usd', type: 'number' },
+    { name: 'tool_rounds', type: 'number' },
+    { name: 'failures', type: 'string' },
+    { name: 'trace_json', type: 'string' },
+  ],
 };
 
 async function ensureColumns(tableId, expected) {
