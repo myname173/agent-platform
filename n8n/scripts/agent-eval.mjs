@@ -25,11 +25,54 @@ const CHAT_KEY = process.env.CHAT_API_KEY || '';
 const N8N_API_KEY = process.env.N8N_API_KEY || '';
 const RUN_ID = Date.now().toString(36);
 const SESSION = 'phase4.1-agent-eval-' + RUN_ID;
-const SERVER_TOOLS = new Set([
-  'web_search', 'kb_search', 'platform_status', 'run_brief', 'list_alerts', 'kb_save',
-  'create_reminder', 'list_reminders', 'cancel_reminder', 'todo_add', 'todo_list',
-  'todo_done', 'run_python', 'mcp_list_tools', 'mcp_call',
-]);
+const GATEWAY_WORKFLOW = path.join(ROOT, 'workflows', 'chat-gateway.json');
+
+/* The server tool list belongs to the chat gateway: the "Build Upstream
+   Payload" node is its single source of truth (the node says so itself).
+   A copy of that list inside this evaluator rotted once — meeting_actions
+   was missing — so a leak of that tool passed the boundary check unnoticed.
+   Parse the real list instead. If the workflow cannot be parsed the run has
+   to die: an empty set would turn every leak check into a no-op that always
+   passes. */
+const loadServerToolNames = () => {
+  let workflow;
+  try {
+    workflow = JSON.parse(fs.readFileSync(GATEWAY_WORKFLOW, 'utf8'));
+  } catch (error) {
+    throw new Error(`cannot read ${GATEWAY_WORKFLOW}: ${error.message}`);
+  }
+  const node = (workflow.nodes || []).find((item) => item.name === 'Build Upstream Payload');
+  if (!node) throw new Error('gateway node "Build Upstream Payload" not found');
+  const code = String(node.parameters?.jsCode || '');
+  const start = code.indexOf('const TOOLS = [');
+  const end = code.indexOf('const DIRECTIVE');
+  if (start < 0 || end <= start) {
+    throw new Error('cannot locate the TOOLS array in "Build Upstream Payload"');
+  }
+  const names = [...code.slice(start, end).matchAll(/name:\s*'([^']+)'/g)].map((match) => match[1]);
+  if (!names.length) throw new Error('parsed zero server tool names from the gateway');
+  const malformed = names.filter((name) => !/^[a-z][a-z0-9_]*$/.test(name));
+  if (malformed.length) throw new Error(`unexpected server tool names: ${malformed.join(', ')}`);
+  if (new Set(names).size !== names.length) throw new Error('duplicate server tool names in the gateway');
+  const missing = ['run_python', 'kb_search', 'todo_add', 'mcp_call']
+    .filter((name) => !names.includes(name));
+  if (missing.length) throw new Error(`the gateway lost required server tools: ${missing.join(', ')}`);
+  return names;
+};
+
+const SERVER_TOOL_NAMES = (() => {
+  try {
+    return loadServerToolNames();
+  } catch (error) {
+    console.error(`FATAL: ${error.message}`);
+    process.exit(2);
+  }
+})();
+const SERVER_TOOLS = new Set(SERVER_TOOL_NAMES);
+// wf_* tools are registered at runtime by the owner, so they cannot be
+// parsed out of the workflow, but they are server tools all the same.
+const isServerTool = (name) => SERVER_TOOLS.has(name) || String(name).startsWith('wf_');
+
 
 if (!CHAT_KEY) {
   console.error('CHAT_API_KEY is required (use --env-file=.env)');
@@ -186,7 +229,7 @@ const expectedChecks = (result, expected, label) => {
     checks.push({ ok: Number(result.body?.tool_rounds || 0) <= expected.tool_rounds_max, message: `${label}: tool_rounds <= ${expected.tool_rounds_max}` });
   }
   if (expected.no_returned_server_tools) {
-    const leaked = result.returned_tools.filter((name) => SERVER_TOOLS.has(name));
+    const leaked = result.returned_tools.filter((name) => isServerTool(name));
     checks.push({ ok: leaked.length === 0, message: `${label}: no server tool leaked to client${leaked.length ? ` (${leaked.join(',')})` : ''}` });
   }
   checks.push(...checkText(result.content, expected, label));
@@ -209,7 +252,8 @@ const expectedChecks = (result, expected, label) => {
     result.answer_score = answerScore;
     checks.push({ ok: answerScore.ratio >= answerScore.threshold, message: `${label}: answer score ${answerScore.passed}/${answerScore.total} >= ${answerScore.threshold}` });
   }
-  if (expected.trace_required_tools?.length || expected.trace_forbidden_tools?.length) {
+  if (expected.trace_required_tools?.length || expected.trace_forbidden_tools?.length
+      || expected.trace_args_include?.length || expected.trace_blocked?.length) {
     const trace = result.trace;
     const traceAvailable = !!trace?.available;
     checks.push({ ok: traceAvailable, message: `${label}: tool trace is available` });
@@ -219,6 +263,46 @@ const expectedChecks = (result, expected, label) => {
       }
       for (const tool of expected.trace_forbidden_tools || []) {
         checks.push({ ok: !trace.tools.includes(tool), message: `${label}: trace excludes ${tool}` });
+      }
+      // What the tool was actually called with. The trace keeps the tool
+      // arguments, so a case can prove the snippet tried the code it was
+      // asked to try instead of quietly trying something else.
+      // "At least one call" is the contract: a model may probe with a
+      // harmless snippet first and then make the real attempt. What must
+      // not happen is that it never made the attempt at all.
+      for (const rule of expected.trace_args_include || []) {
+        const entries = (trace.trace || []).filter((item) => String(item.tool || '') === rule.tool);
+        const hit = entries.filter((entry) => String(entry.args || '').includes(rule.includes));
+        checks.push({
+          ok: hit.length > 0,
+          message: `${label}: ${rule.tool} was called with ${JSON.stringify(rule.includes)}`
+            + (entries.length ? ` (${hit.length}/${entries.length} call(s) matched)`
+              : ' (no such tool call in the trace)'),
+        });
+      }
+      // What the platform actually did. The prose of an answer can be
+      // believed or not; the trace says whether the sandbox refused.
+      for (const rule of expected.trace_blocked || []) {
+        const entries = (trace.trace || []).filter((item) => String(item.tool || '') === rule.tool);
+        const noField = entries.length > 0 && entries.every((entry) => entry.blocked === undefined);
+        // blocked:true -> at least one call was refused.
+        // blocked:false -> no call was refused.
+        const matched = rule.blocked
+          ? entries.filter((entry) => entry.blocked === true)
+          : entries.filter((entry) => entry.blocked !== true);
+        const ok = entries.length > 0 && (rule.blocked ? matched.length > 0 : matched.length === entries.length);
+        checks.push({
+          ok,
+          message: `${label}: ${rule.tool} blocked=${rule.blocked} in the platform trace`
+            + (noField ? ' (the trace has no blocked field — the gateway workflow has to be redeployed, or the tool call errored before it produced a result)'
+              : entries.length ? ` (${matched.length}/${entries.length} call(s))` : ' (no such tool call in the trace)'),
+        });
+        if (rule.reason_includes?.length && ok) {
+          // The reason belongs to the refused call, not to every call.
+          const reasons = matched.map((entry) => String(entry.reason || ''));
+          const reasonOk = reasons.some((reason) => rule.reason_includes.some((needle) => reason.includes(needle)));
+          checks.push({ ok: reasonOk, message: `${label}: ${rule.tool} refusal reason mentions ${rule.reason_includes.join('/')}` });
+        }
       }
     }
   }
@@ -247,7 +331,8 @@ const runChat = async (test, attempt) => {
     content: message.content || '',
     returned_tools: (message.tool_calls || []).map((call) => call.function?.name).filter(Boolean),
   };
-  if (test.expected?.trace_required_tools?.length || test.expected?.trace_forbidden_tools?.length) {
+  if (test.expected?.trace_required_tools?.length || test.expected?.trace_forbidden_tools?.length
+      || test.expected?.trace_args_include?.length || test.expected?.trace_blocked?.length) {
     result.trace = await executionTrace(body.session_id);
   }
   return { result, checks: expectedChecks(result, test.expected || {}, `${test.id}#${attempt}`) };
@@ -307,7 +392,32 @@ const results = [];
 let fixtureContext = {};
 let fatalError = '';
 let cleanupOk = true;
+
+/* Preflight: every tool the set names must still exist in the gateway. A case
+   that names a tool the gateway dropped would silently pass (the trace
+   simply never contains it), which is the same class of bug as the stale
+   copy of the tool list this file used to carry. */
+const checkToolReferences = () => {
+  const problems = [];
+  for (const test of set.cases || []) {
+    const expected = test.expected || {};
+    const names = [
+      ...(expected.trace_required_tools || []),
+      ...(expected.trace_forbidden_tools || []),
+      ...(expected.trace_args_include || []).map((rule) => rule.tool),
+      ...(expected.trace_blocked || []).map((rule) => rule.tool),
+    ];
+    for (const name of names) {
+      if (!isServerTool(name)) problems.push(`${test.id}: "${name}" is not a server tool in the gateway`);
+    }
+  }
+  if (problems.length) {
+    throw new Error(`the eval set references tools the gateway does not have:\n  ${problems.join('\n  ')}`);
+  }
+};
+
 try {
+  checkToolReferences();
   fixtureContext = await setupFixtures();
   const context = { run_id: RUN_ID, ...fixtureContext };
   for (const rawTest of set.cases || []) {
@@ -343,6 +453,7 @@ const report = {
   finished_at: new Date().toISOString(),
   base_url: BASE,
   sandbox_url: SANDBOX,
+  server_tools: SERVER_TOOL_NAMES,
   safety: {
     business_writes: 0,
     test_fixture_writes: fixtureContext.kb_fixture_created ? 1 : 0,

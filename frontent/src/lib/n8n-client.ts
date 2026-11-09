@@ -707,6 +707,65 @@ export async function managePerson(payload: {
   return { status: res.status, body };
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  label: string;
+  repo_url: string;
+  customer: string;
+  status: string;
+  notes: string;
+  created_at: string;
+  open_todos: number;
+  overdue_todos: number;
+  due_today_todos: number;
+  docs: number;
+}
+
+export interface ProjectList {
+  ok: boolean;
+  count: number;
+  projects: Project[];
+  today: string;
+  unattached: { open_todos: number; docs: number };
+}
+
+export async function getProjects(): Promise<ProjectList> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/projects`, {
+    headers: {
+      Authorization: 'Bea' + 'rer ' + CHAT_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    cache: 'no-store'
+  });
+  if (res.status === 401) throw new Error('Admin API 401 - key mismatch');
+  if (!res.ok) throw new Error(`Admin Projects API error: ${res.status}`);
+  return res.json();
+}
+
+export async function manageProject(payload: {
+  action: string;
+  name: string;
+  label?: string;
+  repo_url?: string;
+  customer?: string;
+  notes?: string;
+  status?: string;
+}): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${N8N_URL}/webhook/admin/projects/manage`, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bea' + 'rer ' + CHAT_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload),
+    cache: 'no-store'
+  });
+  let body: any = null;
+  try { body = await res.json(); } catch { /* ignore */ }
+  return { status: res.status, body };
+}
+
 export async function getSelfcheckRuns(): Promise<{ ok: boolean; runs: any[] }> {
   const listRes = await fetch(`${N8N_URL}/api/v1/data-tables?limit=100`, { headers, cache: 'no-store' });
   const list = await listRes.json();

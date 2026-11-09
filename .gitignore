@@ -28,6 +28,24 @@ backups/
 # AI assistant working state (internal paths, key file locations)
 .workbuddy-ai/
 .openclaw-autoclaw/
+/.openclaw/
+/.agents/
+/projects/
+
+# 外来 agent 运行时的工作区脚手架（persona / 心跳 / 身份 / 工具清单），只留本地
+/SOUL.md
+/HEARTBEAT.md
+/IDENTITY.md
+/USER.md
+/TOOLS.md
+
+# 外来 agent 的扫描产物与交付副本：原地保留，不进版本库
+# /.cluster/ 内含浏览器 profile 的 Login Data / Cookies / Web Data，绝不能提交
+# 故意不忽略 /AGENTS.md：它是 tracked 的项目地图，被 ignore 后 git merge
+# 会把它当可丢弃文件静默覆盖（已实测），本地副本会无声消失
+/.cluster/
+/DELIVERY/
+/ARCHITECTURE.md
 
 # 开发模式产生的日志
 *.err

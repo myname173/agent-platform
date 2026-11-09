@@ -443,7 +443,7 @@ Bot：**`@No1MyAgentBot`**（id `8579709762`）。
 | 变量 | 值 | 作用 |
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | （你已填） | bot 身份 |
-| `TELEGRAM_CHAT_ID` | `7020739140` | **你的**私聊 id；平台只认这个 owner，陌生人消息被忽略 |
+| `TELEGRAM_CHAT_ID` | `7020739140` | **你的**私聊 id；这个会话＝机主（全权）。别人要在 Telegram 里用，需在 `people` 表里 active、role≠guest 且配好 `channels.telegram_chat_id`；未登记的消息一律忽略 |
 | `ALERT_WEBHOOK_FORMAT` | `telegram` | ⚠️ **最容易漏的一个** —— 见下 |
 
 **踩坑记录：光填 token + chat_id 不够。** 自检的 `notify configured` 判定逻辑是：

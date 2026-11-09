@@ -7,7 +7,7 @@
 ## English
 
 **A self-hosted AI agent platform that runs on one machine.** Eight Docker
-Compose services, **24 n8n workflows** as the orchestration core, and four ways
+Compose services, **26 n8n workflows** as the orchestration core, and four ways
 in — a chat front end (LobeHub), an ops console (Next.js), a Telegram bridge,
 and an MCP server for external agent clients.
 
@@ -43,9 +43,9 @@ surface.
   stops the moment they acknowledge.
 - **Pushes you can act on.** Reminders and nudges arrive with inline buttons —
   tap *done* or *snooze* and it writes straight back to the same row.
-- **Runs itself.** Daily brief at 08:30, topic watch at 21:00, weekly review,
-  a 42-check self-test at 04:15, and five-artifact nightly backups with a
-  restore drill into a throwaway database.
+- **Runs itself.** Daily agenda in each person's own morning (their timezone,
+  silent when nothing of theirs changed), daily brief at 08:30, topic watch at
+  21:00, weekly review, a self-test four times a day, and five-artifact nightly backups with a restore drill into a throwaway database.
 
 **Numbers** (verified 2026-09-21): 8 containers · 24 workflows · 39 webhook
 paths · 12 agent tools · 19 data tables · 25 console API routes · smoke test
@@ -64,10 +64,10 @@ docker compose up -d                                  # 8 containers
 N8N_URL=http://localhost:5678 N8N_API_KEY=<key> node n8n/scripts/deploy.mjs
 ```
 
-Then three one-time steps: create a **DeepSeek credential** in n8n and re-run
+Then four one-time steps: create a **DeepSeek credential** in n8n and re-run
 `deploy.mjs` (it re-points the credential id and prints what it did), create the
-MinIO bucket, and run `node n8n/scripts/lobehub-config.mjs`. Full Chinese
-walkthrough: [部署到一台新机器](#部署到一台新机器).
+MinIO bucket, apply `n8n/scripts/kb-schema.sql` (pgvector + the KB tables), and
+run `node n8n/scripts/lobehub-config.mjs`. Full Chinese walkthrough: [部署到一台新机器](#部署到一台新机器).
 
 **Verification** — four gates, all runnable locally:
 
@@ -154,8 +154,8 @@ docker compose up -d
 # 方式 A（推荐）：容器化运行（前端源码见 frontent/）
 docker compose up -d console   # 需在根 .env 配置 CONSOLE_CLERK_PUBLISHABLE_KEY
 
-# 方式 B：dev 模式（首次需要 pnpm install）
-cd frontent && pnpm dev        # → http://localhost:3000
+# 方式 B：dev 模式（首次需要 bun install）
+cd frontent && bun run dev     # → http://localhost:3000
 ```
 
 ### 3. 访问各服务
@@ -187,7 +187,7 @@ docker compose up -d          # 9 个容器（含栈内备份 backup）
 N8N_URL=http://localhost:5678 N8N_API_KEY=<key> node n8n/scripts/deploy.mjs
 ```
 
-`deploy.mjs` 会：创建/更新 24 条工作流 → 建好所有数据表与缺失列 → **把工作流里写死的凭据 ID 重映射到本机同名凭据** → 快照网关工具表。
+`deploy.mjs` 会：创建/更新 26 条工作流 → 建好所有数据表与缺失列 → **把工作流里写死的凭据 ID 重映射到本机同名凭据** → 快照网关工具表。
 
 剩下的手工步骤只有三条：
 
@@ -678,7 +678,7 @@ Telegram 渲染成 inline keyboard，点完写回同一行并摘掉按钮（防�
 
 说明：晨报**自动推送**当前关闭（daily-brief 的 Push Brief 节点 `disabled`；控制台手动「推送到 IM」不受影响）；告警与提醒正常推送。
 
-**双向入口（已上线）**：直接给 bot 发消息即与平台对话（长轮询接入 → 网关（session `tg-<chat_id>`，自动带最近 20 条上下文）→ 回复，无需公网地址）；`/help` 看示例、`/reset` 清空该会话记忆；仅响应机主账号，其他人消息被忽略。轮询每分钟一次（一般 1 分钟内响应）。
+**双向入口（已上线）**：直接给 bot 发消息即与平台对话（长轮询接入 → 网关（session `tg-<chat_id>`，记忆与 `person_ref` 归因都按会话隔离，自动带最近 20 条上下文）→ 回复，无需公网地址）；`/help` 看示例、`/reset` 只清空自己这条会话。**谁能对话**：机主（`TELEGRAM_CHAT_ID` 那个会话）＋ `people` 表里 active、role≠guest 且配了 `channels.telegram_chat_id` 的成员；陌生人依旧忽略，guest 只收推送。**成员能做什么**：命令白名单 `/mine /todos /todo /ack /done /reminders /kb /reset /tools /start /help`，其中 `/done`、`/ack` 只能动派给自己的那条；管理类命令（`/docs /waiting /派发 /people /memory /share /minutes /meeting /remember /forget`）仅机主可用，白名单是 deny-by-default，新加命令默认不给成员。轮询每分钟一次（一般 1 分钟内响应）。
 
 ### 手机访问（局域网）
 
@@ -745,16 +745,16 @@ LobeHub 对话已启用流式回复（首字约 1–3 秒出现）：
 
 - 入口：控制台首页「平台自检」卡（一键运行）或 `POST /webhook/admin/selfcheck/run`；每日 04:15 自动跑一次。
 - 覆盖：基础设施（7 端点）· 网关 golden（闲聊 / 工具轮 / 401 负例）· 流式链路（SSE 直通 / 工具降级 / 非流式代理）· 通道（Notify / TG 桥 / 提醒）· 数据（备份心跳 / 总览 / 统计 / 消息库）。
-- 报告：落 `selfcheck_runs` 表（控制台可看）；**失败自动推送 Telegram**。
+- 报告：落 `selfcheck_runs` 表（控制台可看）；**失败自动推送 Telegram**；`POST /webhook/admin/report/health` 把最近一次结果一键转成验收文档（`audience=client` 只出分组计数与结论、默认给签名免登录链接，自检结果超过 24 小时直接 409 要求重跑）。
 - 备份心跳：每日备份完成后向 `POST /webhook/admin/heartbeat` 上报（`heartbeats` 表），自检据此判断备份新鲜度（>30h 警告；>40h 或失败 = 不通过）。
 
 ### 待办（Todos）
 
-开放循环登记（对话 / 晨报 / 控制台三处接入）：
+开放循环登记（对话 / 晨报 / 控制台三处接入）。每条待办可以挂一个**项目**（`projects` 登记表里的 slug 或显示名，用 `n8n/scripts/seed-projects.mjs` 登记，或在控制台「协作 → Projects」页增改归档——那里还能看到每个项目的未完成 / 逾期 / 文档数量，删除有引用保护）：晨报会把它渲染成行尾的 `[项目]` 标签，`todo_list` 与 `admin/todos?project=` 都能按项目过滤，未登记的项目名会被拒（400 `unknown_project`），免得一个错别字凭空开出无人认领的项目。
 
 | 说一句 | 工具 | 动作 |
 | --- | --- | --- |
-| 「记一下：周五交房租」 | `todo_add` | 登记待办（可带截止日 YYYY-MM-DD） |
+| 「记一下：周五交房租」 | `todo_add` | 登记待办（可带截止日 YYYY-MM-DD，可带项目） |
 | 「我还有什么待办？」 | `todo_list` | 未完成清单（标注逾期 / 今日到期） |
 | 「交房租办完了」 | `todo_done` | 按 ID 收口（列表回复里带序号） |
 

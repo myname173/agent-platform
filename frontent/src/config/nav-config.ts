@@ -88,6 +88,14 @@ export const navGroups: NavGroup[] = [
     label: '协作',
     items: [
       {
+        title: 'Projects',
+        url: '/dashboard/projects',
+        icon: 'product',
+        isActive: false,
+        shortcut: ['p', 'j'],
+        items: []
+      },
+      {
         title: 'People',
         url: '/dashboard/people',
         icon: 'teams',
