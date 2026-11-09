@@ -12,6 +12,7 @@
 #   - pg-n8n  dump   → temp db, expect the platform data tables
 #   - pg-lobechat    → temp db, expect LobeHub's schema and its key rows
 #   - minio archive  → object count (listed, not extracted)
+#   - redis RDB      → format check, without touching the live Redis volume
 #
 # Exit: 0 = drill passed, 1 = a check failed, 2 = prerequisites missing.
 # =============================================================================
@@ -48,6 +49,7 @@ latest() { ls -t "${BACKUP_DIR}"/$1 2>/dev/null | head -1 | xargs -r basename; }
 DUMP_N8N="$(latest 'pg-n8n-*.sql.gz')"
 DUMP_LOBE="$(latest 'pg-lobechat-*.sql.gz')"
 ARCH_MINIO="$(latest 'minio-data-*.tar.gz')"
+ARCH_REDIS="$(latest 'redis-*.rdb')"
 
 [ -n "$DUMP_N8N" ] || { echo "no pg-n8n dump found" >&2; exit 2; }
 [ -n "$DUMP_LOBE" ] || { echo "no pg-lobechat dump found" >&2; exit 2; }
@@ -56,6 +58,7 @@ echo "== restore drill $STAMP"
 echo "   n8n dump      : $DUMP_N8N"
 echo "   lobechat dump : $DUMP_LOBE"
 echo "   minio archive : ${ARCH_MINIO:-<none>}"
+echo "   redis snapshot: ${ARCH_REDIS:-<none>}"
 
 AGE_HOURS="$(( ( $(date +%s) - $(stat -c %Y "${BACKUP_DIR}/${DUMP_N8N}") ) / 3600 ))"
 echo "   backup age    : ${AGE_HOURS}h (limit ${MAX_AGE_HOURS}h)"
@@ -129,6 +132,22 @@ if [ -n "$ARCH_MINIO" ]; then
   check "minio archive entries" "${OBJ:-0}" 1
 else
   echo "   SKIP minio archive (none found)"
+fi
+
+# ---------- Redis RDB ----------
+if [ -n "$ARCH_REDIS" ]; then
+  BACKUP_WIN="$(cd "$BACKUP_DIR" && pwd -W 2>/dev/null || pwd)"
+  REDIS_OK="$(MSYS_NO_PATHCONV=1 docker run --rm -v "${BACKUP_WIN}:/backup:ro" redis:7.4-alpine \
+    redis-check-rdb "/backup/${ARCH_REDIS}" >/dev/null 2>&1; echo $?)"
+  if [ "$REDIS_OK" = "0" ]; then
+    echo "   OK   redis RDB format ($(basename "$ARCH_REDIS"))"
+  else
+    echo "   FAIL redis RDB format ($(basename "$ARCH_REDIS"))"
+    FAIL=1
+  fi
+else
+  echo "   FAIL redis RDB snapshot (none found)"
+  FAIL=1
 fi
 
 echo

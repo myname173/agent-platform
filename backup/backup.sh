@@ -2,13 +2,15 @@
 # =============================================================================
 # backup.sh (in-stack) - one backup run, executed inside the compose stack.
 #
-# Produces the same five artefacts as the host script so the self-check's
+# Produces the same five core artefacts as the host script so the self-check's
 # `backup heartbeat fresh` (n=5, bytes>0, integrity=4/4) keeps working:
 #   n8n-data-*.tar.gz        n8n_data volume
 #   config-n8n-data-*.tar.gz docker-compose.yml + .env (self-contained restore)
 #   minio-data-*.tar.gz      minio_data volume
 #   pg-n8n-*.sql.gz          pg_dump of the n8n database
 #   pg-lobechat-*.sql.gz     pg_dump of the lobechat database
+# Plus a required Redis RDB snapshot. The legacy heartbeat fields stay at the
+# five-core-artifact contract; `redis=ok` carries the additional evidence.
 # =============================================================================
 set -uo pipefail
 
@@ -24,6 +26,8 @@ MIN_AGE_H="${BACKUP_MIN_AGE_HOURS:-20}"
 KEEP="${BACKUP_KEEP:-30}"
 CHAT_API_KEY="${CHAT_API_KEY:-}"
 HEARTBEAT_URL="${HEARTBEAT_URL:-http://n8n:5678/webhook/admin/heartbeat}"
+REDIS_HOST="${REDIS_HOST:-redis}"
+REDIS_PORT="${REDIS_PORT:-6379}"
 
 log() { echo "[$(date '+%F %T')] $*"; }
 
@@ -73,6 +77,17 @@ else
   log "WARNING: lobechat database not reachable - skipped"
 fi
 
+REDIS="redis-${STAMP}.rdb"
+REDIS_OK=false
+if redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" --rdb "$REDIS" >/dev/null 2>&1 \
+  && [ -s "$REDIS" ] \
+  && redis-check-rdb "$REDIS" >/dev/null 2>&1; then
+  REDIS_OK=true
+  log "redis snapshot: $REDIS"
+else
+  log "integrity: redis snapshot FAILED ($REDIS)"
+fi
+
 # ---------------------------------------------------------------------------
 # Integrity: the self-check refuses a heartbeat that does not carry evidence.
 # ---------------------------------------------------------------------------
@@ -91,21 +106,23 @@ check "$MINIO" "minio archive"
 INTEG="${INTEG_OK}/4"
 
 BYTES="$(cat "$NAME" "$CFG" "$MINIO" "$PGN" "$PGL" 2>/dev/null | wc -c | tr -d ' ')"
+REDIS_BYTES="$(wc -c < "$REDIS" 2>/dev/null | tr -d ' ')"
+BYTES=$((BYTES + ${REDIS_BYTES:-0}))
 
 # prune whole sets, never single files (a half-pruned set is worse than none)
 ls -1t n8n-data-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r f; do
   s="${f#n8n-data-}"; s="${s%.tar.gz}"
   rm -f "n8n-data-${s}.tar.gz" "config-n8n-data-${s}.tar.gz" "minio-data-${s}.tar.gz" \
-        "pg-n8n-${s}.sql.gz" "pg-lobechat-${s}.sql.gz"
+        "pg-n8n-${s}.sql.gz" "pg-lobechat-${s}.sql.gz" "redis-${s}.rdb"
   log "pruned set ${s}"
 done
 
 OK=false
-if [ "$N" -eq 5 ] && [ "$INTEG_OK" -eq 4 ]; then
+if [ "$N" -eq 5 ] && [ "$INTEG_OK" -eq 4 ] && [ "$REDIS_OK" = true ]; then
   OK=true
   touch "$MARKER"
 else
-  log "INCOMPLETE: artefacts=${N}/5 integrity=${INTEG} - marker not updated"
+  log "INCOMPLETE: artefacts=${N}/5 integrity=${INTEG} redis=${REDIS_OK} - marker not updated"
 fi
 
 # ---------------------------------------------------------------------------
@@ -133,6 +150,6 @@ send_heartbeat() {
   rm -f "$out"
 }
 
-DETAIL="$(printf '{"stamp":"%s","n":%d,"bytes":%d,"integrity":"%s"}' "$STAMP" "$N" "$BYTES" "$INTEG")"
+DETAIL="$(printf '{"stamp":"%s","n":%d,"bytes":%d,"integrity":"%s","redis":"%s","redis_bytes":%d}' "$STAMP" "$N" "$BYTES" "$INTEG" "$REDIS_OK" "${REDIS_BYTES:-0}")"
 log "heartbeat payload: ${DETAIL}"
 send_heartbeat "$OK" "$DETAIL"

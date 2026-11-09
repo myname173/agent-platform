@@ -14,6 +14,9 @@ const JOB_TTL = Math.max(300, Number(process.env.PLATFORM_JOB_TTL_SEC || 86400))
 const JOB_STREAM = process.env.JOB_STREAM || 'platform:jobs';
 const DEFAULT_RPM = Math.max(1, Number(process.env.PLATFORM_RATE_LIMIT_RPM || 60));
 const STATE_ENABLED = String(process.env.PLATFORM_STATE_ENABLED || 'true').toLowerCase() !== 'false';
+const OUTBOX_WRITE_MODE = String(process.env.PLATFORM_OUTBOX_WRITE_MODE || 'off').trim().toLowerCase();
+const OUTBOX_KIND = String(process.env.PLATFORM_OUTBOX_EVENT_KIND || 'platform.state.transition').trim();
+const OUTBOX_TRANSACTIONAL = OUTBOX_WRITE_MODE === 'transactional';
 const DB = {
   host: process.env.DB_POSTGRESDB_HOST || 'postgres',
   port: Number(process.env.DB_POSTGRESDB_PORT || 5432),
@@ -42,6 +45,7 @@ const metrics = {
   locks_contended_total: 0,
   state_transitions_total: 0,
   state_store_errors_total: 0,
+  outbox_events_written_total: 0,
 };
 const LATENCY_BUCKETS = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
 const requestLatency = {
@@ -119,6 +123,40 @@ const authOk = (req) => {
 
 const keyPart = (value, fallback = 'anonymous') => String(value || fallback).replace(/[^A-Za-z0-9:._-]/g, '_').slice(0, 180);
 
+async function appendPlatformEvent(client, event) {
+  const result = await client.query(
+    `INSERT INTO platform.events (request_id, trace_id, event_type, from_state, to_state, payload)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     RETURNING event_id, created_at`,
+    [event.request_id, event.trace_id, event.event_type, event.from_state, event.to_state, event.payload],
+  );
+  const row = result.rows[0];
+  if (!OUTBOX_TRANSACTIONAL) return row;
+
+  const eventId = String(row.event_id);
+  const envelope = {
+    event_id: eventId,
+    event_type: event.event_type,
+    occurred_at: row.created_at,
+    source: 'platform-runtime',
+    trace_id: event.trace_id,
+    data: {
+      request_id: event.request_id,
+      from_state: event.from_state,
+      to_state: event.to_state,
+      payload: event.payload,
+    },
+  };
+  await client.query(
+    `INSERT INTO platform.outbox (request_id, trace_id, kind, dedupe_key, payload)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (dedupe_key) DO NOTHING`,
+    [event.request_id, event.trace_id, OUTBOX_KIND, `platform.events:${eventId}`, envelope],
+  );
+  bump('outbox_events_written_total');
+  return row;
+}
+
 async function transitionRequest(body) {
   if (!STATE_ENABLED) return { ok: true, persisted: false, state_store: 'disabled' };
   const id = requestId(body.request_id);
@@ -160,11 +198,14 @@ async function transitionRequest(body) {
         [id, nextState, trace, body.error_code || null, body.error_message || null, body.result || null],
       );
     }
-    await client.query(
-      `INSERT INTO platform.events (request_id, trace_id, event_type, from_state, to_state, payload)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [id, trace, String(body.event_type || 'state.transition').slice(0, 120), fromState, nextState, body.payload || body.result || null],
-    );
+    await appendPlatformEvent(client, {
+      request_id: id,
+      trace_id: trace,
+      event_type: String(body.event_type || 'state.transition').slice(0, 120),
+      from_state: fromState,
+      to_state: nextState,
+      payload: body.payload || body.result || null,
+    });
     await client.query('COMMIT');
     bump('state_transitions_total');
     return { ok: true, persisted: true, request_id: id, trace_id: trace, from_state: fromState, state: nextState };
@@ -202,11 +243,14 @@ async function startRequest(body) {
       ['VALIDATED', 'RUNNING'],
     ];
     for (const [fromState, toState] of events) {
-      await client.query(
-        `INSERT INTO platform.events (request_id, trace_id, event_type, from_state, to_state, payload)
-         VALUES ($1,$2,'state.transition',$3,$4,$5)`,
-        [id, trace, fromState, toState, body.payload || null],
-      );
+      await appendPlatformEvent(client, {
+        request_id: id,
+        trace_id: trace,
+        event_type: 'state.transition',
+        from_state: fromState,
+        to_state: toState,
+        payload: body.payload || null,
+      });
     }
     await client.query('COMMIT');
     bump('state_transitions_total');

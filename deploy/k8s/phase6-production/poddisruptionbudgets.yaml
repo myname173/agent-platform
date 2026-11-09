@@ -1,0 +1,25 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: platform-worker
+  labels:
+    app.kubernetes.io/name: platform-worker
+    app.kubernetes.io/part-of: agent-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-worker
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: platform-sandbox-gateway
+  labels:
+    app.kubernetes.io/name: platform-sandbox-gateway
+    app.kubernetes.io/part-of: agent-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-sandbox-gateway

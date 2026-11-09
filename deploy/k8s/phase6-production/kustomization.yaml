@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-platform
+
+resources:
+  - ../phase3-pilot
+  - poddisruptionbudgets.yaml
+
+patches:
+  - path: worker-production-patch.yaml
+  - path: gateway-production-patch.yaml
