@@ -18,6 +18,7 @@ conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读
 - **源码即工作流。** 26 个 n8n workflow 以 JSON 形式入库，部署靠脚本推送，不在 n8n UI 里改（`README.md:1073-1095`）。
 - **密钥全在 `.env`（gitignore）。** workflow JSON 内不出现密钥值，运行时读 `$env.*`（`n8n/scripts/validate-workflows.mjs:1-11`）。
 - **控制台是 Next.js BFF。** 浏览器只访问 `/api/*`；n8n 的 `N8N_API_KEY` 只在服务端出现（`README.md:271-275`）。
+- **这台机器上有两个 agent 在改这个仓库。** 各自有独立 checkout 与分支，但共用同一个 `.git`、同一个 `.env` 和同一套 Docker 栈。动手前先读 §14。
 
 ## 1. 服务清单（docker-compose.yml）
 
@@ -353,5 +354,51 @@ done                                                      # 68 620 8 1 9 23 28
 node n8n/scripts/validate-workflows.mjs
 bash scripts/secret-scan.sh --self-test
 ```
+
+## 14. 多 agent 并行开发（本机两个运行时）
+
+2026-11-09 起，这台机器上有两个 agent 同时在改本仓库。**位置已经隔开，但账户级的东西仍然共享**，违反下面几条会静默出错。
+
+### 14.1 各自的位
+
+| 谁 | workspace root | 用的 checkout |
+|---|---|---|
+| OpenClaw | `C:\Users\LINLEE\Desktop\openclaw-workspace`（配置键 `agents.list[].workspace`，文件 `C:\Users\LINLEE\.openclaw-autoclaw\openclaw.json`，agent id `agent-ag6dog`） | `openclaw-workspace\agent-platform-wt`，分支 `openclaw/*` |
+| 用户 / Qoder | `C:\Users\LINLEE\Desktop\agent-platform`（仓库根） | 仓库根本身，分支 `docs/*`、`chore/*` 等 |
+
+### 14.2 不要"修"它写回来的文件
+
+OpenClaw 的 bootstrap 对标准文件是**无条件** `writeFileIfMissing`（`D:\autoclaw\resources\gateway\openclaw\gateway-bundle.mjs` 的 `ensureAgentWorkspace()`；补写点在**第 225453 行** `await writeFileIfMissing(agentsPath, agentsTemplate);`，模板目录 `D:\autoclaw\resources\gateway\openclaw\docs\reference\templates`，`AGENTS.md` 模板 8,240 B）。只要它的 workspace 指向仓库，删掉 `AGENTS.md` / `SOUL.md` / `HEARTBEAT.md` / `IDENTITY.md` / `USER.md` / `TOOLS.md` / `.agents/` / `projects/`，它就会在下一次 agent 或 session 初始化时按模板补回——实测间隔 **64 秒**（移走 15:38:03，重建 15:39:07）。`setupCompletedAt` 是一个提前返回的 bootstrap 状态判定，挡不住第 225453 行这次补写。
+
+修法是改它的 `workspace` 配置，**不是删文件**。同理：**任何一方都不要把 `/AGENTS.md` 写进 `.gitignore`**——被 ignore 的未跟踪文件落在 merge 要创建的路径上时，git 会把它当可丢弃文件**静默覆盖**（已实测：8,109 B 的本地文件在一次 `git merge main` 后无声变成 40,076 B 的项目地图，exit 0，无任何提示）。
+
+### 14.3 一个主题一个分支，一个集成出口
+
+- 分支从 `main` 切，命名带自己前缀（`openclaw/…`）。不要在别人的分支上提交，不要替别人 merge PR。
+- **不要 push `main`。** 集成只有一条路：push 分支 → PR → 两个 CI 检查（"Kiranism typecheck" + "n8n workflow validation"）→ 由用户决定合并。
+- 提交身份各用各的，且都用 `git -c user.name=… -c user.email=… commit` 临时指定，**永远不要改 `git config`**。
+- 用完的 worktree 自己 `git worktree remove` 清掉；分支 ref 留给人处置，不要 `branch -D`。
+
+### 14.4 事实基准取 `main`，不取当前工作树
+
+两个 checkout 不在同一个 commit 上：仓库根是用户的活动分支（可能落后 `main` 二十多个提交），另一个 worktree 在 `main` 上。数字对不上时，先确认两边量的是**哪棵树、哪个 commit**，再判断谁错。
+
+已验证的实例（2026-11-09）：`n8n/workflows/*.json` 在用户分支 HEAD 是 **24**、`main` 上 **26**（main 新增 `daily-agenda.json`、`health-report.json`）；唯一 webhook path 是 **39** vs **43**；`frontent/src/app/api/**/route.ts` 是 **27** vs **28**，差的正好是 main 新增的 `frontent/src/app/api/n8n/projects/route.ts`。**两边都对。**
+
+### 14.5 共享资源没有隔开，同一时刻只允许一方动
+
+两个 worktree 共用同一个 `.git`，所以这些是共享的：
+
+- `.git/hooks`、`.git/config`：改钩子对两边同时生效；
+- `.env`（未跟踪，是现网运行栈的配置源）：**任何人不要编辑它**，`docker compose config` 会打印解析后的密钥值，不要拿真实 `.env` 跑；
+- 整套 Docker 栈与现网：`deploy` / 重启容器 / 冒烟测试只能一方在跑，另一边会读到被改到一半的状态。
+
+### 14.6 不要在仓库根 `git add -A`
+
+仓库根的 ignore 规则要等用户把 `main` merge 进自己的分支才生效。在那之前 `.cluster/`（**23 MB**，含三个 Edge profile 的 `Login Data` / `Cookies` / `Web Data`）与 `DELIVERY/` 仍是未跟踪、未忽略的，**而远端是公开仓库**。用显式路径 add，不要 `git add -A` / `git add .`，也不要 `git add -f` 绕过 ignore。
+
+### 14.7 配置归属
+
+`agents.list[].workspace`、`protectedWorkspaceRoots` 等属于 OpenClaw 的运行时配置：改之前先备份原文件，只改目标键，改完核对其他键未动。注意 `protectedWorkspaceRoots` 目前指向它的新 home，**仓库根已不在保护列表里**——若想保留这层护栏，应当**追加**仓库路径而不是替换。
 
 维护规则：任何结构变更（新增服务、workflow、route、数据表、环境变量）都应同步更新本文件对应章节，并更新 `verified_commit` 与 `verified_at`。
