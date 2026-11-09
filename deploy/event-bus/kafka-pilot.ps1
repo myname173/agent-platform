@@ -50,15 +50,16 @@ function Check-Kafka {
     ok = $true
     topic = $Topic
     event_id = "phase5.3-$RunId"
-    mode = 'pilot-only; Redis Streams remains kb_save queue'
+    publisher = ((& $Docker 'inspect' '--format' '{{.State.Status}}' 'platform-event-publisher' 2>$null).Trim())
+    mode = 'event-pilot; Redis Streams remains kb_save queue'
   } | ConvertTo-Json -Compress)
 }
 
 switch ($Action) {
   'up' {
-    Invoke-Docker @('compose', '--profile', 'event-bus', 'up', '-d', 'kafka')
+    Invoke-Docker @('compose', '--profile', 'event-bus', 'up', '-d', '--build', 'kafka', 'platform-event-publisher')
     Check-Kafka
   }
   'check' { Check-Kafka }
-  'down' { Invoke-Docker @('compose', '--profile', 'event-bus', 'stop', 'kafka') }
+  'down' { Invoke-Docker @('compose', '--profile', 'event-bus', 'stop', 'platform-event-publisher', 'kafka') }
 }
