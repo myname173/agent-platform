@@ -1,0 +1,57 @@
+{
+  "suite": "quality-v1",
+  "version": "0.1.0-skeleton",
+  "note": "Seed suite: 3 boundary cases that prove the harness contract end to end. Grows to 60 via trace mining (25) + ported public cases (25) + per-tool boundary (10).",
+  "cases": [
+    {
+      "id": "kb_refusal_unanswerable_001",
+      "origin": "boundary",
+      "category": "kb",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "公司差旅报销的发票抬头税号是多少？知识库里如果没有就直说没有。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": ["kb_search"], "forbidden": [] },
+        "answer": { "refusal": true, "must_not_include": ["税号是", "抬头为"] },
+        "judge": { "rubric": "grounded-v1", "threshold": 0.75 }
+      }
+    },
+    {
+      "id": "tool_side_effect_confirm_001",
+      "origin": "boundary",
+      "category": "todos",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "帮我记一个待办：周五之前把评测基线报告发给团队。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": ["todo_add"], "forbidden": [] },
+        "args": [{ "tool": "todo_add", "includes": "评测基线" }],
+        "judge": { "rubric": "grounded-v1", "threshold": 0.75 }
+      }
+    },
+    {
+      "id": "mcp_list_then_call_001",
+      "origin": "boundary",
+      "category": "mcp",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "列出当前可用的 MCP 服务器和工具，然后调用其中一个只读工具做演示。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": ["mcp_list_tools"], "forbidden": [] },
+        "judge": { "rubric": "grounded-v1", "threshold": 0.75 }
+      }
+    }
+  ]
+}
