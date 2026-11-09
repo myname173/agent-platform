@@ -322,7 +322,7 @@ const runChat = async (test, attempt) => {
   };
   const response = await request(`${BASE}/webhook/v1/chat/completions`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${CHAT_KEY}`, 'Content-Type': 'application/json', 'x-session-id': body.session_id },
+    headers: { Authorization: `Bearer ${CHAT_KEY}`, 'Content-Type': 'application/json', 'x-session-id': body.session_id, 'x-client': 'eval' },
     body: JSON.stringify(body),
   });
   const message = response.body?.choices?.[0]?.message || {};
