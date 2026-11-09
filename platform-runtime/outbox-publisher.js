@@ -1,0 +1,173 @@
+import os from 'node:os';
+import { Kafka } from 'kafkajs';
+import pg from 'pg';
+
+const { Pool } = pg;
+const DB = {
+  host: process.env.DB_POSTGRESDB_HOST || 'postgres',
+  port: Number(process.env.DB_POSTGRESDB_PORT || 5432),
+  database: process.env.DB_POSTGRESDB_DATABASE || 'n8n',
+  user: process.env.DB_POSTGRESDB_USER || 'n8n',
+  password: process.env.DB_POSTGRESDB_PASSWORD || '',
+};
+const BROKERS = String(process.env.KAFKA_BROKERS || 'kafka:19092').split(',').map((value) => value.trim()).filter(Boolean);
+const TOPIC = process.env.KAFKA_TOPIC || 'platform.events.outbox.v1';
+const KIND = process.env.OUTBOX_KIND || 'kafka-pilot';
+const POLL_MS = Math.max(100, Number(process.env.OUTBOX_POLL_MS || 500));
+const BATCH_SIZE = Math.max(1, Math.min(100, Number(process.env.OUTBOX_BATCH_SIZE || 50)));
+const LEASE_SEC = Math.max(5, Number(process.env.OUTBOX_LEASE_SEC || 30));
+const MAX_ATTEMPTS = Math.max(1, Number(process.env.OUTBOX_MAX_ATTEMPTS || 5));
+const PUBLISHER_ID = process.env.OUTBOX_PUBLISHER_ID || `outbox-publisher-${os.hostname()}-${process.pid}`;
+
+const pool = new Pool({ ...DB, max: 2, connectionTimeoutMillis: 3000, query_timeout: 5000 });
+const kafka = new Kafka({ clientId: PUBLISHER_ID, brokers: BROKERS });
+const producer = kafka.producer({ allowAutoTopicCreation: false });
+let stopping = false;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const claimBatch = async () => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `WITH candidates AS (
+         SELECT outbox_id
+           FROM platform.outbox
+          WHERE kind = $1
+            AND (
+              (state IN ('PENDING', 'RETRY') AND next_retry_at <= now())
+              OR (state = 'DELIVERING' AND COALESCE(lease_until, next_retry_at) <= now())
+            )
+          ORDER BY outbox_id
+          LIMIT $2
+          FOR UPDATE SKIP LOCKED
+       )
+       UPDATE platform.outbox AS outbox
+          SET state = 'DELIVERING',
+              attempts = outbox.attempts + 1,
+             lease_until = now() + ($3 * interval '1 second'),
+             locked_at = now(),
+             locked_by = $4,
+              last_error = NULL
+         FROM candidates
+        WHERE outbox.outbox_id = candidates.outbox_id
+       RETURNING outbox.outbox_id, outbox.request_id, outbox.trace_id,
+                 outbox.kind, outbox.dedupe_key, outbox.payload, outbox.attempts,
+                 outbox.created_at`,
+      [KIND, BATCH_SIZE, LEASE_SEC, PUBLISHER_ID],
+    );
+    await client.query('COMMIT');
+    return result.rows;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const markDelivered = async (row) => {
+  await pool.query(
+    `UPDATE platform.outbox
+        SET state = 'DELIVERED', delivered_at = now(), last_error = NULL,
+            lease_until = NULL, locked_at = NULL, locked_by = NULL
+      WHERE outbox_id = $1 AND state = 'DELIVERING' AND locked_by = $2`,
+    [row.outbox_id, PUBLISHER_ID],
+  );
+};
+
+const markFailed = async (row, error) => {
+  const deadLetter = Number(row.attempts) >= MAX_ATTEMPTS;
+  const retryDelay = Math.min(60, 2 ** Math.max(0, Number(row.attempts) - 1));
+  await pool.query(
+    `UPDATE platform.outbox
+        SET state = $2,
+            next_retry_at = now() + ($3 * interval '1 second'),
+            lease_until = NULL, locked_at = NULL, locked_by = NULL,
+            last_error = $4
+      WHERE outbox_id = $1 AND state = 'DELIVERING' AND locked_by = $5`,
+    [row.outbox_id, deadLetter ? 'DEAD_LETTER' : 'RETRY', deadLetter ? 86400 : retryDelay, String(error.message || error).slice(0, 500), PUBLISHER_ID],
+  );
+  console.error(JSON.stringify({
+    event: 'platform.outbox.publish_failed',
+    outbox_id: String(row.outbox_id),
+    attempts: row.attempts,
+    state: deadLetter ? 'DEAD_LETTER' : 'RETRY',
+    error: String(error.message || error).slice(0, 300),
+  }));
+};
+
+const publishRow = async (row) => {
+  const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
+  const eventId = payload.event_id || String(row.outbox_id);
+  const eventType = payload.event_type || row.kind;
+  const occurredAt = payload.occurred_at || row.created_at;
+  const traceId = payload.trace_id || row.trace_id;
+  const source = payload.source || 'platform-outbox-publisher';
+  const data = Object.prototype.hasOwnProperty.call(payload, 'data') ? payload.data : row.payload;
+  await producer.send({
+    topic: TOPIC,
+    messages: [{
+      key: row.dedupe_key,
+      value: JSON.stringify({
+        event_id: String(eventId),
+        event_type: eventType,
+        occurred_at: occurredAt,
+        source,
+        trace_id: traceId,
+        dedupe_key: row.dedupe_key,
+        data,
+      }),
+    }],
+  });
+};
+
+const shutdown = async () => {
+  if (stopping) return;
+  stopping = true;
+  await producer.disconnect().catch(() => {});
+  await pool.end().catch(() => {});
+  process.exit(0);
+};
+
+process.once('SIGTERM', shutdown);
+process.once('SIGINT', shutdown);
+
+await pool.query('SELECT 1');
+await producer.connect();
+console.log(JSON.stringify({
+  event: 'platform.outbox.publisher_ready',
+  publisher_id: PUBLISHER_ID,
+  kind: KIND,
+  topic: TOPIC,
+  brokers: BROKERS,
+}));
+
+while (!stopping) {
+  try {
+    const rows = await claimBatch();
+    if (!rows.length) {
+      await sleep(POLL_MS);
+      continue;
+    }
+    for (const row of rows) {
+      try {
+        await publishRow(row);
+        await markDelivered(row);
+        console.log(JSON.stringify({
+          event: 'platform.outbox.published',
+          outbox_id: String(row.outbox_id),
+          dedupe_key: row.dedupe_key,
+          topic: TOPIC,
+          attempts: row.attempts,
+        }));
+      } catch (error) {
+        await markFailed(row, error);
+      }
+    }
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'platform.outbox.publisher_error', error: String(error.message || error).slice(0, 300) }));
+    await sleep(POLL_MS);
+  }
+}

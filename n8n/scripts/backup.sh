@@ -88,6 +88,22 @@ case "${1:-}" in
     else
       echo "WARNING: volume minio_data not found — skipped MinIO backup" >&2
     fi
+    # Redis logical snapshot. The in-stack backup is the normal path, but keep
+    # this manual fallback from producing a green backup heartbeat without the
+    # coordination state needed by the async runtime.
+    REDISNAME="redis-${STAMP}.rdb"
+    if docker ps --format '{{.Names}}' | grep -qx "platform-redis"; then
+      REDIS_TMP="/tmp/platform-redis-${STAMP}.rdb"
+      if MSYS_NO_PATHCONV=1 docker exec platform-redis redis-cli --rdb "$REDIS_TMP" >/dev/null 2>&1 \
+        && MSYS_NO_PATHCONV=1 docker cp "platform-redis:${REDIS_TMP}" "${BACKUP_DIR}/${REDISNAME}" >/dev/null 2>&1; then
+        MSYS_NO_PATHCONV=1 docker exec platform-redis rm -f "$REDIS_TMP" >/dev/null 2>&1 || true
+        echo "redis snapshot: ${BACKUP_DIR}/${REDISNAME}"
+      else
+        echo "WARNING: Redis snapshot failed — backup set is incomplete" >&2
+      fi
+    else
+      echo "WARNING: platform-redis not running — skipped Redis snapshot" >&2
+    fi
     # Postgres logical dump (n8n primary datastore)
     if docker ps --format '{{.Names}}' | grep -qx "$PG_CONTAINER"; then
       PGNAME="pg-n8n-${STAMP}.sql.gz"
@@ -106,7 +122,7 @@ case "${1:-}" in
     SIZE=$(du -h "$TARGET" | cut -f1)
     echo "backup complete: $TARGET ($SIZE)"
     # prune old archives
-    PRUNED=$(find "$BACKUP_DIR" \( -name 'n8n-data-*.tar.gz*' -o -name 'pg-n8n-*.sql.gz' -o -name 'pg-lobechat-*.sql.gz' -o -name 'minio-data-*.tar.gz' -o -name 'config-n8n-data-*.tar.gz' \) -mtime "+${KEEP_DAYS}" -print -delete || true)
+    PRUNED=$(find "$BACKUP_DIR" \( -name 'n8n-data-*.tar.gz*' -o -name 'pg-n8n-*.sql.gz' -o -name 'pg-lobechat-*.sql.gz' -o -name 'minio-data-*.tar.gz' -o -name 'config-n8n-data-*.tar.gz' -o -name 'redis-*.rdb' \) -mtime "+${KEEP_DAYS}" -print -delete || true)
     if [ -n "$PRUNED" ]; then
       echo "pruned archives older than ${KEEP_DAYS} days:"
       echo "$PRUNED"

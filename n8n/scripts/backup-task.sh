@@ -82,6 +82,7 @@ send_heartbeat() {
     newest_lobe="$(ls -t "${REPO_DIR}"/backups/pg-lobechat-*.sql.gz 2>/dev/null | head -1)"
     newest_minio="$(ls -t "${REPO_DIR}"/backups/minio-data-*.tar.gz 2>/dev/null | head -1)"
     newest_conf="$(ls -t "${REPO_DIR}"/backups/config-n8n-data-*.tar.gz 2>/dev/null | head -1)"
+    newest_redis="$(ls -t "${REPO_DIR}"/backups/redis-*.rdb 2>/dev/null | head -1)"
 
     count_artifact "${newest_dump}"; count_artifact "${newest_vol}"
     count_artifact "${newest_lobe}"; count_artifact "${newest_minio}"
@@ -115,11 +116,25 @@ send_heartbeat() {
       echo "integrity: minio archive FAILED"
     fi
 
+    redis_ok=0
+    if [ -n "${newest_redis}" ]; then
+      backup_win="$(cd "${REPO_DIR}/backups" && pwd -W 2>/dev/null || pwd)"
+      if MSYS_NO_PATHCONV=1 docker run --rm -v "${backup_win}:/backup:ro" redis:7.4-alpine \
+        redis-check-rdb "/backup/$(basename "${newest_redis}")" >/dev/null 2>&1; then
+        redis_ok=1; bytes=$((bytes + $(wc -c < "${newest_redis}" | tr -d ' ')))
+        echo "integrity: redis RDB OK ($(basename "${newest_redis}"))"
+      else
+        echo "integrity: redis RDB FAILED"
+      fi
+    else
+      echo "integrity: redis RDB FAILED (no snapshot)"
+    fi
+
     # Same-machine backups do not survive the machine. Copy the three that
     # matter somewhere else when a destination is configured.
     if [ -n "${OFFSITE}" ]; then
       if mkdir -p "${OFFSITE}" 2>/dev/null; then
-        for f in "${newest_dump}" "${newest_lobe}" "${newest_conf}"; do
+        for f in "${newest_dump}" "${newest_lobe}" "${newest_conf}" "${newest_redis}"; do
           [ -n "${f}" ] && [ -f "${f}" ] && cp -f "${f}" "${OFFSITE}/" && echo "offsite: $(basename "${f}")"
         done
       else
@@ -128,13 +143,13 @@ send_heartbeat() {
     fi
 
     echo "==== $(date '+%Y-%m-%d %H:%M:%S') backup task done ===="
-    detail="{\"stamp\":\"${RUNSTAMP}\",\"n\":${present},\"bytes\":${bytes},\"integrity\":\"${ok_checks}/${total_checks}\"}"
+    detail="{\"stamp\":\"${RUNSTAMP}\",\"n\":${present},\"bytes\":${bytes},\"integrity\":\"${ok_checks}/${total_checks}\",\"redis\":\"$([ "${redis_ok}" -eq 1 ] && echo true || echo false)\"}"
     echo "heartbeat payload: ${detail}"
     # A degraded set must NOT report ok=true. On 2026-10-28 the archives were
     # fine but both tar checks failed, and the heartbeat still said ok=true with
     # integrity 2/4 — the self-check only reads `ok`, so it stayed green over a
     # backup nobody had verified. Report failure whenever the count is short.
-    if [ "${ok_checks}" -eq "${total_checks}" ]; then
+    if [ "${ok_checks}" -eq "${total_checks}" ] && [ "${redis_ok}" -eq 1 ]; then
       send_heartbeat true "${detail}"
     else
       send_heartbeat false "integrity ${ok_checks}/${total_checks} (${detail})"

@@ -8,7 +8,7 @@
 FROM postgres:17-alpine
 
 # bash for ${var//search/replace}; curl for the heartbeat; tar/gzip come from busybox.
-RUN apk add --no-cache bash curl
+RUN apk add --no-cache bash curl redis
 
 COPY backup.sh /usr/local/bin/backup.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

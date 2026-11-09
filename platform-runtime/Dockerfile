@@ -5,6 +5,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY server.js ./
 COPY worker.js ./
+COPY event-publisher.js ./
+COPY outbox-publisher.js ./
 COPY test-runtime.mjs ./
 COPY load-test.mjs ./
 

@@ -71,10 +71,26 @@ CREATE TABLE IF NOT EXISTS platform.outbox (
   state            text NOT NULL CHECK (state IN ('PENDING','DELIVERING','DELIVERED','RETRY','DEAD_LETTER')) DEFAULT 'PENDING',
   attempts         integer NOT NULL DEFAULT 0,
   next_retry_at    timestamptz NOT NULL DEFAULT now(),
+  lease_until      timestamptz,
+  locked_at        timestamptz,
+  locked_by        text,
   last_error       text,
   created_at       timestamptz NOT NULL DEFAULT now(),
   delivered_at     timestamptz,
   UNIQUE (dedupe_key)
 );
 
+ALTER TABLE platform.outbox ADD COLUMN IF NOT EXISTS lease_until timestamptz;
+ALTER TABLE platform.outbox ADD COLUMN IF NOT EXISTS locked_at timestamptz;
+ALTER TABLE platform.outbox ADD COLUMN IF NOT EXISTS locked_by text;
+
+-- Preserve recovery timing for rows claimed by the pilot before explicit
+-- lease columns existed.
+UPDATE platform.outbox
+   SET lease_until = next_retry_at
+ WHERE state = 'DELIVERING'
+   AND lease_until IS NULL;
+
 CREATE INDEX IF NOT EXISTS platform_outbox_ready_idx ON platform.outbox (state, next_retry_at);
+CREATE INDEX IF NOT EXISTS platform_outbox_claim_idx
+  ON platform.outbox (kind, state, next_retry_at, lease_until, outbox_id);

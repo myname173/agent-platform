@@ -142,6 +142,7 @@ services:
       - N8N_URL=http://n8n:5678
       - PLATFORM_RUNTIME_URL=http://platform-runtime:3220
       - PLATFORM_RUNTIME_KEY=${PLATFORM_RUNTIME_KEY:-}
+      - CONSOLE_ADMIN_READ_CACHE_TTL_MS=${CONSOLE_ADMIN_READ_CACHE_TTL_MS:-3000}
     ports:
       - "${CONSOLE_PORT:-3000}:3000"
     depends_on:
@@ -393,6 +394,9 @@ services:
       - IDEMPOTENCY_WINDOW_SEC=${IDEMPOTENCY_WINDOW_SEC:-300}
       - PLATFORM_RATE_LIMIT_RPM=${PLATFORM_RATE_LIMIT_RPM:-60}
       - PLATFORM_STATE_ENABLED=${PLATFORM_STATE_ENABLED:-true}
+      - PLATFORM_DEPLOYMENT_MODE=${PLATFORM_DEPLOYMENT_MODE:-single-node-controlled}
+      - PLATFORM_OUTBOX_WRITE_MODE=${PLATFORM_OUTBOX_WRITE_MODE:-off}
+      - PLATFORM_OUTBOX_EVENT_KIND=${PLATFORM_OUTBOX_EVENT_KIND:-platform.state.transition}
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
@@ -520,6 +524,67 @@ services:
     networks:
       - n8n-net
 
+  # Phase 5.3: optional bridge from durable platform events to Kafka.
+  # It is a side path for learning and event fan-out; Redis Streams remains
+  # the asynchronous business execution queue.
+  platform-event-publisher:
+    build:
+      context: ./platform-runtime
+    image: agent-platform/platform-runtime:0.1
+    container_name: platform-event-publisher
+    profiles: ["event-bus"]
+    restart: unless-stopped
+    command: ["node", "event-publisher.js"]
+    environment:
+      - KAFKA_BROKERS=kafka:19092
+      - KAFKA_TOPIC=${PLATFORM_KAFKA_TOPIC:-platform.events.v1}
+      - PLATFORM_EVENT_START_ID=${PLATFORM_EVENT_START_ID:-latest}
+      - PLATFORM_EVENT_POLL_MS=${PLATFORM_EVENT_POLL_MS:-500}
+      - PLATFORM_EVENT_BATCH_SIZE=${PLATFORM_EVENT_BATCH_SIZE:-100}
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - n8n-net
+
+  # Phase 6.3: isolated Outbox Publisher v1 experiment. Runtime does not write
+  # to platform.outbox yet; the pilot script seeds only kind=kafka-pilot rows.
+  platform-outbox-publisher:
+    build:
+      context: ./platform-runtime
+    image: agent-platform/outbox-publisher:0.1
+    container_name: platform-outbox-publisher
+    profiles: ["event-bus-outbox"]
+    restart: unless-stopped
+    command: ["node", "outbox-publisher.js"]
+    environment:
+      - KAFKA_BROKERS=kafka:19092
+      - KAFKA_TOPIC=${PLATFORM_OUTBOX_KAFKA_TOPIC:-platform.events.outbox.v1}
+      - OUTBOX_KIND=${PLATFORM_OUTBOX_KIND:-kafka-pilot}
+      - OUTBOX_POLL_MS=${PLATFORM_OUTBOX_POLL_MS:-500}
+      - OUTBOX_BATCH_SIZE=${PLATFORM_OUTBOX_BATCH_SIZE:-50}
+      - OUTBOX_LEASE_SEC=${PLATFORM_OUTBOX_LEASE_SEC:-30}
+      - OUTBOX_MAX_ATTEMPTS=${PLATFORM_OUTBOX_MAX_ATTEMPTS:-5}
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - n8n-net
+
   # 备份（栈内）：刻意不依赖宿主机的计划任务。
   # 宿主机那个每日 03:30 的 Windows 任务改不动 —— schtasks.exe 被安全策略拦截，
   # PowerShell 的 Set-ScheduledTask 也返回"拒绝访问"，都要管理员。
@@ -536,6 +601,8 @@ services:
       - PGUSER=${POSTGRES_USER}
       - PGPASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - CHAT_API_KEY=${CHAT_API_KEY}
       - BACKUP_INTERVAL_HOURS=${BACKUP_INTERVAL_HOURS:-6}
       - BACKUP_MIN_AGE_HOURS=${BACKUP_MIN_AGE_HOURS:-20}
@@ -547,6 +614,8 @@ services:
       - ./.env:/cfg/.env:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       n8n:
         condition: service_started

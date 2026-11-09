@@ -149,6 +149,37 @@ ports, terminates public TLS at Caddy on `80/443`, and keeps Redis, Runtime,
 Worker and the Kubernetes Sandbox Gateway private:
 `deploy/external/README.md`.
 
+## Phase 6.5A Release Candidate freeze
+
+The first production closeout step is intentionally read-only. It verifies
+that the default Compose service set contains only the core stack, optional
+Kafka/Outbox/Prometheus/Worker profiles stay opt-in, the K8s pilot manifests
+still render, and the local Console/n8n/Runtime/Redis health boundary is up:
+
+```powershell
+.\deploy\release\phase65a.ps1 -Action check
+```
+
+The command reports whether the current `.env` is using the `compose-sync` or
+`pilot-async` boundary and never changes services or business data. A passing
+check is a Release Candidate configuration check, not a production HA approval.
+
+## Phase 6.5C K8s production-candidate boundary
+
+The production-candidate overlay keeps the existing Pilot base but adds two
+replicas, RollingUpdate, PDBs and Sandbox Gateway probes. It is render-only
+until a real multi-node or managed cluster is selected:
+
+```powershell
+kubectl kustomize deploy/k8s/phase6-production
+kubectl apply --dry-run=server -k deploy/k8s/phase6-production
+```
+
+The current `docker-desktop` context remains the one-replica Pilot. Before an
+apply, replace its Docker Desktop host-gateway endpoints with target-cluster
+Service or managed-service endpoints and make the stateful-service ownership
+explicit.
+
 ## Phase 5.3 Kafka event-bus pilot
 
 Kafka is available as an opt-in single-node KRaft profile for event-contract

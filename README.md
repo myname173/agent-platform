@@ -88,6 +88,7 @@ run `node n8n/scripts/lobehub-config.mjs`. Full Chinese walkthrough: [部署到�
 | `node --env-file=.env n8n/scripts/test-kb-async-load.mjs` | Phase 3.2 small K8s Worker load: queue/completion latency, terminal success and cleanup |
 | `node --env-file=.env n8n/scripts/e2e-business-load.mjs` | Read-only end-to-end business baseline through n8n webhooks (no model calls or business writes) |
 | `kubectl kustomize deploy/k8s/phase3-pilot` | Phase 3.0 K8s pilot manifests: worker Deployment and isolated sandbox Job |
+| `kubectl kustomize deploy/k8s/phase6-production` | Phase 6.5C production-candidate overlay: rolling replicas, PDBs and gateway probes; render only until a real cluster is selected |
 | `deploy/k8s/phase3-pilot/pilot.ps1 -Action check` | Phase 3.3 K8s pilot closure: worker, gateway, Compose bridge and Redis pending check |
 | `deploy/k8s/phase3-pilot/sandbox-bridge.ps1 -Action install` | Phase 6.1 supervised loopback Sandbox bridge; reconnects after Docker/K8s restart |
 | `deploy/external/edge.ps1 -Action up` | Phase 5.2A/6.1 opt-in external edge: Caddy `80/443`, public TLS, no direct app/storage ports |
@@ -96,7 +97,14 @@ run `node n8n/scripts/lobehub-config.mjs`. Full Chinese walkthrough: [部署到�
 | `deploy/cloudflare/tunnel.ps1 -Action check` | Cloudflare Tunnel preflight; requires a Cloudflare-managed domain and tunnel token |
 | `scripts/update-duckdns.ps1` | Update the DuckDNS A record from the local token without printing it |
 | `scripts/generate-caddy-hash.ps1` | Generate the local Caddy storage-console password hash without command-line password input |
-| `deploy/event-bus/kafka-pilot.ps1 -Action up` | Phase 5.3 optional Kafka KRaft event-bus pilot; does not replace Redis Streams |
+| `deploy/event-bus/kafka-pilot.ps1 -Action check` | Phase 5.3 Kafka probe plus optional publisher status; does not replace Redis Streams |
+| `deploy/event-bus/kafka-load.ps1 -Action concurrent` | Kafka high-throughput experiment on isolated load topics; no business side effects |
+| `deploy/event-bus/kafka-load.ps1 -Action consumer-group` | Kafka partition and consumer-group scaling experiment; no business side effects |
+| `deploy/event-bus/kafka-interrupt.ps1` | Kafka Consumer interruption, offset replay and backlog recovery experiment |
+| `deploy/event-bus/kafka-pilot.ps1 -Action up` | Starts Kafka plus the optional `platform.events` event publisher |
+| `deploy/event-bus/outbox-pilot.ps1 -Action check` | Isolated Outbox Publisher v1 experiment; Runtime and `kb_save` unchanged |
+| `deploy/release/phase65a.ps1 -Action check` | Phase 6.5A read-only Release Candidate profile and health boundary check |
+| `monitoring/single-node-controlled-runbook-2026-10-30.md` | 当前无额外机器时的单机受控运行、启停、回滚和生产门槛 |
 | `node --env-file=.env n8n/scripts/recover-platform-request.mjs ...` | Operator-confirmed UNKNOWN recovery; never infers the business outcome |
 | `docker compose --profile phase2 up -d platform-worker` | Optional Phase 2 Redis Streams worker for asynchronous `kb_save`, with Phase 2.1 stale pending reclaim and bounded retry |
 
@@ -426,10 +434,10 @@ Set-ScheduledTask -TaskName "Agent Platform Backup" -Settings $s
 | 服务 | `backup`（`backup/Dockerfile`，基于 `postgres:17-alpine`：自带 `pg_dump`/`tar`，客户端版本与服务端一致） |
 | 触发 | 容器**启动即跑一次**，之后每 `BACKUP_INTERVAL_HOURS`（默认 6）小时一轮；不用 cron，一个循环就够 |
 | 去重 | 成功后写标记 `backups/.last-ok`；距上次成功不足 `BACKUP_MIN_AGE_HOURS`（默认 20）小时则跳过——**机器全天在线也不会刷出好几份 110MB** |
-| 产物 | 与宿主机脚本**完全一致的五件套**（`n8n-data-` / `config-n8n-data-` / `minio-data-` / `pg-n8n-` / `pg-lobechat-`），命名不变，所以自检的 `backup heartbeat fresh` 无需改动 |
+| 产物 | 五件核心产物（`n8n-data-` / `config-n8n-data-` / `minio-data-` / `pg-n8n-` / `pg-lobechat-`）外加必需的 `redis-*.rdb` 快照；旧心跳字段仍保持 5/5、4/4，并增加 `redis=true` |
 | 不需要 docker CLI | `pg_dump -h postgres` 直连数据库；`n8n_data` / `minio_data` 卷只读挂载后打 tar |
 | 保留 | 按**整套**裁剪，保留最近 30 套（半个套比没有更糟，所以绝不单删文件） |
-| 心跳 | 复用 `/webhook/admin/heartbeat`，带 `{stamp,n,bytes,integrity}` 证据 |
+| 心跳 | 复用 `/webhook/admin/heartbeat`，带 `{stamp,n,bytes,integrity,redis,redis_bytes}` 证据；Redis 快照失败会让本轮心跳失败 |
 
 运维：
 
@@ -443,10 +451,11 @@ docker exec platform-backup /usr/local/bin/backup.sh   # 手动触发一轮（�
 宿主机那条 `bash n8n/scripts/backup-task.sh` 保留可用；那个改不动的 Windows 任务就留着——
 跑成功算多一份，跑失败也不碍事。
 
-> 实测（2026-09-23）：起容器 → 5 件套产出 + 完整性 4/4 + 心跳 `ok=true` 落库；
+> 实测（2026-10-30）：起容器 → 5 件核心产物 + Redis RDB 快照，完整性 4/4、`redis=true` + 心跳 `ok=true` 落库；
 > 重启容器 → 再跑一次但被守卫跳过；自检 47 项 46 通过 / 0 失败。
 
 恢复参考：`gunzip -c backups/pg-n8n-*.sql.gz | docker exec -i postgres psql -U n8n -d n8n`；
+完整恢复演练：`bash n8n/scripts/restore-drill.sh`（含 Redis RDB 格式检查，不触碰在线 Redis 数据）。
 `gunzip -c backups/pg-lobechat-*.sql.gz | docker exec -i postgres psql -U n8n -d lobechat`；
 MinIO：停 minio 后把归档解回 `minio_data` 卷。归档含凭据与对话数据，妥善保管。
 
