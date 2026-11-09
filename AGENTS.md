@@ -1,7 +1,7 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
-verified_at: 2026-11-05
-verified_commit: bd681b9
+verified_at: 2026-11-09
+verified_commit: f5060c5
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
@@ -323,8 +323,8 @@ N8N_URL=... N8N_API_KEY=... node n8n/scripts/seed-projects.mjs apply   # 写入�
 
 ## 12. 安全现状（必须知道）
 
-- **残留凭证（历史）**：`a0bcb35`（2026-09-28）把真实 Postgres 密码写进 `scripts/check-users.mjs`，把真实 MCP Bearer token 与 Telegram chat id 写进 `demo-assets/_data.json`；`ce4a98b` 已从工作树移除，但**值仍在 git 历史**，且仓库 2026-10-29 之前是公开的。处置=**轮换这些值**，删文件不算修好（`git show ce4a98b`）。
-- **当前工作树**：`bash scripts/secret-scan.sh HEAD` 无真实命中（输出只匹配扫描器自身正则）。
+- **残留凭证（历史，且现在公网可读）**：`a0bcb35`（2026-09-28）把真实 Postgres 密码写进 `scripts/check-users.mjs`，把真实 MCP Bearer token 与 Telegram chat id 写进 `demo-assets/_data.json`；`ce4a98b` 已从工作树移除，但**值仍在 git 历史**。仓库曾于 2026-10-29 翻私有，**2026-11-09 复核时已是 public**：匿名 `api.github.com/repos/myname173/agent-platform` 返回 200 且 `visibility:"public"`，匿名 `git ls-remote`（`GIT_TERMINAL_PROMPT=0`、清空 credential.helper）直接拿到 HEAD，`raw.githubusercontent.com/.../a0bcb35/scripts/check-users.mjs` 与 `.../a0bcb35/demo-assets/_data.json` 均匿名 200，且 `a0bcb35` 仍是 `main` 的祖先。处置=**轮换这些值**；删文件不算修好，翻私有也只是缩小暴露面、不撤销已公开的一个多月。是否重写历史由人决定（`git show ce4a98b`）。
+- **当前工作树**：`bash scripts/secret-scan.sh` 报「检查了 32 个长值，命中 10 个」，键为 `CHAT_API_KEY`(12 字符)、`LOBECHAT_OPENAI_API_KEY`(12)、`LOBECHAT_ACCESS_CODE`(14)、`MINIO_ROOT_USER`(14)、`TELEGRAM_CHAT_ID`(10 位纯数字)、`PLATFORM_LAN_IP`/`LAN_IP`(各 15)、`PLATFORM_DOMAIN`(34)、`SANDBOX_URL`/`SANDBOX_APPROVED_URL`(URL 形状)。前两个是占位值、两个 URL 属噪声；但 `PLATFORM_DOMAIN`、两个 LAN 标识与 `TELEGRAM_CHAT_ID` 是真实基础设施标识，public 时等于公开，而 `LOBECHAT_ACCESS_CODE` 是「知道项目名就猜得到」形状的短值（长度 < 16 只进 cfg 档，闸门不拦，见 `monitoring/env-ledger-2026-11-05.md`）。`POSTGRES_PASSWORD`(32) 与 `MCP_API_KEY`(36) 在当前树**零命中**。通用特征扫描里 `gho_`/`ghp_`/`github_pat_`/`eyJhbGciOi` 的命中来自扫描器与校验器自身的正则/样例；`sk-[A-Za-z0-9]{20,}`、`AKIA[0-9A-Z]{16}`、`BEGIN … PRIVATE KEY`、`n8n_api_[0-9a-f]{40,}` 均 0 文件。
 - **边界**：n8n webhook 用 `CHAT_API_KEY`；MCP 用 `MCP_API_KEY`（哈希存 `gateway_keys`）；runtime 用 `x-platform-runtime-key`；控制台用 Clerk；Sandbox 用 `x-sandbox-key`（`n8n/sandbox_server.py:514`）。
 
 ## 13. 如何自行核验本文件
