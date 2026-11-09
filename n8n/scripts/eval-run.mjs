@@ -25,6 +25,7 @@ import { createHash } from 'node:crypto';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SUITES_DIR = path.join(ROOT, 'eval', 'suites');
+const REPLAY_DIR = path.join(ROOT, 'eval', 'replay');
 const N8N = (process.env.N8N_URL || 'http://localhost:5678').replace(/\/$/, '');
 const CHAT_KEY = process.env.CHAT_API_KEY || '';
 const N8N_API_KEY = process.env.N8N_API_KEY || '';
@@ -40,6 +41,7 @@ const arg = (name, fallback) => {
   return i >= 0 && argv[i + 1] !== undefined ? argv[i + 1] : fallback;
 };
 const flag = (name) => argv.includes(name);
+const record = flag('--record');
 const onlySuites = flag('--suites') ? String(arg('--suites', '')).split(',').filter(Boolean) : null;
 const runsWanted = Math.max(1, Number(arg('--runs', RUNS)));
 const dry = flag('--dry');
@@ -265,6 +267,23 @@ for (const testCase of suites) {
     const row = { attempt, ...out, checks: checkCase(out, testCase) };
     row.passed = row.checks.every((c) => c.ok);
     attempts.push(row);
+    if (record) {
+      // Submit-gate fixture: the recorded behavior this run observed, stored
+      // so eval-gate.mjs can replay assertions without a live stack. Only
+      // PASSING attempts are recorded — a fixture of a failure would freeze
+      // the bug into the gate.
+      if (row.passed) {
+        const fx = {
+          case_id: testCase.id,
+          recorded_at: new Date().toISOString(),
+          run_id: RUN_ID,
+          trace: (out.trace?.trace || []).map((t) => ({ tool: t?.tool || '', args: String(t?.args || '').slice(0, 500), blocked: t?.blocked === true })),
+          answer: String(out.content || '').slice(0, 4000),
+        };
+        fs.mkdirSync(REPLAY_DIR, { recursive: true });
+        fs.writeFileSync(path.join(REPLAY_DIR, `${testCase.id}.json`), JSON.stringify(fx, null, 2) + '\n');
+      }
+    }
     spentUsd += out.cost || 0;
     console.log(`  ${row.passed ? 'PASS' : 'FAIL'} ${testCase.id}#${attempt} ${out.ms}ms rounds=${out.tool_rounds}`);
     for (const f of row.checks.filter((c) => !c.ok)) console.error(`    - ${f.message}`);
