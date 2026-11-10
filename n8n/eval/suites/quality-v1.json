@@ -1,7 +1,7 @@
 {
   "suite": "quality-v1",
-  "version": "0.1.0-skeleton",
-  "note": "Seed suite: 3 boundary cases that prove the harness contract end to end. Grows to 60 via trace mining (25) + ported public cases (25) + per-tool boundary (10).",
+  "version": "0.1.0-ported+boundary",
+  "note": "3 boundary seeds + 15 ported cases (BFCL-style tool-chain state assertions x10, tau-bench-style multi-turn x5). Grows to 60 via trace mining (25) after nightly data accumulates. BFCL insight adopted: assert FINAL STATE (which tools ran, with what args, what rows exist), not final prose. tau-bench insight adopted: multi-turn with evolving constraints; user role only, no fake system personas.",
   "cases": [
     {
       "id": "kb_refusal_unanswerable_001",
@@ -50,6 +50,231 @@
       "expect": {
         "status": 200,
         "tools": { "required": ["mcp_list_tools"], "forbidden": [] },
+        "judge": { "rubric": "grounded-v1", "threshold": 0.75 }
+      }
+    },
+    {
+      "id": "bfcl_chain_calc_then_python",
+      "origin": "ported",
+      "ported_from": "bfcl:multi-turn-base/tool-chain-calc",
+      "category": "tools",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "用代码算一下 2024 年 2 月有几天，再算 3 月 1 日往前推那天是星期几，把两个结果一起告诉我。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": ["run_python"], "forbidden": ["todo_add", "kb_save", "create_reminder", "mcp_call"] },
+        "answer": { "must_include": ["29"], "max_chars": 500 },
+        "judge": { "rubric": "grounded-v1", "threshold": 0.75 }
+      }
+    },
+    {
+      "id": "bfcl_wrong_tool_negative",
+      "origin": "ported",
+      "ported_from": "bfcl:multi-turn-base/wrong-tool-negative",
+      "category": "tools",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "别用任何工具，直接凭常识回答：一周有哪几天？" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": [], "forbidden": ["run_python", "web_search", "kb_search", "todo_add", "mcp_call", "create_reminder", "kb_save"] },
+        "answer": { "must_include": ["星期"] }
+      }
+    },
+    {
+      "id": "bfcl_multi_step_reminder_create",
+      "origin": "ported",
+      "ported_from": "bfcl:multi-turn-base/irreversible-side-effect",
+      "category": "reminders",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "帮我设个提醒：明天上午十点叫我去取快递。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": ["create_reminder"], "forbidden": ["todo_add", "cancel_reminder", "mcp_call", "run_python"] },
+        "args": [{ "tool": "create_reminder", "includes": "快递" }],
+        "judge": { "rubric": "grounded-v1", "threshold": 0.75 }
+      }
+    },
+    {
+      "id": "bfcl_list_then_decide_todos",
+      "origin": "ported",
+      "ported_from": "bfcl:multi-turn-base/list-then-act",
+      "category": "todos",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "先看看我现在的待办列表，然后告诉我哪一条最紧急、为什么。不要新增加待办。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": ["todo_list"], "forbidden": ["todo_add", "todo_done", "create_reminder", "cancel_reminder"] },
+        "judge": { "rubric": "grounded-v1", "threshold": 0.75 }
+      }
+    },
+    {
+      "id": "bfcl_kb_then_answer_cited",
+      "origin": "ported",
+      "ported_from": "bfcl:multi-turn-base/kb-grounded-answer",
+      "category": "kb",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "根据知识库：知识库检索用的向量索引是什么类型、维度多少？回答请带上出处。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": ["kb_search"], "forbidden": ["web_search", "run_python", "kb_save"] },
+        "answer": { "must_include": ["1024"] }
+      }
+    },
+    {
+      "id": "bfcl_param_exact_memory_add",
+      "origin": "ported",
+      "ported_from": "bfcl:multi-turn-base/param-exactness",
+      "category": "memory",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "记住一件事：我的咖啡偏好是燕麦拿铁，不要糖。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": [], "forbidden": ["todo_add", "kb_save", "run_python"] },
+        "answer": { "must_include": ["燕麦拿铁"], "max_chars": 400 }
+      }
+    },
+    {
+      "id": "bfcl_error_recovery_rate_limit",
+      "origin": "ported",
+      "ported_from": "bfcl:multi-turn-base/error-recovery",
+      "category": "tools",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "搜一下今天有什么科技新闻。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": ["web_search"], "forbidden": ["todo_add", "kb_save", "run_python"] },
+        "answer": { "max_chars": 900 }
+      }
+    },
+    {
+      "id": "bfcl_no_hallucinated_tool_result",
+      "origin": "ported",
+      "ported_from": "bfcl:multi-turn-base/no-hallucinated-tool-result",
+      "category": "tools",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "不用工具，凭你自己的判断说说：React 和 Vue 的状态管理有什么主要区别？两三句话即可。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": [], "forbidden": ["web_search", "kb_search", "run_python", "mcp_call", "todo_add"] },
+        "answer": { "max_chars": 600 }
+      }
+    },
+    {
+      "id": "taubench_multi_turn_constraint_update",
+      "origin": "ported",
+      "ported_from": "taubench:retail/multi-turn-constraint-update",
+      "category": "todos",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "记两个待办：1、周二给供应商打电话；2、周四前把发票报销。" },
+        { "role": "user", "content": "等一下，第二条改一下：不是报销，是周四前把发票寄出去。旧的作废。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": ["todo_add"], "forbidden": ["kb_save", "run_python", "mcp_call", "create_reminder"] },
+        "judge": { "rubric": "grounded-v1", "threshold": 0.75 }
+      }
+    },
+    {
+      "id": "taubench_multi_turn_clarification",
+      "origin": "ported",
+      "ported_from": "taubench:retail/ask-clarification",
+      "category": "reminders",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "提醒我开会。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "forbidden": ["run_python", "mcp_call", "kb_save", "web_search"] },
+        "judge": { "rubric": "grounded-v1", "threshold": 0.75 }
+      }
+    },
+    {
+      "id": "taubench_multi_turn_cancel_within_session",
+      "origin": "ported",
+      "ported_from": "taubench:retirl/create-then-cancel",
+      "category": "reminders",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "提醒我今晚八点浇花。" },
+        { "role": "user", "content": "算了，不用提醒了，取消掉。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "required": [], "forbidden": ["run_python", "mcp_call", "kb_save", "web_search"] },
+        "judge": { "rubric": "grounded-v1", "threshold": 0.75 }
+      }
+    },
+    {
+      "id": "taubench_multi_turn_doc_then_summarize",
+      "origin": "ported",
+      "ported_from": "taubench:retail/multi-step-artifact",
+      "category": "docs",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "帮我起草一份三句话的项目周报：这周完成了评测框架，下周开始移植数据集，风险是栈不在线。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "forbidden": ["run_python", "mcp_call", "web_search"] },
+        "answer": { "must_include": ["评测"], "max_chars": 800 }
+      }
+    },
+    {
+      "id": "taubench_multi_turn_people_delegation_read",
+      "origin": "ported",
+      "ported_from": "taubench:retail/lookup-then-report",
+      "category": "people",
+      "kind": "chat",
+      "weight": 1,
+      "runs": 3,
+      "turns": [
+        { "role": "user", "content": "看看当前的人员目录和委派视图，告诉我有哪些人、各有什么待办在他们名下。" }
+      ],
+      "expect": {
+        "status": 200,
+        "tools": { "forbidden": ["run_python", "kb_save", "web_search"] },
         "judge": { "rubric": "grounded-v1", "threshold": 0.75 }
       }
     }
