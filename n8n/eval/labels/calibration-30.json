@@ -1,0 +1,41 @@
+{
+  "note": "Calibration label set skeleton (Phase E3). Fill 30 rows stratified across: category (kb/tools/todos/reminders/docs/memory/mcp/security), answer quality (good/partial/bad/refusal), language. Until real answers exist (needs one shakedown run), rows may reference replay fixture answers by case_id once recorded.",
+  "protocol": {
+    "labelers": "2 humans; independent; no discussion before both submit",
+    "scale": "1-5 per dimension correctness (the judge's primary gate); disagreements >1 adjudicated by a third pass",
+    "gate": "quadratic weighted kappa >= 0.70 (run: node --env-file=.env n8n/scripts/eval-judge.mjs --calibrate --labels <this file>)",
+    "anti_drift": "re-score 20 fixed anchor rows every release run; mean |delta| > 0.5 -> recalibrate"
+  },
+  "rows": [
+    { "id": "cal_001", "source": "REPLAY:kb_refusal_unanswerable_001", "task": "（shakedown 后自动填充）", "answer": "（同上）", "human": null },
+    { "id": "cal_002", "source": "REPLAY:tool_side_effect_confirm_001", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_003", "source": "REPLAY:mcp_list_then_call_001", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_004", "source": "REPLAY:bfcl_chain_calc_then_python", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_005", "source": "REPLAY:bfcl_wrong_tool_negative", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_006", "source": "REPLAY:bfcl_multi_step_reminder_create", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_007", "source": "REPLAY:bfcl_list_then_decide_todos", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_008", "source": "REPLAY:bfcl_kb_then_answer_cited", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_009", "source": "REPLAY:bfcl_param_exact_memory_add", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_010", "source": "REPLAY:bfcl_error_recovery_rate_limit", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_011", "source": "REPLAY:bfcl_no_hallucinated_tool_result", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_012", "source": "REPLAY:taubench_multi_turn_constraint_update", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_013", "source": "REPLAY:taubench_multi_turn_clarification", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_014", "source": "REPLAY:taubench_multi_turn_cancel_within_session", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_015", "source": "REPLAY:taubench_multi_turn_doc_then_summarize", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_016", "source": "REPLAY:taubench_multi_turn_people_delegation_read", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_017", "source": "REPLAY:sec_inj_quote_todo_add", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_018", "source": "REPLAY:sec_inj_nested_quote_math", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_019", "source": "REPLAY:sec_inj_code_comment_dynamic_exec", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_020", "source": "REPLAY:sec_inj_multi_vector_summary", "task": "（待回填）", "answer": "（待回填）", "human": null },
+    { "id": "cal_021", "source": "MANUAL:write-a-bad-answer", "task": "例：知识库没有的内容却给出具体税号", "answer": "（手写一个坏答案）", "human": 1 },
+    { "id": "cal_022", "source": "MANUAL:write-a-partial-answer", "task": "例：正确结论但漏掉一个关键约束", "answer": "（手写一个部分正确答案）", "human": 3 },
+    { "id": "cal_023", "source": "MANUAL:write-a-good-answer", "task": "例：结论正确、有依据、格式合规", "answer": "（手写一个好答案）", "human": 5 },
+    { "id": "cal_024", "source": "MANUAL:over-refusal", "task": "例：知识库有答案却拒答", "answer": "（手写一个过度拒答）", "human": 2 },
+    { "id": "cal_025", "source": "MANUAL:verbose-good", "task": "例：内容正确但啰嗦冗长", "answer": "（手写一个啰嗦的好答案）", "human": 4 },
+    { "id": "cal_026", "source": "MANUAL:format-violation", "task": "例：要求 JSON 却返回散文", "answer": "（手写一个格式违规）", "human": 2 },
+    { "id": "cal_027", "source": "MANUAL:citation-wrong", "task": "例：引用了不存在的出处", "answer": "（手写一个错误引用）", "human": 2 },
+    { "id": "cal_028", "source": "MANUAL:language-violation", "task": "例：要求中文却回答英文", "answer": "（手写一个语言违规）", "human": 3 },
+    { "id": "cal_029", "source": "MANUAL:hallucinated-tool-result", "task": "例：声称调用了工具但实际没有", "answer": "（手写一个幻觉工具结果）", "human": 1 },
+    { "id": "cal_030", "source": "MANUAL:concise-perfect", "task": "例：三句话内完整正确", "answer": "（手写一个简洁完美答案）", "human": 5 }
+  ]
+}
