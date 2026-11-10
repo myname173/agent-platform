@@ -1,7 +1,8 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
-verified_at: 2026-11-09
-verified_commit: f5060c5
+verified_at: 2026-11-10
+verified_commit: 342959a
+verified_scope: 评测分支基点 + 未提交接续工作树（§15）；其余架构仍沿用 f5060c5 核验口径，不表示全量重新核验
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
@@ -115,7 +116,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 |---|---|
 | `docker-compose.yml` | 唯一部署事实源：端口、依赖、环境变量、profile |
 | `.env.example` | 全部配置项与含义（196 行） |
-| `n8n/scripts/deploy.mjs` | workflow 部署规则 + 24 张数据表定义 |
+| `n8n/scripts/deploy.mjs` | workflow 部署规则 + 本评测分支 26 张数据表定义（含两张未部署 eval 表，见 §5.1） |
 | `n8n/workflows/chat-gateway.json` | 对话/鉴权/记忆/工具循环的全部逻辑 |
 | `frontent/src/lib/n8n-client.ts` | 控制台到 n8n / runtime 的所有服务端调用 |
 | `frontent/src/config/nav-config.ts` | 控制台真实导航（15 项） |
@@ -189,9 +190,9 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 - 镜像 `paradedb/paradedb:latest-pg17`，启动参数预加载 `pg_search,pg_cron`（`docker-compose.yml:156-164`；缺 `pg_cron` 会让全新卷启动失败，注释已记录）。
 - 卷名是 `postgres_data_pg17`（`docker-compose.yml:596-598`），旧卷 `postgres_data` 留作回滚（`README.md:127-129`）。
-- n8n Data Table **24 张**，定义在 `n8n/scripts/deploy.mjs:46-315`：
-  `chat_messages, chat_executions, admin_audit, idempotency_records, kb_usage, daily_briefs, workflow_tools, topic_watch, todos, people, projects, tool_contract, mcp_servers, sandbox_approvals, documents, weekly_reviews, selfcheck_runs, heartbeats, telegram_state, reminders, ops_alerts, ops_alert_silence, gateway_keys, agenda_runs`。
-- 实例上还会多出第 25 张 `cron_runs`（列 `job/period/ran_at/source`）：它**不在** `DATA_TABLE_COLUMNS` 里，是 `topic-watch` 与 `weekly-review` 的守卫节点在运行时「查不到就自己建」出来的，因此不受 `ensureColumns` 保护（`n8n/workflows/topic-watch.json` 的 `Already Ran Today` / `Mark Ran`）。
+- 此评测分支的 n8n Data Table 定义为 **26 张**（不是现网实存数量）：原 `n8n/scripts/deploy.mjs:46-315` 的 24 张，加 PR #8 在 320-353 行定义的 `eval_runs`（18 列）与 `eval_results`（12 列）。
+  原 24 张为 `chat_messages, chat_executions, admin_audit, idempotency_records, kb_usage, daily_briefs, workflow_tools, topic_watch, todos, people, projects, tool_contract, mcp_servers, sandbox_approvals, documents, weekly_reviews, selfcheck_runs, heartbeats, telegram_state, reminders, ops_alerts, ops_alert_silence, gateway_keys, agenda_runs`。2026-11-10 本机 API 只读核验两张 eval 表尚未部署，见 §15。
+- 实例上还可能有额外的 `cron_runs`（列 `job/period/ran_at/source`）：它**不在** `DATA_TABLE_COLUMNS` 里，是 `topic-watch` 与 `weekly-review` 的守卫节点在运行时「查不到就自己建」出来的，因此不受 `ensureColumns` 保护（`n8n/workflows/topic-watch.json` 的 `Already Ran Today` / `Mark Ran`）。
 - 另有 `platform` schema（`CREATE SCHEMA IF NOT EXISTS platform`，`n8n/scripts/platform-schema.sql:7`），runtime 使用 `platform.requests / platform.events / platform.tool_runs`（`platform-runtime/server.js:133-230`）。
 - `deploy.mjs` 只造 data table，**下面这些它一概不碰**，缺了得自己补：`vector` 扩展 + `kb_documents` / `kb_chunks`（`n8n/scripts/kb-schema.sql`，第一行就是 `CREATE EXTENSION IF NOT EXISTS vector`）、`ops_alerts`（`n8n/scripts/ops-schema.sql`）、`agent_memories`（`memory.json` 的 `ensureTable` 运行时自建，但它的 `embedding vector(1024)` 依赖上面那个扩展）、LobeHub 自己的 `lobechat` 库（由 LobeHub 容器首启时建，记忆镜像写它的 `user_memories`）。生产镜像 paradedb 自带 pgvector，`postgres:*-alpine` **不带**；本地用 alpine 镜像就必须自己补扩展，否则任何 `::vector` 都会让 Postgres 回错误响应，后果见 §9 第 13 条。
 
@@ -307,7 +308,7 @@ N8N_URL=... N8N_API_KEY=... node n8n/scripts/seed-projects.mjs apply   # 写入�
 | D1 | README 说「8 个服务」/「9 个容器」，实际常驻 **12** | `README.md:9,60,177` vs `docker-compose.yml` | 按 README 数容器会漏掉 redis / stream-bridge / runtime / caddy |
 | D2 | README 说 LobeChat 直接调 n8n；实际经 `stream-bridge` | `README.md:244-247` vs `docker-compose.yml:261,357` | 排查流式/工具问题会找错层 |
 | D3 | 工具数：README 写 12，网关实际 16；MCP 17 | `README.md:31-32` vs `n8n/workflows/chat-gateway.json`、`n8n/workflows/mcp-server.json` | 计数类断言不可信 |
-| D4 | 数据表：README 写 19，实际 24 | `README.md:51` vs `n8n/scripts/deploy.mjs:46-315` | 同上 |
+| D4 | 数据表：README 写 19，原 main 定义 24；本评测分支加两张 eval 表后为 26 | `README.md:51` vs `n8n/scripts/deploy.mjs:46-353` | 定义数不等于实例实存数，见 §5.1 |
 | D5 | smoke 断言数 README 内部矛盾（71 / 47） | `README.md:77` vs `README.md:1090-1093` | 以运行输出为准 |
 | D6 | 原 CI 用 `pnpm-lock.yaml`（仓库只有 `bun.lock`）→ 已修复并提交（`8400781`）：CI 改用 bun + `bun.lock`，bun 固定 1.4.4 | `.github/workflows/ci.yml:9-43` vs `frontent/bun.lock` | 修复前每个 PR 必红 |
 | D7 | `frontent/AGENTS.md` 过期：写 Next 16.0.10、ESLint/Prettier | `frontent/AGENTS.md` vs `frontent/package.json:15-19` | 按它选工具会装错；以本文件与 `frontent/package.json` 为准 |
@@ -343,7 +344,7 @@ find frontent/src/app/api -name route.ts | wc -l         # 28
 grep -rl "notFound()" frontent/src/app/dashboard --include=page.tsx | wc -l  # 16
 
 # 数据表
-grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 24
+grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 本评测分支 26，非现网表数
 
 # §3 的目录文件数：只数受版本控制的文件（构建产物如 tsconfig.tsbuildinfo 不算）
 for d in n8n frontent platform-runtime stream-bridge monitoring deploy scripts; do
@@ -402,3 +403,12 @@ OpenClaw 的 bootstrap 对标准文件是**无条件** `writeFileIfMissing`（`D
 `agents.list[].workspace`、`protectedWorkspaceRoots` 等属于 OpenClaw 的运行时配置：改之前先备份原文件，只改目标键，改完核对其他键未动。注意 `protectedWorkspaceRoots` 目前指向它的新 home，**仓库根已不在保护列表里**——若想保留这层护栏，应当**追加**仓库路径而不是替换。
 
 维护规则：任何结构变更（新增服务、workflow、route、数据表、环境变量）都应同步更新本文件对应章节，并更新 `verified_commit` 与 `verified_at`。
+
+## 15. 评测分支接续（2026-11-10，未部署）
+
+- 基点是 OpenClaw PR #8 的 `342959a`，接续分支 `fix/eval-readiness-20261110`。当前 26 条本地场景不是 60 条真实失败集；`ported_from` 是灵感标签，不是已核对的上游题目 ID，不能作为官方 BFCL/tau-bench/AgentDojo 成绩。
+- `eval-contract.mjs` 为 `eval-run.mjs`、`eval-gate.mjs` 共用的断言实现；缺 trace、空答案、未实现断言、缺失/过期/不全的回放全部失败。`--dry --runs 3` 为 78 attempts、84 次网关请求，上游模型调用数取决于工具循环。`pass_1`、`pass_k`（全部 k 次成功）、`pass_at_k`（至少一次成功）分开；未完成批次不产生可比较的基线指标。judge 与最终数据库状态验收仍未完成，`--deterministic-only` 只做 shakedown，不能得到 `release_ready=true`。
+- `eval-run --preflight` 只读。2026-11-10 本机健康端点在线，但两张 eval 表缺失、线上 Chat Stats API 尚无 eval 隔离。没有执行部署；全量 deploy 可能覆盖已存在的线上漂移，不要据此自动运行。live runner 要求显式 `--isolated-stack`，这是操作者确认，不会自动隔离数据；安全测试失败可能真执行创建/取消操作，不能拿共享业务库冒充 fixture。
+- `eval-mine.mjs` 用实际验证过的 `nextCursor` 分页，排除 eval 流量，按 trace/时间关联消息、明确截断与近似关联，输出不可覆盖同日人工标注。默认 `.eval-local/candidates`；runner 原始报告/回放同在 `.eval-local`，目录已 ignore，人工脱敏前不得提交。
+- CI 增加 `Eval offline contracts (not live acceptance)`，运行无密钥、无真实模型调用的正负回归；不是线上 26×3 已通过。回放仍需完整真实批次，不能造 fixture 让门禁绿。KB 的不可答题单列 pending，不混入检索分母；50 条 KB 查询也不能计入 26 条 Agent 场景来冒充凑齐 60。
+- 一次近三天只读挖矿已完成：2026-11-07 至 11-10 窗口内执行/消息/候选均为 0，扫描未截断；最新执行和消息仍为 11-02。零数据不是零失败。nightly 尚未安装，连续三天、60 条人工筛选、judge 真人校准、三批基线落库仍待验收。命令与边界见 `monitoring/README.md` 的 Evaluation foundation 节。

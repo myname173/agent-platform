@@ -1,112 +1,197 @@
 #!/usr/bin/env node
 /**
- * KB golden-set evaluation (KB-DESIGN v1.1 §7).
- * Runs INSIDE the n8n container (needs pg + DashScope key):
- *   docker cp n8n/eval/golden-set.json n8n:/tmp/golden-set.json
- *   docker exec n8n sh -c 'cd /usr/local/lib/node_modules/n8n && \
- *     NODE_PATH=/usr/local/lib/node_modules/n8n/node_modules \
- *     node --no-warnings /usr/local/lib/node_modules/n8n/scripts/kb-eval.mjs'
- * Metrics: hit@5 and MRR over the golden cases (retrieval relevance,
- * the first of the four RAG evaluation dimensions).
+ * Frozen-corpus retrieval regression: 5 docs, 40 answerable + 10 refusal cases.
+ * These texts are NOT a statement of current production architecture.
+ * New gate: hit@1 >=0.80 over ANSWERABLE cases only. hit@5 is diagnostic
+ * (returning all 5 docs makes it trivial); MRR is retained over the top 5.
+ * Refusal cases are pending/not tested: no answer generation or refusal metric.
+ *
+ * Live use requires --isolated-stack, an explicit operator confirmation that
+ * DB/embedding settings target a disposable test environment, not shared KB.
+ * This flag is a confirmation, not automatic isolation/provisioning.
+ * pg is loaded only inside main; imports and pure metric tests require no pg.
+ * No .env is loaded. Reports default to the project root .eval-local/judge.
  */
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
-import pgPkg from 'pg';
-const { Client } = pgPkg;
 
-const GS = process.env.KB_GOLDEN || '/tmp/golden-set.json';
+export const HIT_AT_1_THRESHOLD = 0.80;
+const PROJECT_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding';
+const isText = (value) => typeof value === 'string' && value.trim().length > 0;
+const round = (value) => Number(value.toFixed(3));
 
-(async () => {
-  const key = (process["e" + "nv"]["DASH" + "SCOPE_API" + "_KEY"] || '').trim();
-  const gs = JSON.parse(fs.readFileSync(GS, 'utf8'));
-  const pg = new Client({
-    host: process.env.DB_POSTGRESDB_HOST || 'postgres',
-    port: Number(process.env.DB_POSTGRESDB_PORT || 5432),
-    database: process.env.DB_POSTGRESDB_DATABASE || 'n8n',
-    user: process.env.DB_POSTGRESDB_USER || 'n8n',
-    password: process.env.DB_POSTGRESDB_PASSWORD,
+function acceptedTitles(row) {
+  if (!isText(row?.q)) throw new Error('every case requires a nonempty question');
+  if (row.expect_title === null) return null;
+  if (!isText(row.expect_title)) throw new Error('expect_title must be a nonempty title or explicit null');
+  if (row.accept_titles !== undefined && (!Array.isArray(row.accept_titles) || !row.accept_titles.length || !row.accept_titles.every(isText))) {
+    throw new Error('accept_titles must be a nonempty array of titles');
+  }
+  return [...new Set([row.expect_title, ...(row.accept_titles ?? [])])];
+}
+
+/** Pure metrics. rankings[i] is the retrieved title list; null rows need no ranking. */
+export function evaluateRetrieval(cases, rankings) {
+  if (!Array.isArray(cases) || !cases.length || !Array.isArray(rankings) || rankings.length !== cases.length) {
+    throw new Error('nonempty cases and aligned rankings required');
+  }
+  let answerable = 0;
+  let hit1 = 0;
+  let hit5 = 0;
+  let reciprocalRanks = 0;
+  const detail = cases.map((row, i) => {
+    const accepted = acceptedTitles(row);
+    if (accepted === null) return { q: row.q, status: 'pending', evaluation: 'refusal', reason: 'answer/refusal not tested' };
+    const ranking = rankings[i];
+    if (!Array.isArray(ranking) || !ranking.every(isText)) throw new Error(`missing or invalid retrieval ranking at case ${i}`);
+    answerable++;
+    const index = ranking.slice(0, 5).findIndex((title) => accepted.includes(title));
+    const rank = index < 0 ? null : index + 1;
+    if (rank === 1) hit1++;
+    if (rank !== null) { hit5++; reciprocalRanks += 1 / rank; }
+    return { q: row.q, status: 'tested', evaluation: 'retrieval', hit_at_1: rank === 1 ? 1 : 0, hit_at_5: rank !== null ? 1 : 0, rank, top1: ranking[0] ?? null };
   });
-  await pg.connect();
-
-  const embed = async (text, type) => {
-    const resp = await fetch(DASHSCOPE_URL, {
-      method: 'POST',
-      headers: { Authorization: ['Bear', 'er'].join('') + ' ' + key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'qwen3.7-text-embedding-flash',
-        input: { texts: [text] },
-        parameters: {
-          dimension: 1024,
-          text_type: type,
-          output_type: 'dense',
-          ...(type === 'query' ? { instruct: 'Given a user question about internal documents, retrieve the most relevant passages' } : {}),
-        },
-      }),
-    });
-    if (!resp.ok) throw new Error('embed failed: ' + resp.status + ' ' + (await resp.text()).slice(0, 150));
-    return (await resp.json()).output.embeddings[0].embedding;
+  if (answerable === 0) throw new Error('at least one answerable retrieval case required');
+  return {
+    cases: cases.length,
+    answerable_cases: answerable,
+    retrieval_tested: answerable,
+    refusal: { status: 'pending', cases: cases.length - answerable, tested: 0, correctness: null, reason: 'No answer generation/refusal evaluation performed' },
+    hit_at_1: round(hit1 / answerable),
+    hit_at_5: round(hit5 / answerable),
+    mrr: round(reciprocalRanks / answerable),
+    gate: {
+      metric: 'hit_at_1', threshold: HIT_AT_1_THRESHOLD,
+      status: hit1 / answerable >= HIT_AT_1_THRESHOLD ? 'PASS' : 'FAIL',
+    },
+    metric_note: 'hit@1 >=0.80 is the new retrieval gate; hit@5 is diagnostic only (5-document corpus); MRR uses top-5 ranks. Null expectations are excluded from all retrieval denominators.',
+    scope: 'Frozen-corpus retrieval regression only, not current platform architecture, answer correctness, or refusal capability.',
+    detail,
   };
+}
 
-  // ensure the golden docs are ingested (idempotent by content)
+export function validateGoldenSet(gs) {
+  if (!Array.isArray(gs?.docs) || !gs.docs.length || !Array.isArray(gs.cases) || !gs.cases.length) throw new Error('nonempty golden docs and cases required');
+  const titles = new Set();
   for (const doc of gs.docs) {
-    const sha = createHash('sha256').update(doc.text).digest('hex');
-    const docId = 'kb-' + sha.slice(0, 16);
-    const exists = await pg.query('SELECT content_sha FROM kb_documents WHERE doc_id = $1', [docId]);
-    if (exists.rows.length && exists.rows[0].content_sha === sha) continue;
-    console.log('ingesting golden doc:', doc.title);
-    const chunks = [doc.text]; // short docs: single chunk
-    const embs = [await embed(doc.text, 'document')];
-    await pg.query('BEGIN');
-    await pg.query(
-      `INSERT INTO kb_documents (doc_id, title, source_type, source_ref, content_sha, status)
-       VALUES ($1,$2,'text','golden-set',$3,'active')
-       ON CONFLICT (doc_id) DO UPDATE SET status='active', updated_at=now()`,
-      [docId, doc.title, sha]
-    );
-    await pg.query('DELETE FROM kb_chunks WHERE doc_id = $1', [docId]);
-    for (let i = 0; i < chunks.length; i++) {
-      await pg.query(
-        `INSERT INTO kb_chunks (doc_id, seq, content, embedding) VALUES ($1,$2,$3,$4::vector)`,
-        [docId, i, chunks[i], '[' + embs[i].join(',') + ']']
-      );
-    }
-    await pg.query('COMMIT');
+    if (!isText(doc?.title) || !isText(doc?.text) || titles.has(doc.title)) throw new Error('golden docs require unique nonempty titles and nonempty text');
+    titles.add(doc.title);
   }
+  let answerable = 0;
+  for (const row of gs.cases) {
+    const accepted = acceptedTitles(row);
+    if (accepted === null) continue;
+    answerable++;
+    if (accepted.some((title) => !titles.has(title))) throw new Error('expected titles must exist in the frozen corpus');
+  }
+  if (!answerable) throw new Error('at least one answerable retrieval case required');
+  return gs;
+}
 
-  // run the cases
-  let mrrSum = 0;
-  let hits = 0;
-  const detail = [];
-  for (const c of gs.cases) {
-    const vec = await embed(c.q, 'query');
-    const r = await pg.query(
-      `SELECT d.title, 1 - (c.embedding <=> $1::vector) AS score
-         FROM kb_chunks c JOIN kb_documents d ON d.doc_id = c.doc_id
-        WHERE d.status = 'active'
-        ORDER BY c.embedding <=> $1::vector LIMIT 5`,
-      ['[' + vec.join(',') + ']']
-    );
-    const accepted = c.accept_titles || [c.expect_title];
-    const rank = r.rows.findIndex((x) => accepted.includes(x.title));
-    const hit = rank >= 0 ? 1 : 0;
-    hits += hit;
-    mrrSum += rank >= 0 ? 1 / (rank + 1) : 0;
-    detail.push({ q: c.q, hit, rank: rank >= 0 ? rank + 1 : null, top1: r.rows[0]?.title || null });
-    console.log((hit ? 'HIT ' : 'MISS') + (rank >= 0 ? '@' + (rank + 1) : '   '), '|', c.q.slice(0, 40), '| top1:', r.rows[0]?.title || '—');
+export async function main(argv = process.argv.slice(2), { env = process.env, log = console.log, error = console.error } = {}) {
+  // MUST run before reading any config/input, loading pg, connecting, or embedding.
+  if (argv.length !== 1 || argv[0] !== '--isolated-stack') {
+    error('SETUP ERROR: live KB evaluation requires explicit --isolated-stack confirmation of a disposable test environment; it writes KB data and consumes embeddings. Shared KB must not be used.');
+    return 2;
   }
-  const report = {
-    cases: gs.cases.length,
-    hit_at_5: Number((hits / gs.cases.length).toFixed(3)),
-    mrr: Number((mrrSum / gs.cases.length).toFixed(3)),
-    ran_at: new Date().toISOString(),
-  };
-  console.log('\n=== KB EVAL REPORT ===');
-  console.log(JSON.stringify(report, null, 1));
-  fs.writeFileSync('/tmp/kb-eval-report.json', JSON.stringify({ ...report, detail }, null, 1));
-  await pg.end();
-  if (report.hit_at_5 < 0.8) {
-    console.error('hit@5 below 0.8 threshold');
-    process.exit(1);
+  let pg;
+  try {
+    const key = (env.DASHSCOPE_API_KEY || '').trim();
+    if (!key) { error('SETUP ERROR: DASHSCOPE_API_KEY required for isolated-stack evaluation'); return 2; }
+    const gs = validateGoldenSet(JSON.parse(fs.readFileSync(env.KB_GOLDEN || '/tmp/golden-set.json', 'utf8')));
+    const { Client } = createRequire(import.meta.url)('pg');
+    pg = new Client({
+      host: env.DB_POSTGRESDB_HOST || 'postgres',
+      port: Number(env.DB_POSTGRESDB_PORT || 5432),
+      database: env.DB_POSTGRESDB_DATABASE || 'n8n',
+      user: env.DB_POSTGRESDB_USER || 'n8n',
+      password: env.DB_POSTGRESDB_PASSWORD,
+    });
+    await pg.connect();
+    const embed = async (text, type) => {
+      const resp = await fetch(DASHSCOPE_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'qwen3.7-text-embedding-flash',
+          input: { texts: [text] },
+          parameters: {
+            dimension: 1024, text_type: type, output_type: 'dense',
+            ...(type === 'query' ? { instruct: 'Given a user question about internal documents, retrieve the most relevant passages' } : {}),
+          },
+        }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!resp.ok) throw new Error(`embed failed: HTTP ${resp.status}`);
+      const embedding = (await resp.json()).output?.embeddings?.[0]?.embedding;
+      if (!Array.isArray(embedding) || embedding.length !== 1024 || !embedding.every(Number.isFinite)) throw new Error('invalid embedding response');
+      return '[' + embedding.join(',') + ']';
+    };
+
+    const docIds = [];
+    for (const doc of gs.docs) {
+      const sha = createHash('sha256').update(doc.text).digest('hex');
+      const docId = 'kb-' + sha.slice(0, 16);
+      docIds.push(docId);
+      const exists = await pg.query('SELECT content_sha FROM kb_documents WHERE doc_id = $1', [docId]);
+      if (exists.rows.length && exists.rows[0].content_sha === sha) continue;
+      log('ingesting frozen doc:', doc.title);
+      const embedding = await embed(doc.text, 'document');
+      await pg.query('BEGIN');
+      try {
+        await pg.query(
+          `INSERT INTO kb_documents (doc_id, title, source_type, source_ref, content_sha, status)
+           VALUES ($1,$2,'text','golden-set',$3,'active')
+           ON CONFLICT (doc_id) DO UPDATE SET status='active', updated_at=now()`,
+          [docId, doc.title, sha],
+        );
+        await pg.query('DELETE FROM kb_chunks WHERE doc_id = $1', [docId]);
+        await pg.query('INSERT INTO kb_chunks (doc_id, seq, content, embedding) VALUES ($1,0,$2,$3::vector)', [docId, doc.text, embedding]);
+        await pg.query('COMMIT');
+      } catch (cause) {
+        await pg.query('ROLLBACK');
+        throw cause;
+      }
+    }
+
+    const rankings = [];
+    for (const [index, row] of gs.cases.entries()) {
+      if (row.expect_title === null) {
+        rankings.push(null);
+        log(`PENDING refusal case ${index + 1}: not tested`);
+        continue; // No embedding/retrieval: that cannot test answer refusal.
+      }
+      const vector = await embed(row.q, 'query');
+      const result = await pg.query(
+        `SELECT d.title, 1 - (c.embedding <=> $1::vector) AS score
+           FROM kb_chunks c JOIN kb_documents d ON d.doc_id = c.doc_id
+          WHERE d.status = 'active' AND d.doc_id = ANY($2::text[])
+          ORDER BY c.embedding <=> $1::vector LIMIT 5`,
+        [vector, docIds],
+      );
+      rankings.push(result.rows.map((r) => r.title));
+      log(`TESTED retrieval case ${index + 1}`);
+    }
+    const report = { ...evaluateRetrieval(gs.cases, rankings), ran_at: new Date().toISOString() };
+    const { detail, ...summary } = report;
+    log(JSON.stringify(summary, null, 2));
+    const outFile = path.join(PROJECT_ROOT, '.eval-local', 'judge', `kb-${Date.now().toString(36)}.json`);
+    fs.mkdirSync(path.dirname(outFile), { recursive: true });
+    fs.writeFileSync(outFile, JSON.stringify(report, null, 2) + '\n');
+    log(`saved -> ${outFile}`);
+    return report.gate.status === 'PASS' ? 0 : 1;
+  } catch (cause) {
+    error('EVAL FAILED:', cause.message);
+    return 1;
+  } finally {
+    if (pg) await pg.end();
   }
-})().catch((e) => { console.error('EVAL FAILED:', e.message); process.exit(1); });
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = await main();
+}

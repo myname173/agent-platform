@@ -1,7 +1,7 @@
 {
   "suite": "quality-v1",
-  "version": "0.1.0-ported+boundary",
-  "note": "3 boundary seeds + 15 ported cases (BFCL-style tool-chain state assertions x10, tau-bench-style multi-turn x5). Grows to 60 via trace mining (25) after nightly data accumulates. BFCL insight adopted: assert FINAL STATE (which tools ran, with what args, what rows exist), not final prose. tau-bench insight adopted: multi-turn with evolving constraints; user role only, no fake system personas.",
+  "version": "0.2.0-contract-correction",
+  "note": "16 locally authored scenarios: 3 boundary seeds + 8 BFCL-inspired + 5 tau-bench-inspired. ported_from contains local inspiration labels, NOT verified upstream example IDs; results are not official benchmark scores. Current assertions cover observed tool calls, argument substrings and answer text, NOT final database state, injected rate limits or durable memory. Only 2 scenarios currently have multiple user turns; the runner executes each with real assistant history. Full release acceptance additionally requires calibrated judging and isolated state fixtures. Together with 10 security cases this is 26, not 60; the remaining 34 require reviewed evidence, not synthetic count padding.",
   "cases": [
     {
       "id": "kb_refusal_unanswerable_001",
