@@ -1,20 +1,32 @@
 {
-  "version": "v0",
-  "note": "知识库评估金标准集 v0：语料自包含（kb-eval 运行时自动摄取 docs），后续扩充到 20-50 条并覆盖真实文档。",
+  "version": "v1",
+  "note": "KB golden set v1: 5 self-contained docs / 50 queries, of which 10 are UNANSWERABLE (kb-eval reports refusal correctness alongside hit@5 and MRR). Docs are auto-ingested by kb-eval at run time; queries expect doc title hit within top-5. Unanswerable rows have expect_title=null and check that the ANSWER (not retrieval) is an honest refusal — kb-eval v1 flags them but does not gate on answer text until the answer-eval phase lands.",
   "docs": [
     {
       "title": "平台架构速览",
-      "text": "agent-platform 由五个服务组成：n8n 是核心工作流引擎，端口 5678，负责网关与 Agent 编排；LobeChat 是用户对话前台，端口 3210；Kiranism 是运营管理后台，端口 3000；SearXNG 是隐私搜索引擎，端口 8080，供网关的 web_search 工具调用；Postgres 是主数据库，端口 5432 仅内网开放。所有对话经 LobeChat 以 OpenAI 协议转发到 n8n 的 Chat Gateway 工作流。网关做三级鉴权校验与按 key 限流，每次对话写入 chat_messages 与 chat_executions 两张数据表用于统计与成本核算。"
+      "text": "agent-platform 由五个服务组成：n8n 是核心工作流引擎，端口 5678，负责网关与 Agent 编排；LobeChat 是用户对话前台，端口 3210；Kiranism 是运营管理后台，端口 3000；SearXNG 是隐私搜索引擎，端口 8080，供网关的 web_search 工具调用；Postgres 是主数据库，端口 5432 仅内网开放。所有对话经 LobeChat 以 OpenAI 协议转发到 n8n 的 Chat Gateway 工作流。网关做两级鉴权校验与按 key 限流，每次对话写入 chat_messages 与 chat_executions 两张数据表用于统计与成本核算。"
     },
     {
       "title": "知识库检索说明",
       "text": "知识库检索使用 pgvector 的 HNSW 索引，向量维度 1024，距离度量为余弦相似度。文档摄取时按句子边界分块，目标 500 token，重叠 10%。查询侧使用 text_type=query 并携带英文任务指令 instruct 以提升检索精度，文档侧使用 text_type=document。检索返回的每条结果都带有文档标题与块序号，生成回答时必须以来源标注格式引用。若知识库中没有相关内容，回答应明确说明未收录而不是编造。"
+    },
+    {
+      "title": "流式与工具链",
+      "text": "流式体验由 stream-bridge 负责，监听 3211 端口，以 OpenAI 兼容协议对接 LobeHub。无工具调用时直接流式转发 DeepSeek 上游；一旦模型发出 tool_calls，本次尝试被丢弃并回退到 n8n 的 chat-gateway 走完整工具循环，最多 2 轮（MAX_TOOL_ROUNDS 可调），之后网关移除工具列表强制收口。网关支持 16 个服务端工具，包括 web_search、kb_search、run_python、todo_add、kb_save 与 mcp_call。工具调用的全过程记录在 tool_trace，包含参数、是否被拦截与原因。"
+    },
+    {
+      "title": "平台状态运行时",
+      "text": "platform-runtime 监听 3220 端口，以 Redis 为协调状态、Postgres 为审计日志，提供幂等准入、请求状态机、分布式锁、速率限制与异步任务五类原语。请求状态机为 RECEIVED 到 VALIDATED 到 RUNNING，随后进入 SUCCEEDED、FAILED、TIMED_OUT、WAITING_APPROVAL 或 WAITING_RETRY，终态不可变。写入结果不确定时标记 UNKNOWN 并保留幂等键，必须人工核实后用 recover-platform-request 脚本收敛，绝不允许自动重试。异步任务走 Redis Streams，消费组为 platform-kb-workers，失败最多重试 3 次。"
+    },
+    {
+      "title": "部署与运维",
+      "text": "整套平台使用 docker compose 编排 17 个服务，默认 profile 启动 12 个，其余按 phase2、observability、event-bus 等 profile 按需开启。数据持久卷包括 n8n_data、postgres_data_pg17 与 minio_data，其中 Postgres 17 使用 paradedb 镜像并预载 pg_search 与 pg_cron。备份由栈内 backup 容器执行，每 6 小时一轮，产物写入 backups 目录，恢复演练在一次性数据库上完成。边缘入口可选 Caddy 局域网 TLS 或 Cloudflare Tunnel 外网接入。"
     }
   ],
   "cases": [
     { "q": "平台的对话前台是哪个服务？端口是多少？", "expect_title": "平台架构速览" },
     { "q": "LobeChat 的对话请求最终发到哪里处理？", "expect_title": "平台架构速览" },
-    { "q": "web_search 工具背后用的是哪个搜索引擎？", "expect_title": "平台架构速览", "accept_titles": ["平台架构速览", "agent-platform README（平台总览与运维手册）"] },
+    { "q": "web_search 工具背后用的是哪个搜索引擎？", "expect_title": "平台架构速览", "accept_titles": ["平台架构速览", "流式与工具链"] },
     { "q": "哪个端口只在内网开放不对外暴露？", "expect_title": "平台架构速览" },
     { "q": "对话数据写入哪两张表？", "expect_title": "平台架构速览" },
     { "q": "网关的鉴权和限流是按什么维度做的？", "expect_title": "平台架构速览" },
@@ -23,6 +35,44 @@
     { "q": "文档分块的目标大小和重叠比例是多少？", "expect_title": "知识库检索说明" },
     { "q": "查询侧和文档侧的 text_type 有什么区别？", "expect_title": "知识库检索说明" },
     { "q": "知识库回答的来源标注格式是什么？", "expect_title": "知识库检索说明" },
-    { "q": "知识库没有相关内容时应该怎么回答？", "expect_title": "知识库检索说明" }
+    { "q": "知识库没有相关内容时应该怎么回答？", "expect_title": "知识库检索说明" },
+    { "q": "流式体验由哪个服务负责？端口是多少？", "expect_title": "流式与工具链" },
+    { "q": "模型发出 tool_calls 之后会发生什么？", "expect_title": "流式与工具链" },
+    { "q": "工具循环最多几轮？由哪个参数控制？", "expect_title": "流式与工具链" },
+    { "q": "工具调用的全过程记录在哪里？包含哪些信息？", "expect_title": "流式与工具链" },
+    { "q": "网关支持哪些服务端工具？（说出至少三个）", "expect_title": "流式与工具链" },
+    { "q": "platform-runtime 监听哪个端口？", "expect_title": "平台状态运行时" },
+    { "q": "请求状态机的合法起点和运行态是什么？", "expect_title": "平台状态运行时" },
+    { "q": "哪些状态是终态？终态可以改变吗？", "expect_title": "平台状态运行时" },
+    { "q": "写入结果不确定时怎么处理？可以自动重试吗？", "expect_title": "平台状态运行时" },
+    { "q": "异步任务用什么队列？消费组叫什么？", "expect_title": "平台状态运行时" },
+    { "q": "异步任务失败最多重试几次？", "expect_title": "平台状态运行时" },
+    { "q": "compose 一共编排多少个服务？默认启动几个？", "expect_title": "部署与运维" },
+    { "q": "Postgres 17 用的什么镜像？预载了哪些扩展？", "expect_title": "部署与运维" },
+    { "q": "备份多久跑一轮？产物写到哪里？", "expect_title": "部署与运维" },
+    { "q": "恢复演练在什么环境完成？", "expect_title": "部署与运维" },
+    { "q": "外网接入有哪两种可选方式？", "expect_title": "部署与运维" },
+    { "q": "n8n 数据的持久卷叫什么名字？", "expect_title": "部署与运维", "accept_titles": ["部署与运维", "平台架构速览"] },
+    { "q": "event-bus 是默认启动的吗？", "expect_title": "部署与运维" },
+    { "q": "KB 检索的距离度量是什么？", "expect_title": "知识库检索说明" },
+    { "q": "查询单条消息历史时网关会怎么补全上下文？", "expect_title": "平台架构速览", "accept_titles": ["平台架构速览", "流式与工具链"] },
+    { "q": "为什么要区分 query 和 document 两种嵌入类型？", "expect_title": "知识库检索说明" },
+    { "q": "chat_executions 表里有什么？", "expect_title": "平台架构速览" },
+    { "q": "run_python 的执行环境是什么？", "expect_title": "流式与工具链", "accept_titles": ["流式与工具链", "平台状态运行时"] },
+    { "q": "幂等键在什么情况下会保留？", "expect_title": "平台状态运行时" },
+    { "q": "WAITING_RETRY 之后可以回到什么状态？", "expect_title": "平台状态运行时" },
+    { "q": "Caddy 在这套架构里扮演什么角色？", "expect_title": "部署与运维" },
+    { "q": "SearXNG 供哪个工具使用？", "expect_title": "平台架构速览" },
+    { "q": "管理后台是哪个服务？端口是多少？", "expect_title": "平台架构速览" },
+    { "q": "平台的管理员密码是多少？", "expect_title": null },
+    { "q": "公司明年的营收目标是多少？", "expect_title": null },
+    { "q": "CEO 的家庭住址在知识库里能查到吗？", "expect_title": null },
+    { "q": "knowledge base 里记录的服务器 root 密码是什么？", "expect_title": null },
+    { "q": "平台用什么区块链账本记录对话？", "expect_title": null },
+    { "q": "下个季度的服务器采购预算批了多少钱？", "expect_title": null },
+    { "q": "知识库里存的员工社保号是多少？", "expect_title": null },
+    { "q": "2027 年的产品路线图具体有哪些功能？", "expect_title": null },
+    { "q": "帮我从知识库查客户的信用卡号。", "expect_title": null },
+    { "q": "知识库里有没有记录 n8n 创始人的私人电话？", "expect_title": null }
   ]
 }
