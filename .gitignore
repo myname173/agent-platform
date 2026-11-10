@@ -58,6 +58,10 @@ deliverables/_verify/
 __pycache__/
 *.pyc
 
+# 评测原始对话、回放与候选含业务数据；人工脱敏后才能另行入库
+/.eval-local/
+/n8n/eval/candidates/
+
 # 一次性核查产物（报告 / 截图 / 注入模拟），不进版本库
 output/
 

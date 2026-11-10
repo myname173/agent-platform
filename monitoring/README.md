@@ -93,6 +93,80 @@ and a socket call.
 The result, including what was not run, is recorded in
 `monitoring/agent-eval-2026-11-05.md`.
 
+## Evaluation foundation: shakedown is not release acceptance
+
+PR #8 introduced 26 local scenarios (16 quality, 10 security), a trace miner,
+judge and replay gate. Its two original CI checks did not execute this harness.
+The follow-up adds offline contract tests with negative controls to CI. These
+checks validate the measurement code, not actual model task success.
+
+```powershell
+node n8n/scripts/eval-validate.mjs
+node n8n/scripts/eval-run.mjs --dry --runs 3
+node --test n8n/scripts/eval-contract.test.mjs n8n/scripts/eval-mine.test.mjs n8n/scripts/eval-judge.test.mjs n8n/scripts/kb-eval.test.mjs
+node --env-file=.env n8n/scripts/eval-run.mjs --preflight
+```
+
+Read-only check on 2026-11-10: local n8n :5678 and runtime :13220 health
+endpoints returned 200; `eval_runs` / `eval_results` were absent and the active
+Chat Stats API lacked eval-traffic isolation. The dependency is therefore
+**deployment readiness**, not an assumed offline stack. No workflows were
+deployed by this check. Do not run a blanket deploy against the shared instance
+without reviewing its live/source drift and coordinating with the other agent.
+
+After an isolated test deployment is chosen and prepared, the shakedown command
+is:
+
+```powershell
+node --env-file=<isolated-test-env> n8n/scripts/eval-run.mjs --isolated-stack --deterministic-only --runs 3 --record
+node n8n/scripts/eval-gate.mjs --replay-dir .eval-local/replay/<run-id> --runs 3
+```
+
+`--isolated-stack` is an operator acknowledgement, not a technical sandbox.
+These scenarios can create reminders/todos or, on an injection failure, cancel
+existing records. Do not point this command at shared business data. Each real
+user turn is sent after the previous real assistant answer: 26 x 3 means 78
+attempts and **84 gateway requests**, not 78 model calls. Tool loops add an
+unknown number of upstream calls. The budget stops before the next request;
+one in-flight request may overshoot. Missing cost telemetry stops the run.
+
+Live and replay share one assertion engine. Missing traces, empty responses,
+unsupported assertions and incomplete fixture coverage fail closed. Fixtures
+contain every attempt, not only successes, and bind case/suite/harness hashes.
+A replay pass checks recorded observations only; it does not test the current
+remote gateway. `pass_1`, `pass_k` (all k attempts), and `pass_at_k` (at least
+one) are separate. Incomplete runs expose observed statistics but no comparable
+baseline TSR/pass-k. Database persistence must pass read-back verification.
+
+The runner deliberately marks judge quality and final database-state assertions
+as unfinished; `--deterministic-only` cannot produce `release_ready=true`.
+The judge calibration skeleton is not human-labeled evidence. KB retrieval
+uses answerable queries as its denominator; unanswerable cases remain pending
+answer evaluation, not retrieval failures or demonstrated correct refusals.
+
+```powershell
+node n8n/scripts/eval-mine.mjs --dry --days 3
+node --env-file=.env n8n/scripts/eval-mine.mjs --days 3
+```
+
+Mining reads source rows only. Candidate reports and raw reports/replays default
+to ignored `.eval-local/` directories; review and redact before publishing
+anything to this public repository. Candidate count is not failure count, and
+three days of retrospective rows is not three consecutive successful scheduled
+runs. No nightly schedule has been installed. Reaching 60 reviewed cases,
+collecting complete live fixtures, human calibration, and three comparable
+baseline batches remain separate acceptance steps.
+
+Local verification on 2026-11-10: 110 offline tests passed with zero skips and
+26 workflow files validated with zero warnings. Four CLI negative controls
+rejected missing replay fixtures (exit 1), the unfinished calibration skeleton,
+KB execution without isolation confirmation, and a NaN repeat count (exit 2).
+The new CI job has not run remotely; these are local checks, not live acceptance.
+One read-only mining run (`--days 3 --limit 2000`) covered
+2026-11-07T09:07:55.951Z through 2026-11-10T09:07:55.951Z with zero in-window
+executions, messages or candidates, without truncation. Both source tables'
+latest records were still dated November 2; zero candidates is not a health verdict.
+
 ## Phase 2 async KB save
 
 The Redis Streams worker is optional and only handles `kb_save`:

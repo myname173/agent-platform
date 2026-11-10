@@ -58,3 +58,20 @@ jobs:
       # Integration smoke tests need a live n8n with owner-created API keys,
       # which cannot be bootstrapped headlessly. Run them post-deploy instead:
       #   N8N_URL=… CHAT_API_KEY=… node n8n/scripts/smoke-test.mjs
+
+  eval-contract-tests:
+    name: Eval offline contracts (not live acceptance)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check suites and plan without model calls
+        run: |
+          node n8n/scripts/eval-validate.mjs
+          node n8n/scripts/eval-run.mjs --dry --runs 3
+      - name: Test graders, replay, mining and retrieval with negative controls
+        run: node --test n8n/scripts/eval-contract.test.mjs n8n/scripts/eval-mine.test.mjs n8n/scripts/eval-judge.test.mjs n8n/scripts/kb-eval.test.mjs
+      # Real replay is a separate gate until a complete, manually scrubbed
+      # fixture batch is available. Offline green is not shakedown acceptance.
