@@ -1,0 +1,22 @@
+# Drill-only: raise the gateway admission budgets so the elastic load
+# generator is bounded by cluster capacity, not by the P1 limiter. The
+# production/pilot values (30 rpm / burst 10 / 4 in-flight) stay untouched
+# in phase3-pilot; admission enforcement at those defaults was already
+# verified in monitoring/sandbox-admission-2026-11-12.md.
+# env lists merge by name, so only these three keys change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-sandbox-gateway
+spec:
+  template:
+    spec:
+      containers:
+        - name: gateway
+          env:
+            - name: SANDBOX_RATE_RPM
+              value: "6000"
+            - name: SANDBOX_RATE_BURST
+              value: "1000"
+            - name: SANDBOX_MAX_INFLIGHT
+              value: "30"

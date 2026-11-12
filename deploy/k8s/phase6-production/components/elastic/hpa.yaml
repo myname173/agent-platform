@@ -1,0 +1,63 @@
+# CPU-utilization HPAs for the stateless boundary.
+#
+# Metric choice caveat (read before tuning): both services are I/O-bound at
+# idle — the worker blocks on Redis reads, the gateway spends most of a
+# request waiting on Job pods. CPU utilization therefore understates real
+# load; a request-rate or queue-depth metric (custom/external metrics via
+# prometheus-adapter) is the production follow-up, not part of this component.
+# The kind elastic drill raises admission limits and drives enough parallel
+# /run traffic to make CPU move, which verifies the scaling mechanism.
+#
+# Budgets: gateway maxReplicas 4 because admission state is per replica —
+# cluster-wide in-flight capacity = replicas x SANDBOX_MAX_INFLIGHT, and kind
+# worker nodes must also host the sandbox Job pods. Worker maxReplicas 6 is
+# a placeholder budget for the target cluster, not a measured capacity.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: platform-worker
+  labels:
+    app.kubernetes.io/name: platform-worker
+    app.kubernetes.io/part-of: agent-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: platform-worker
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: platform-sandbox-gateway
+  labels:
+    app.kubernetes.io/name: platform-sandbox-gateway
+    app.kubernetes.io/part-of: agent-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: platform-sandbox-gateway
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300

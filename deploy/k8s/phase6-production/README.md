@@ -35,6 +35,37 @@ drain behavior, anti-affinity spread) lives in `../phase6-kind`: a disposable
 operator-run drill script. It is a local verification environment, not a
 production deployment, and it does not change the stateful ownership decision.
 
+## Opt-in elasticity component (P3)
+
+`components/elastic` is a Kustomize **Component**: the base render above stays
+static-two-replica, and a root kustomization opts in via `components:`. When
+consumed it:
+
+- adds two `autoscaling/v2` HPAs — worker `min 2 / max 6`, gateway
+  `min 2 / max 4`, both CPU Utilization target 70% with a 300s scale-down
+  stabilization window;
+- deletes `spec.replicas` from both Deployments (strategic-merge `null`), so
+  the HPA owns the replica count. Re-applying the static base while the HPAs
+  are alive would fight them over replicas — delete the HPAs first.
+
+Prerequisite: a working metrics-server (`metrics.k8s.io` API). Without it the
+HPAs report `<unknown>` targets and do not scale.
+
+Budget rationale: gateway `maxReplicas: 4` because admission state is per
+replica — cluster-wide in-flight capacity = replicas × `SANDBOX_MAX_INFLIGHT`,
+and the kind worker nodes must also host the sandbox Job pods. Worker
+`maxReplicas: 6` is a placeholder budget for the target cluster, not a
+measured capacity.
+
+**Metric-choice caveat**: both services are I/O-bound at idle (the worker
+blocks on Redis reads, the gateway waits on Job pods), so CPU utilization
+understates real load. A request-rate or queue-depth metric (custom/external
+metrics via prometheus-adapter) is the production follow-up, not part of this
+component. The kind elastic drill (`../phase6-kind-elastic`, driven by
+`../phase6-kind/kind-pilot.mjs elastic`) raises admission limits and drives
+enough parallel `/run` traffic to make CPU move, verifying the scaling
+mechanism — not the metric's production fitness.
+
 The stateful boundary remains outside this overlay. Postgres, Redis, n8n and
 object storage need an explicit managed-service or StatefulSet/backup decision
 before production approval.

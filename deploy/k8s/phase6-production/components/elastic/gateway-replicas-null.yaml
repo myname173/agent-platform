@@ -1,0 +1,7 @@
+# Hand replica ownership to the HPA (see worker-replicas-null.yaml).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-sandbox-gateway
+spec:
+  replicas: null

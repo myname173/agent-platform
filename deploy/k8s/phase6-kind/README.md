@@ -1,11 +1,12 @@
-# Phase 6 kind multi-node verification (P2)
+# Phase 6 kind multi-node verification (P2) + elastic drill (P3)
 
 Local multi-node verification of the `phase6-production` boundary on a
 disposable [kind](https://kind.sigs.k8s.io/) cluster: 1 control-plane +
 2 workers. This answers the question the single-node Docker Desktop pilot
 cannot: do the two-replica RollingUpdate, PodDisruptionBudgets and soft
 anti-affinity actually behave as declared when pods can land on different
-nodes?
+nodes? The P3 elastic drill additionally verifies HPA scale-out/scale-in on
+the same cluster.
 
 **This is not a production deployment.** kind runs inside Docker on one host;
 the production-topology decision
@@ -60,6 +61,7 @@ node deploy/k8s/phase6-kind/kind-pilot.mjs delete
 
 Individual actions: `preflight` (read-only), `render` (offline, no cluster
 needed), `create`, `images`, `apply`, `drill`, `check`, `delete`.
+P3 adds `render-elastic` (offline) and `elastic` (live HPA drill, see below).
 
 Safety properties:
 
@@ -102,6 +104,62 @@ only if every step passed.
    startup config visible in logs; `http://127.0.0.1:18081/healthz` and
    `/metrics` answer through the NodePort mapping after recovery.
 
+## Elastic drill (P3): HPA scale-out / scale-in
+
+Run **after** `all` (or at least `apply`) on the same drill cluster:
+
+```bash
+node deploy/k8s/phase6-kind/kind-pilot.mjs render-elastic  # offline contracts
+node deploy/k8s/phase6-kind/kind-pilot.mjs elastic         # live drill
+```
+
+The elastic root is `../phase6-kind-elastic` — a **sibling** of this directory
+on purpose: kustomize's loader rejects a child kustomization that references
+its own parent ("cycle detected"). It composes this directory's static
+boundary + the production elastic component
+(`../phase6-production/components/elastic`) + two drill-only patches:
+
+- HPA scale-down stabilization 300s → **30s**, so scale-in is observable in
+  minutes;
+- gateway admission raised to 6000 rpm / burst 1000 / 30 in-flight, so the
+  load generator — not the P1 limiter — is the bottleneck under test.
+  Admission at the production defaults was already verified in P1
+  (`monitoring/sandbox-admission-2026-11-12.md`).
+
+`elastic` installs metrics-server **v0.9.1 from the vendored manifest**
+(`vendor/metrics-server-v0.9.1-components.yaml`, upstream bytes + provenance
+header; no download at run time), idempotently adds `--kubelet-insecure-tls`
+(kind kubelet certs are self-signed), and waits for `kubectl top nodes` to
+return data. If the image is cached locally it is `kind load`ed; otherwise the
+nodes pull `registry.k8s.io/metrics-server/metrics-server:v0.9.1` (pre-pull it
+on network-restricted machines).
+
+Expected output — 9 PASS lines + JSON summary, exit 0 only if all pass:
+
+1. `metrics_server_ready` — vendored manifest applied, metrics API serving.
+2. `hpa_platform-worker_active`, `hpa_platform-sandbox-gateway_active` —
+   `ScalingActive=True`, CPU metric resolved, replicas stable at 2/2.
+   (Deleting `spec.replicas` can transiently default a Deployment to 1 until
+   the first HPA sync; the drill waits this out. PDB keeps ≥1 available.)
+3. `load_generator` — 16 closed-loop workers drive real `/run` Jobs
+   (`time.sleep(2)` + small compute) through the NodePort for 60s; `ok > 0`.
+4. `gateway_scaled_out` — gateway replica peak **> 2 and ≤ 4** during load.
+   Gateway CPU requests are 25m, so the 70% target (17.5m) is crossed easily
+   by the 250ms Job-status polling under concurrent load.
+5. `worker_stayed_at_min` — **negative control**: the idle worker (blocking
+   Redis reads, empty drill stream) must stay at 2 throughout. Scaling here
+   would mean the HPA reacts to noise, not load.
+6. `gateway_scaled_in` — back to 2/2 within 240s after the load stops
+   (30s stabilization + HPA sync).
+7. `static_boundary_restored` — **runs even when the drill fails**: both HPAs
+   are deleted FIRST, then the static root is re-applied (restores
+   `spec.replicas: 2`), both deployments wait back to 2/2.
+8. `nodeport_healthz_after_restore` — NodePort surface healthy afterwards.
+
+The drill is re-runnable: metrics-server install and the insecure-TLS patch
+are idempotent, and the restore always returns the cluster to the static P2
+boundary. `delete` still removes the whole cluster (metrics-server included).
+
 ## Boundaries (do not overclaim)
 
 - **kindnet does not enforce NetworkPolicy**, exactly like the docker-desktop
@@ -118,17 +176,30 @@ only if every step passed.
   README carries the same note.
 - One host, one Docker engine: this verifies scheduling behavior, not host
   failure tolerance.
+- **Elastic drill verifies the scaling mechanism, not the production metric**:
+  CPU utilization on I/O-bound services understates real load; the drill
+  raises admission limits and drives synthetic parallel `/run` traffic to
+  make CPU move. Custom/external metrics (prometheus-adapter) remain a
+  documented follow-up. The raised admission budgets and the 30s
+  stabilization exist ONLY in the elastic drill root — the production
+  component keeps 300s and the pilot keeps the P1 defaults.
 
 ## Offline verification (no cluster needed)
 
 ```bash
-node --test deploy/k8s/phase6-kind/kind-overlay.test.mjs   # 18 contracts, CI runs these
+node --test deploy/k8s/phase6-kind/kind-overlay.test.mjs   # 33 contracts, CI runs these
 node deploy/k8s/phase6-kind/kind-pilot.mjs render           # 26 render contracts, needs kubectl only
+node deploy/k8s/phase6-kind/kind-pilot.mjs render-elastic   # 26 elastic render contracts, kubectl only
 ```
 
-The render gate has been mutation-tested: pointing `REDIS_URL` back at
+The render gates have been mutation-tested: pointing `REDIS_URL` back at
 `host.docker.internal` fails `worker_config_drill_redis`; disabling the
 deletion patch fails `no_reference_job` (the file-level text test alone does
-not catch a commented-out patch reference — the render layer does). See
-`monitoring/kind-multinode-2026-11-12.md` for the recorded offline evidence
+not catch a commented-out patch reference — the render layer does). For P3:
+commenting out the component reference fails both the sibling-root file test
+and `render-elastic`; drifting the production stabilization 300s → 30s is
+caught ONLY by the file gate (the drill patch masks it in the render);
+re-adding `spec.replicas` fails both layers. See
+`monitoring/kind-multinode-2026-11-12.md` (P2) and
+`monitoring/kind-elastic-2026-11-12.md` (P3) for the recorded offline evidence
 and the live-drill status.

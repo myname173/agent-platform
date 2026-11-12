@@ -1,0 +1,34 @@
+# Elastic verification root: the P2 kind boundary + the production elastic
+# component + drill-only tweaks. Render/apply this INSTEAD of the static
+# ../phase6-kind root while running the elasticity drill
+# (kind-pilot.mjs -Action elastic); the restore step re-applies the static
+# root after deleting both HPAs.
+#
+# Sibling of phase6-kind on purpose: kustomize's loader rejects a child
+# kustomization that references its own parent directory ("cycle detected"),
+# so the elastic root cannot live inside phase6-kind/.
+#
+# What changes relative to ../phase6-kind:
+# - two autoscaling/v2 HPAs own worker/gateway replicas (spec.replicas removed);
+# - scaleDown stabilization drops 300s -> 30s so the drill observes scale-in
+#   in minutes instead of waiting out the production window;
+# - gateway admission limits are raised (6000 rpm / burst 1000 / 30 in-flight)
+#   so the load generator, not the admission layer, is the bottleneck being
+#   exercised. P1 already verified admission AT the defaults; this drill
+#   verifies the scaling mechanism, not the limiter.
+#
+# Cluster prerequisite: metrics-server. The elastic action installs the
+# vendored deploy/k8s/phase6-kind/vendor/metrics-server-v0.9.1-components.yaml
+# with --kubelet-insecure-tls (kind kubelet certs are self-signed).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-platform
+resources:
+  - ../phase6-kind
+components:
+  - ../phase6-production/components/elastic
+patches:
+  - path: hpa-drill-behavior-patch.yaml
+    target:
+      kind: HorizontalPodAutoscaler
+  - path: gateway-admission-drill-patch.yaml
