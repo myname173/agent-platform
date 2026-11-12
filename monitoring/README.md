@@ -15,6 +15,11 @@ metrics path:
   idempotent-consumption counters. They only exist while the optional
   `event-bus-outbox` profile is running; Prometheus reports these targets down
   when the profile is stopped (expected, see `monitoring/prometheus.yml`).
+- The K8s sandbox gateway exposes admission counters and Job latency on
+  `:8080/metrics` (host view: `http://127.0.0.1:18080/metrics` through the
+  pilot bridge). It lives in Kubernetes, not Compose, so the Compose
+  Prometheus does not scrape it by default; the bridge is loopback-only and
+  not reachable from containers via `host.docker.internal`.
 
 Prometheus is only for internal runtime metrics. Grafana and a second business
 metrics exporter are intentionally not part of this stack, so Console and

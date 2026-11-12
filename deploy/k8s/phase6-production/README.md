@@ -9,6 +9,10 @@ base and adds only the stateless boundary changes:
 - Soft pod anti-affinity prefers spreading replicas across nodes.
 - Both deployments have a `minAvailable: 1` PodDisruptionBudget.
 - Sandbox Gateway has startup, readiness and liveness probes on `/healthz`.
+- Gateway request admission (rate bucket, in-flight cap, optional caller
+  allowlist) is configured on the base Deployment; its state is in-memory,
+  so with two replicas the budgets are **per replica**, not shared. A shared
+  budget needs an external store and is not part of this overlay.
 - The existing Sandbox Job timeout, resource limits, TTL cleanup and deny-all
   NetworkPolicy remain in force.
 

@@ -1,8 +1,8 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
 verified_at: 2026-11-12
-verified_commit: ca07ddd
-verified_scope: P0 消费者闭环（§1.2 event-bus-outbox、§5.1 consumed_events、§6 事件总线配置）按本分支工作树核验；评测分支口径见 §15；其余架构沿用既有核验口径，不表示全量重新核验
+verified_commit: f9bc8fe
+verified_scope: P0 消费者闭环（§1.2 event-bus-outbox、§5.1 consumed_events、§6 事件总线配置）与 P1 沙箱网关准入（§3、§12 边界、deploy/k8s/phase3-pilot）按本分支工作树核验；评测分支口径见 §15；其余架构沿用既有核验口径，不表示全量重新核验
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
@@ -96,15 +96,15 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 | 目录 | 文件数 | 运行期角色 | 说明 |
 |---|---|---|---|
-| `n8n/` | 68 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`sandbox.Dockerfile` |
+| `n8n/` | 86 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`sandbox.Dockerfile`、K8s 沙箱网关（`sandbox_gateway.js` + 准入 `sandbox_admission.js` / 指标 `sandbox_metrics.js` + 离线契约测试） |
 | `frontent/` | 620 | 运行 | 控制台（Next 16 App Router；目录名拼写如此） |
-| `platform-runtime/` | 8 | 运行 | `platform-runtime/server.js`（533 行）+ 可选 `platform-runtime/worker.js`（phase2 profile） |
+| `platform-runtime/` | 13 | 运行 | `platform-runtime/server.js`（533 行）+ 可选 `worker.js`（phase2）+ outbox publisher / 幂等 event-consumer（event-bus-outbox profile） |
 | `stream-bridge/` | 1 | 运行 | 单文件 `stream-bridge/server.js`（639 行） |
 | `caddy/` | 4 | 运行 | `Caddyfile`、域名版示例、探测脚本 |
 | `backup/` | 3 | 运行 | 栈内备份镜像 |
 | `searxng/` | 1 | 运行 | 搜索配置 |
-| `monitoring/` | 9 | 可选 | Prometheus 配置 + README + 7 份验收报告 |
-| `deploy/` | 23 | 按需 | external / cloudflare / event-bus / k8s 叠加层，主 compose 不引用 |
+| `monitoring/` | 19 | 可选 | Prometheus 配置 + README + 17 份验收/决策报告 |
+| `deploy/` | 34 | 按需 | external / cloudflare / event-bus / k8s 叠加层，主 compose 不引用 |
 | `migration/` | 7 | 一次性 | 迁移三件套 preflight → restore → verify |
 | `scripts/` | 28 | 开发 | 演示生成、截图采集、S3 校验、密钥扫描、钩子 |
 | `custom-theme/` | 13 | 手工 | 注入运行中的 LobeHub 容器（非 compose） |
@@ -332,7 +332,7 @@ N8N_URL=... N8N_API_KEY=... node n8n/scripts/seed-projects.mjs apply   # 写入�
 
 - **残留凭证（历史，且现在公网可读）**：`a0bcb35`（2026-09-28）把真实 Postgres 密码写进 `scripts/check-users.mjs`，把真实 MCP Bearer token 与 Telegram chat id 写进 `demo-assets/_data.json`；`ce4a98b` 已从工作树移除，但**值仍在 git 历史**。仓库曾于 2026-10-29 翻私有，**2026-11-09 复核时已是 public**：匿名 `api.github.com/repos/myname173/agent-platform` 返回 200 且 `visibility:"public"`，匿名 `git ls-remote`（`GIT_TERMINAL_PROMPT=0`、清空 credential.helper）直接拿到 HEAD，`raw.githubusercontent.com/.../a0bcb35/scripts/check-users.mjs` 与 `.../a0bcb35/demo-assets/_data.json` 均匿名 200，且 `a0bcb35` 仍是 `main` 的祖先。处置=**轮换这些值**；删文件不算修好，翻私有也只是缩小暴露面、不撤销已公开的一个多月。是否重写历史由人决定（`git show ce4a98b`）。
 - **当前工作树**：`bash scripts/secret-scan.sh` 报「检查了 32 个长值，命中 10 个」，键为 `CHAT_API_KEY`(12 字符)、`LOBECHAT_OPENAI_API_KEY`(12)、`LOBECHAT_ACCESS_CODE`(14)、`MINIO_ROOT_USER`(14)、`TELEGRAM_CHAT_ID`(10 位纯数字)、`PLATFORM_LAN_IP`/`LAN_IP`(各 15)、`PLATFORM_DOMAIN`(34)、`SANDBOX_URL`/`SANDBOX_APPROVED_URL`(URL 形状)。前两个是占位值、两个 URL 属噪声；但 `PLATFORM_DOMAIN`、两个 LAN 标识与 `TELEGRAM_CHAT_ID` 是真实基础设施标识，public 时等于公开，而 `LOBECHAT_ACCESS_CODE` 是「知道项目名就猜得到」形状的短值（长度 < 16 只进 cfg 档，闸门不拦，见 `monitoring/env-ledger-2026-11-05.md`）。`POSTGRES_PASSWORD`(32) 与 `MCP_API_KEY`(36) 在当前树**零命中**。通用特征扫描里 `gho_`/`ghp_`/`github_pat_`/`eyJhbGciOi` 的命中来自扫描器与校验器自身的正则/样例；`sk-[A-Za-z0-9]{20,}`、`AKIA[0-9A-Z]{16}`、`BEGIN … PRIVATE KEY`、`n8n_api_[0-9a-f]{40,}` 均 0 文件。
-- **边界**：n8n webhook 用 `CHAT_API_KEY`；MCP 用 `MCP_API_KEY`（哈希存 `gateway_keys`）；runtime 用 `x-platform-runtime-key`；控制台用 Clerk；Sandbox 用 `x-sandbox-key`（`n8n/sandbox_server.py:514`）。
+- **边界**：n8n webhook 用 `CHAT_API_KEY`；MCP 用 `MCP_API_KEY`（哈希存 `gateway_keys`）；runtime 用 `x-platform-runtime-key`；控制台用 Clerk；Sandbox 用 `x-sandbox-key`（`n8n/sandbox_server.py:514`）。K8s 沙箱网关（`n8n/sandbox_gateway.js`，镜像 0.3）在同一把 key 之上加了请求级准入：`x-sandbox-caller` 身份（仅计费/归因，不是鉴权）、每调用方令牌桶（默认 30 rpm / burst 10）、全局在飞 Job 上限（默认 4）、可选调用方白名单（`SANDBOX_ALLOWED_CALLERS`，空=放行并打标）；拒绝走 401/400/403/429 + 结构化日志 + `:8080/metrics` 计数器。状态在内存、按副本计；现网验收见 `monitoring/sandbox-admission-2026-11-12.md`。
 
 ## 13. 如何自行核验本文件
 
@@ -354,7 +354,7 @@ grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 本评测分支 26，
 # §3 的目录文件数：只数受版本控制的文件（构建产物如 tsconfig.tsbuildinfo 不算）
 for d in n8n frontent platform-runtime stream-bridge monitoring deploy scripts; do
   echo "$d=$(git ls-files $d | wc -l)"
-done                                                      # 68 620 8 1 9 23 28
+done                                                      # 86 620 13 1 19 34 28
 
 # 密钥闸门
 node n8n/scripts/validate-workflows.mjs

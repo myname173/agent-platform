@@ -26,7 +26,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: gateway
-          image: agent-platform/sandbox-gateway:0.2
+          image: agent-platform/sandbox-gateway:0.3
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -41,6 +41,19 @@ spec:
                 secretKeyRef:
                   name: platform-runtime-secrets
                   key: CHAT_API_KEY
+            # Request-level admission (P1). Defaults match sandbox_admission.js;
+            # state is in-memory and per replica. See README "Request admission".
+            - name: SANDBOX_RATE_RPM
+              value: "30"
+            - name: SANDBOX_RATE_BURST
+              value: "10"
+            - name: SANDBOX_MAX_INFLIGHT
+              value: "4"
+            # Empty = accounting mode: every authenticated caller is admitted
+            # and labelled. Set e.g. "chat-gateway,agent-eval" to enforce the
+            # allowlist (403 for anyone else, including header-less callers).
+            - name: SANDBOX_ALLOWED_CALLERS
+              value: ""
           resources:
             requests:
               cpu: 25m

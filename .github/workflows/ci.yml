@@ -78,6 +78,21 @@ jobs:
       #   deploy/event-bus/consumer-pilot.ps1 -Action check
       # Offline green is not live acceptance.
 
+  sandbox-admission-contract-tests:
+    name: Sandbox gateway admission contracts (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test admission, metrics, HTTP handler and deploy caller patch
+        run: node --test n8n/sandbox-gateway.test.mjs
+      # No dependencies: the gateway modules are dependency-free CommonJS and
+      # the tests drive the real HTTP handler with a fake runJob. Live gateway
+      # acceptance (pilot bridge at 127.0.0.1:18080) is operator-run; offline
+      # green is not live acceptance.
+
   eval-contract-tests:
     name: Eval offline contracts (not live acceptance)
     runs-on: ubuntu-latest

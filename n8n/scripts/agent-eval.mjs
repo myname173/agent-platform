@@ -342,6 +342,9 @@ const runSandbox = async (test) => {
   const requestBody = test.request || {};
   const headers = { 'Content-Type': 'application/json' };
   if (requestBody.auth !== false) headers['x-sandbox-key'] = CHAT_KEY;
+  // Caller identity for gateway admission accounting (P1). Sent even on the
+  // negative-auth case: the gateway checks the key before the caller header.
+  headers['x-sandbox-caller'] = 'agent-eval';
   const response = await request(`${SANDBOX}/run`, {
     method: 'POST',
     headers,
