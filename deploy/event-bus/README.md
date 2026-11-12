@@ -189,9 +189,13 @@ and recovery experiments, not HA.
 
 Status of the former promotion blockers: consumer-side idempotency and
 pending/retry/dead-letter metrics are implemented and covered by offline
-contract tests; the live closed-loop check (`consumer-pilot.ps1 -Action
-check`) is the acceptance gate and had not been run at the time of writing
-(Docker engine off). Still open before any production promotion: a canary for
+contract tests. The live closed-loop check (`consumer-pilot.ps1 -Action
+check`) passed on 2026-11-12 against the local single-node stack: 3 seeded
+rows delivered and recorded once, a second consumer group replayed all 12
+retained messages as counted duplicates (`processed=0`), and the ledger total
+stayed 12 -> 12. Evidence and the script defects fixed along the way:
+`monitoring/consumer-closure-2026-11-12.md`. Still open before any production
+promotion: a canary for
 Runtime transactional outbox writes (`PLATFORM_OUTBOX_WRITE_MODE` stays `off`),
 a durable publish cursor or full transactional outbox for the direct
 `platform.events.v1` publisher, and a multi-broker or managed Kafka target.

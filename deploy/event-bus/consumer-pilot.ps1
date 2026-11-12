@@ -18,8 +18,11 @@ $Kind = 'kafka-pilot'
 $PgUser = 'n8n'
 $PgDatabase = 'n8n'
 $ConsumerName = 'platform-event-consumer'
-$MetricsJs = 'fetch("http://127.0.0.1:9102/metrics").then(r=>r.text()).then(t=>process.stdout.write(t)).catch(e=>{console.error(e.message);process.exit(1)})'
-$PublisherMetricsJs = 'fetch("http://127.0.0.1:9101/metrics").then(r=>r.text()).then(t=>process.stdout.write(t)).catch(e=>{console.error(e.message);process.exit(1)})'
+# Single-quoted JS on purpose: PS 5.1 strips embedded double quotes when
+# passing arguments to native commands (docker.exe), so no " may appear in
+# any argument below. Same reason the seed SQL uses jsonb_build_object.
+$MetricsJs = 'fetch(''http://127.0.0.1:9102/metrics'').then(r=>r.text()).then(t=>process.stdout.write(t)).catch(e=>{console.error(e.message);process.exit(1)})'
+$PublisherMetricsJs = 'fetch(''http://127.0.0.1:9101/metrics'').then(r=>r.text()).then(t=>process.stdout.write(t)).catch(e=>{console.error(e.message);process.exit(1)})'
 
 if (-not (Test-Path $Docker)) { throw "docker not found: $Docker" }
 if ($Count -lt 1 -or $Count -gt 50) { throw 'Count must be between 1 and 50' }
@@ -65,12 +68,8 @@ function Seed-Outbox {
     $sequence = $_
     $dedupe = "outbox-pilot:${runId}:$sequence"
     $requestId = "outbox-pilot-${runId}-$sequence"
-    $payload = (@{
-      probe = 'outbox-publisher-v1'
-      run_id = $runId
-      sequence = $sequence
-    } | ConvertTo-Json -Compress).Replace("'", "''")
-    "('$requestId','$traceId','$Kind','$dedupe','$payload'::jsonb)"
+    # jsonb_build_object keeps the whole SQL double-quote-free (PS 5.1 trap).
+    "('$requestId','$traceId','$Kind','$dedupe',jsonb_build_object('probe','outbox-publisher-v1','run_id','$runId','sequence',$sequence))"
   }
   $sql = "INSERT INTO platform.outbox (request_id, trace_id, kind, dedupe_key, payload) VALUES $($values -join ',') ON CONFLICT (dedupe_key) DO NOTHING;"
   & $Docker 'exec' 'postgres' 'psql' '-U' $PgUser '-d' $PgDatabase '-v' 'ON_ERROR_STOP=1' '-c' $sql | Out-Null
@@ -89,7 +88,9 @@ function Wait-Until([scriptblock]$Probe, [int]$TimeoutSec, [string]$What) {
 }
 
 function Get-ConsumerCounters([string]$ContainerName) {
-  $text = & $Docker 'exec' $ContainerName 'node' '-e' $MetricsJs
+  # -join: docker output is a line array; -match on an array filters instead
+  # of populating $Matches, which would silently zero every counter.
+  $text = (& $Docker 'exec' $ContainerName 'node' '-e' $MetricsJs) -join "`n"
   if ($LASTEXITCODE -ne 0) { throw "cannot scrape metrics from $ContainerName" }
   $get = {
     param($name)
@@ -102,12 +103,26 @@ function Get-ConsumerCounters([string]$ContainerName) {
   }
 }
 
-function Get-TopicEndOffsetSum {
-  $lines = & $Docker 'exec' 'platform-kafka' '/opt/kafka/bin/kafka-run-class.sh' 'kafka.tools.GetOffsetShell' '--broker-list' 'kafka:19092' '--topic' $Topic '--time' '-1'
-  if ($LASTEXITCODE -ne 0) { throw 'GetOffsetShell failed' }
+function Get-TopicReplayTarget {
+  # Messages a from-beginning replay can actually read: sum(end - start) per
+  # partition. Retention deletes old messages, so the end offset alone is NOT
+  # the replay target. kafka.tools.GetOffsetShell was removed in
+  # apache/kafka:4.4.0; kafka-get-offsets.sh is the supported entry point.
+  $offsets = @{}
+  foreach ($time in @('-2', '-1')) {
+    $lines = & $Docker 'exec' 'platform-kafka' '/opt/kafka/bin/kafka-get-offsets.sh' '--bootstrap-server' 'kafka:19092' '--topic' $Topic '--time' $time
+    if ($LASTEXITCODE -ne 0) { throw "kafka-get-offsets --time $time failed" }
+    foreach ($line in $lines) {
+      if ($line -match '^(.+:\d+):(\d+)$') {
+        $key = $Matches[1]
+        if (-not $offsets.ContainsKey($key)) { $offsets[$key] = @{} }
+        $offsets[$key][$time] = [long]$Matches[2]
+      }
+    }
+  }
   $sum = [long]0
-  foreach ($line in $lines) {
-    if ($line -match ':(\d+)$') { $sum += [long]$Matches[1] }
+  foreach ($key in $offsets.Keys) {
+    $sum += ($offsets[$key]['-1'] - $offsets[$key]['-2'])
   }
   $sum
 }
@@ -139,7 +154,7 @@ function Check-Consumer {
   $replayName = "platform-event-consumer-replay-$runId"
   $replayGroup = "replay-$runId"
   try {
-    $expectedTotal = Get-TopicEndOffsetSum
+    $expectedTotal = Get-TopicReplayTarget
     Invoke-Docker @(
       'compose', '--profile', 'event-bus', '--profile', 'event-bus-outbox',
       'run', '-d', '--name', $replayName,
@@ -163,7 +178,7 @@ function Check-Consumer {
   }
 
   # 4) Metrics surface: publisher must expose all five outbox states.
-  $publisherMetrics = & $Docker 'exec' 'platform-outbox-publisher' 'node' '-e' $PublisherMetricsJs
+  $publisherMetrics = (& $Docker 'exec' 'platform-outbox-publisher' 'node' '-e' $PublisherMetricsJs) -join "`n"
   if ($LASTEXITCODE -ne 0) { throw 'cannot scrape publisher metrics' }
   foreach ($state in @('PENDING', 'DELIVERING', 'DELIVERED', 'RETRY', 'DEAD_LETTER')) {
     if ($publisherMetrics -notmatch "platform_outbox_rows\{kind=`"$Kind`",state=`"$state`"\}") {
