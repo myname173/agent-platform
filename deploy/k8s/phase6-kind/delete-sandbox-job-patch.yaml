@@ -1,0 +1,9 @@
+# Drop the one-shot reference Job from the rendered boundary. The gateway
+# creates uniquely-named Jobs (platform-sandbox-<id>) during the drill; the
+# bare template would otherwise run once at apply time against a fixed-name
+# input Secret that nothing in this overlay creates.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: platform-sandbox
+$patch: delete

@@ -264,6 +264,25 @@ apply, replace its Docker Desktop host-gateway endpoints with target-cluster
 Service or managed-service endpoints and make the stateful-service ownership
 explicit.
 
+## Kind multi-node verification (P2)
+
+`deploy/k8s/phase6-kind/` verifies the production-candidate boundary on a
+disposable local kind cluster (1 control-plane + 2 workers): replica spread,
+zero-unavailable rolling restart, PDB-blocked second drain, and per-pod
+admission e2e. An isolated `redis-drill` fixture keeps the drill away from the
+live Compose Redis; the worker kb_save business path is not exercised.
+
+```bash
+node deploy/k8s/phase6-kind/kind-pilot.mjs render   # offline, kubectl only
+node deploy/k8s/phase6-kind/kind-pilot.mjs all      # operator-run drill
+node deploy/k8s/phase6-kind/kind-pilot.mjs delete   # remove the cluster
+```
+
+Offline contracts run in CI; the cluster drill is operator-run on the
+deployment machine. kindnet does not enforce NetworkPolicy, and this is local
+multi-node verification, not production HA. Evidence and the live-drill status
+are recorded in `monitoring/kind-multinode-2026-11-12.md`.
+
 ## Phase 5.3 Kafka event-bus pilot
 
 Kafka is available as an opt-in single-node KRaft profile for event-contract

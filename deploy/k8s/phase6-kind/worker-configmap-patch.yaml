@@ -1,0 +1,16 @@
+# Strategic merge on ConfigMap data merges keys: JOB_STREAM / JOB_GROUP /
+# JOB_* tuning stay exactly as the pilot defines them.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-worker-config
+data:
+  # Isolated drill fixture (redis-drill.yaml), not the Compose Redis.
+  REDIS_URL: redis://redis-drill:6379
+  # The kb_save business path is NOT exercised by the kind drill: n8n and the
+  # Platform Runtime stay in Compose, outside this cluster. These names use
+  # the reserved .invalid TLD so any accidental call fails loudly instead of
+  # silently reaching a real service. The worker only dials them when it
+  # claims a kb_save job, and the drill enqueues none.
+  N8N_URL: http://n8n.drill.invalid:5678
+  PLATFORM_RUNTIME_URL: http://runtime.drill.invalid:13220

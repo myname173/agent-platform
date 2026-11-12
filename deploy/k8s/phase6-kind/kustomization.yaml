@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-platform
+
+# The production-candidate boundary, unchanged, plus the local multi-node
+# verification fixture. Render offline with:
+#   kubectl kustomize deploy/k8s/phase6-kind
+resources:
+  - ../phase6-production
+  - redis-drill.yaml
+
+patches:
+  # Point the worker at the drill Redis instead of the Compose host bridge,
+  # and replace the Docker-Desktop-specific egress ipBlock.
+  - path: worker-configmap-patch.yaml
+  - path: worker-networkpolicy-patch.yaml
+  # sandbox-job.yaml in the base is a one-shot reference template, not a
+  # workload: the gateway creates its own Jobs during the drill. Applying the
+  # bare template would run an untracked Job at apply time.
+  - path: delete-sandbox-job-patch.yaml

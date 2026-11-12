@@ -93,6 +93,23 @@ jobs:
       # acceptance (pilot bridge at 127.0.0.1:18080) is operator-run; offline
       # green is not live acceptance.
 
+  kind-overlay-contract-tests:
+    name: Kind multi-node overlay contracts (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test kind config, overlay patches and render checker
+        run: node --test deploy/k8s/phase6-kind/kind-overlay.test.mjs
+      # No dependencies and no cluster: file-level contracts plus unit tests
+      # of the render checker. The kubectl render gate and the multi-node
+      # drill are operator-run on the deployment machine:
+      #   node deploy/k8s/phase6-kind/kind-pilot.mjs render
+      #   node deploy/k8s/phase6-kind/kind-pilot.mjs all
+      # Offline green is not live acceptance.
+
   eval-contract-tests:
     name: Eval offline contracts (not live acceptance)
     runs-on: ubuntu-latest

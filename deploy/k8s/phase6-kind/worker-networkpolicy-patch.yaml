@@ -1,0 +1,29 @@
+# Replaces the pilot's Docker-Desktop host-gateway ipBlock (192.168.65.254/32)
+# with the drill fixture. Strategic merge on a list without a merge key
+# replaces the whole egress array, so the DNS rule is repeated here.
+#
+# Note: kind's default CNI (kindnet) does not enforce NetworkPolicy, exactly
+# like the docker-desktop pilot. This keeps the manifest honest for a
+# policy-enforcing CNI; it is not a claim of enforcement on kind.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-worker
+spec:
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-drill
+      ports:
+        - protocol: TCP
+          port: 6379
