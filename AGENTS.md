@@ -1,8 +1,8 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
 verified_at: 2026-11-12
-verified_commit: 95185a4
-verified_scope: P0 消费者闭环（§1.2 event-bus-outbox、§5.1 consumed_events、§6 事件总线配置）、P1 沙箱网关准入（§3、§12 边界、deploy/k8s/phase3-pilot）、P2 kind 多节点验证叠加层（deploy/k8s/phase6-kind，仅离线核验，集群演练未跑）与 P3 HPA 弹性层（deploy/k8s/phase6-production/components/elastic + phase6-kind-elastic，仅离线核验，弹性演练未跑）按本分支工作树核验；评测分支口径见 §15；其余架构沿用既有核验口径，不表示全量重新核验
+verified_commit: 418e6f4
+verified_scope: P0 消费者闭环（§1.2 event-bus-outbox、§5.1 consumed_events、§6 事件总线配置）、P1 沙箱网关准入（§3、§12 边界、deploy/k8s/phase3-pilot）、P2 kind 多节点验证叠加层（deploy/k8s/phase6-kind，仅离线核验，集群演练未跑）、P3 HPA 弹性层（deploy/k8s/phase6-production/components/elastic + phase6-kind-elastic，仅离线核验，弹性演练未跑）与 KB 混合检索（§4.4、§5.1，n8n/lib/kb-hybrid.mjs + 三处 kb_search 内嵌 +  guarded bm25 索引 + kb-eval --hybrid，仅离线核验，现网检索增益未测）按本分支工作树核验；评测分支口径见 §15；其余架构沿用既有核验口径，不表示全量重新核验
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
@@ -96,14 +96,14 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 | 目录 | 文件数 | 运行期角色 | 说明 |
 |---|---|---|---|
-| `n8n/` | 86 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`sandbox.Dockerfile`、K8s 沙箱网关（`sandbox_gateway.js` + 准入 `sandbox_admission.js` / 指标 `sandbox_metrics.js` + 离线契约测试） |
+| `n8n/` | 88 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`lib/kb-hybrid.mjs`（混合检索规范模块，内嵌进三处 `kb_search` Code 节点）、`sandbox.Dockerfile`、K8s 沙箱网关（`sandbox_gateway.js` + 准入 `sandbox_admission.js` / 指标 `sandbox_metrics.js` + 离线契约测试） |
 | `frontent/` | 620 | 运行 | 控制台（Next 16 App Router；目录名拼写如此） |
 | `platform-runtime/` | 13 | 运行 | `platform-runtime/server.js`（533 行）+ 可选 `worker.js`（phase2）+ outbox publisher / 幂等 event-consumer（event-bus-outbox profile） |
 | `stream-bridge/` | 1 | 运行 | 单文件 `stream-bridge/server.js`（639 行） |
 | `caddy/` | 4 | 运行 | `Caddyfile`、域名版示例、探测脚本 |
 | `backup/` | 3 | 运行 | 栈内备份镜像 |
 | `searxng/` | 1 | 运行 | 搜索配置 |
-| `monitoring/` | 21 | 可选 | Prometheus 配置 + README + 19 份验收/决策报告 |
+| `monitoring/` | 22 | 可选 | Prometheus 配置 + README + 20 份验收/决策报告 |
 | `deploy/` | 51 | 按需 | external / cloudflare / event-bus / k8s 叠加层（含 phase6-kind 多节点验证与 phase6-kind-elastic HPA 弹性演练，非生产），主 compose 不引用 |
 | `migration/` | 7 | 一次性 | 迁移三件套 preflight → restore → verify |
 | `scripts/` | 28 | 开发 | 演示生成、截图采集、S3 校验、密钥扫描、钩子 |
@@ -184,6 +184,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 - `todo_add` / `todo_list` 各带一个可选 `project`（slug 或 label）；工具**数量没变**，只是参数变宽。合法取值不额外开工具去查——`todo_list` 的响应里就带 `projects` 登记表，模型调一次列表即可自发现（与 `owner` 靠 `people` 字段自发现同一套路）。
 - 工具循环上限由 `MAX_TOOL_ROUNDS` 控制，默认 2（`docker-compose.yml:59`）。
 - Code 节点可用的外部模块：`pg`（`NODE_FUNCTION_ALLOW_EXTERNAL=pg`）、内置 `crypto`（`docker-compose.yml:63-67`）。
+- `kb_search` 是**混合检索**（Agentic RAG）：pgvector ANN + ParadeDB BM25 两条腿用 RRF（k=60，按 `chunk_id` 融合）合并。规范模块 `n8n/lib/kb-hybrid.mjs` 因沙箱不能 import 而**逐字内嵌**进 `chat-gateway`(Execute Tool)、`kb-ingest`(Run KB Ops)、`mcp-server`(Do MCP) 三处，`kb-hybrid.test.mjs` 的漂移守卫盯着三份副本不许分叉。**降级是核心安全属性**：跑 BM25 前先做目录探测（`pg_extension`/`to_regclass`/`pg_proc`/`pg_operator`，缺则回 0/NULL 不报错，遵守 §9 第 13 条），`pg_search` 或 `kb_chunks_bm25` 索引不在就回退纯向量、排序与 top-k 与改造前逐字一致；返回里带 `retrieval` 标志（`hybrid`/`vector`）防静默空转。现网 Postgres 的 `pg_search` 只是 available、扩展未装，所以当前一律走向量、零回归。MCP 的 `score>0.2` 过滤只在向量模式保留（混合模式 score 是 RRF 值不是余弦）。工具**数量没变**。
 
 ## 5. 数据与状态
 
@@ -196,6 +197,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 - 实例上还可能有额外的 `cron_runs`（列 `job/period/ran_at/source`）：它**不在** `DATA_TABLE_COLUMNS` 里，是 `topic-watch` 与 `weekly-review` 的守卫节点在运行时「查不到就自己建」出来的，因此不受 `ensureColumns` 保护（`n8n/workflows/topic-watch.json` 的 `Already Ran Today` / `Mark Ran`）。
 - 另有 `platform` schema（`CREATE SCHEMA IF NOT EXISTS platform`，`n8n/scripts/platform-schema.sql:7`），runtime 使用 `platform.requests / platform.events / platform.tool_runs`（`platform-runtime/server.js:133-230`）。事件总线试点另用两张：`platform.outbox`（事务 outbox，publisher 租约投递）与 `platform.consumed_events`（消费者幂等台账，PK `(topic, dedupe_key)`，consumer 启动自建；`n8n/scripts/platform-schema.sql:101-113`、`platform-runtime/event-consumer.js:25-37`）。
 - `deploy.mjs` 只造 data table，**下面这些它一概不碰**，缺了得自己补：`vector` 扩展 + `kb_documents` / `kb_chunks`（`n8n/scripts/kb-schema.sql`，第一行就是 `CREATE EXTENSION IF NOT EXISTS vector`）、`ops_alerts`（`n8n/scripts/ops-schema.sql`）、`agent_memories`（`memory.json` 的 `ensureTable` 运行时自建，但它的 `embedding vector(1024)` 依赖上面那个扩展）、LobeHub 自己的 `lobechat` 库（由 LobeHub 容器首启时建，记忆镜像写它的 `user_memories`）。生产镜像 paradedb 自带 pgvector，`postgres:*-alpine` **不带**；本地用 alpine 镜像就必须自己补扩展，否则任何 `::vector` 都会让 Postgres 回错误响应，后果见 §9 第 13 条。
+- `kb-schema.sql` 末尾另有一段 **guarded** 的可选 BM25 索引：`DO $$ … IF pg_available_extensions 里有 pg_search THEN CREATE EXTENSION + CREATE INDEX IF NOT EXISTS kb_chunks_bm25 … USING bm25 (chunk_id, content) WITH (key_field='chunk_id') … EXCEPTION WHEN OTHERS THEN RAISE NOTICE … $$`。装不上（缺扩展/没预加载/版本不符）只记 notice、不报错，留下纯向量检索；幂等可重跑。它是 §4.4 混合检索的 BM25 腿来源，运行时探测到它存在才会跑 BM25。vector 扩展与 HNSW 索引不动。现网验收（索引真建出来、中文分词排序、hit@1/MRR 增益）未测，见 `monitoring/kb-hybrid-search-2026-11-12.md`。
 
 ### 5.1.1 项目维度（`projects` + `project_ref`）
 
@@ -354,7 +356,7 @@ grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 本评测分支 26，
 # §3 的目录文件数：只数受版本控制的文件（构建产物如 tsconfig.tsbuildinfo 不算）
 for d in n8n frontent platform-runtime stream-bridge monitoring deploy scripts; do
   echo "$d=$(git ls-files $d | wc -l)"
-done                                                      # 86 620 13 1 21 51 28
+done                                                      # 88 620 13 1 22 51 28
 
 # 密钥闸门
 node n8n/scripts/validate-workflows.mjs
@@ -415,5 +417,5 @@ OpenClaw 的 bootstrap 对标准文件是**无条件** `writeFileIfMissing`（`D
 - `eval-contract.mjs` 为 `eval-run.mjs`、`eval-gate.mjs` 共用的断言实现；缺 trace、空答案、未实现断言、缺失/过期/不全的回放全部失败。`--dry --runs 3` 为 78 attempts、84 次网关请求，上游模型调用数取决于工具循环。`pass_1`、`pass_k`（全部 k 次成功）、`pass_at_k`（至少一次成功）分开；未完成批次不产生可比较的基线指标。judge 与最终数据库状态验收仍未完成，`--deterministic-only` 只做 shakedown，不能得到 `release_ready=true`。
 - `eval-run --preflight` 只读。2026-11-10 本机健康端点在线，但两张 eval 表缺失、线上 Chat Stats API 尚无 eval 隔离。没有执行部署；全量 deploy 可能覆盖已存在的线上漂移，不要据此自动运行。live runner 要求显式 `--isolated-stack`，这是操作者确认，不会自动隔离数据；安全测试失败可能真执行创建/取消操作，不能拿共享业务库冒充 fixture。
 - `eval-mine.mjs` 用实际验证过的 `nextCursor` 分页，排除 eval 流量，按 trace/时间关联消息、明确截断与近似关联，输出不可覆盖同日人工标注。默认 `.eval-local/candidates`；runner 原始报告/回放同在 `.eval-local`，目录已 ignore，人工脱敏前不得提交。
-- CI 增加 `Eval offline contracts (not live acceptance)`，运行无密钥、无真实模型调用的正负回归；不是线上 26×3 已通过。回放仍需完整真实批次，不能造 fixture 让门禁绿。KB 的不可答题单列 pending，不混入检索分母；50 条 KB 查询也不能计入 26 条 Agent 场景来冒充凑齐 60。
+- CI 增加 `Eval offline contracts (not live acceptance)`，运行无密钥、无真实模型调用的正负回归；不是线上 26×3 已通过。回放仍需完整真实批次，不能造 fixture 让门禁绿。KB 的不可答题单列 pending，不混入检索分母；50 条 KB 查询也不能计入 26 条 Agent 场景来冒充凑齐 60。`kb-eval.mjs` 现支持 `--isolated-stack [--hybrid]`（`parseEvalFlags` 纯函数把关，顺序无关、拒重复/未知旗标）：两种模式都走 §4.4 那个规范 helper（带冻结语料 `docIds` 白名单），报告记 `requested_mode` 与 `retrieval_mode`——`--hybrid` 却报 `retrieval_mode=vector` 就说明索引/扩展没装、混合根本没跑。这是部署机上量「向量 vs 混合」hit@1/MRR 增益的尺子，本机只离线核验、未跑真实 embedding。
 - 一次近三天只读挖矿已完成：2026-11-07 至 11-10 窗口内执行/消息/候选均为 0，扫描未截断；最新执行和消息仍为 11-02。零数据不是零失败。nightly 尚未安装，连续三天、60 条人工筛选、judge 真人校准、三批基线落库仍待验收。命令与边界见 `monitoring/README.md` 的 Evaluation foundation 节。

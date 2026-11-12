@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { evaluateRetrieval, validateGoldenSet, HIT_AT_1_THRESHOLD, main } from './kb-eval.mjs';
+import { evaluateRetrieval, validateGoldenSet, HIT_AT_1_THRESHOLD, parseEvalFlags, main } from './kb-eval.mjs';
 
 // Pure ranking probes only: no database, embeddings, answers, or saved reports.
 const golden = JSON.parse(fs.readFileSync(new URL('../eval/golden-set.json', import.meta.url), 'utf8'));
@@ -143,5 +143,21 @@ test('live entry refuses without explicit isolated-stack confirmation before con
     assert.equal(code, 2);
     assert.match(errors[0], /SETUP ERROR.*--isolated-stack/);
     assert.match(errors[0], /Shared KB must not be used/);
+  }
+});
+
+test('parseEvalFlags accepts --isolated-stack alone or with --hybrid (order-independent), rejects everything else', () => {
+  // Pure guard: no env/files/network. Positives must not be reachable by the
+  // live-I/O path in tests; this only checks the flag decision.
+  assert.deepEqual(parseEvalFlags(['--isolated-stack']), { ok: true, hybrid: false });
+  assert.deepEqual(parseEvalFlags(['--isolated-stack', '--hybrid']), { ok: true, hybrid: true });
+  assert.deepEqual(parseEvalFlags(['--hybrid', '--isolated-stack']), { ok: true, hybrid: true });
+  for (const argv of [
+    [], ['--help'], ['--hybrid'], ['--isolated-stack=false'], ['--isolated-stack', 'false'],
+    ['--unknown', '--isolated-stack'], ['--isolated-stack', '--isolated-stack'],
+    ['--isolated-stack', '--hybrid', '--extra'], ['--isolated-stack', '--hybrid', '--hybrid'],
+    null, 'string',
+  ]) {
+    assert.equal(parseEvalFlags(argv).ok, false, 'must reject ' + JSON.stringify(argv));
   }
 });

@@ -126,3 +126,21 @@ jobs:
         run: node --test n8n/scripts/eval-contract.test.mjs n8n/scripts/eval-mine.test.mjs n8n/scripts/eval-judge.test.mjs n8n/scripts/kb-eval.test.mjs
       # Real replay is a separate gate until a complete, manually scrubbed
       # fixture batch is available. Offline green is not shakedown acceptance.
+
+  kb-hybrid-contract-tests:
+    name: KB hybrid retrieval contracts (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test RRF fusion, BM25 availability, degradation and embedded-helper drift
+        run: node --test n8n/scripts/kb-hybrid.test.mjs
+      # No dependencies and no database: pure-function unit tests with a mock pg
+      # client, plus verbatim-embedding drift guards across the three Code nodes
+      # and the guarded-schema contract. Live hybrid efficacy (hit@1/MRR
+      # before/after) is operator-run on the deployment machine:
+      #   node n8n/scripts/kb-eval.mjs --isolated-stack          # vector baseline
+      #   node n8n/scripts/kb-eval.mjs --isolated-stack --hybrid  # BM25+vector RRF
+      # Offline green is not retrieval acceptance.
