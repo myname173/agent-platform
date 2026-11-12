@@ -53,12 +53,9 @@ function Seed-Outbox {
     $sequence = $_
     $dedupe = "outbox-pilot:${runId}:$sequence"
     $requestId = "outbox-pilot-${runId}-$sequence"
-    $payload = (@{
-      probe = 'outbox-publisher-v1'
-      run_id = $runId
-      sequence = $sequence
-    } | ConvertTo-Json -Compress).Replace("'", "''")
-    "('$requestId','$traceId','$Kind','$dedupe','$payload'::jsonb)"
+    # jsonb_build_object keeps the whole SQL double-quote-free: PS 5.1 strips
+    # embedded double quotes when passing arguments to native commands.
+    "('$requestId','$traceId','$Kind','$dedupe',jsonb_build_object('probe','outbox-publisher-v1','run_id','$runId','sequence',$sequence))"
   }
   $sql = "INSERT INTO platform.outbox (request_id, trace_id, kind, dedupe_key, payload) VALUES $($values -join ',') ON CONFLICT (dedupe_key) DO NOTHING;"
   & $Docker 'exec' 'postgres' 'psql' '-U' $PgUser '-d' $PgDatabase '-v' 'ON_ERROR_STOP=1' '-c' $sql | Out-Null

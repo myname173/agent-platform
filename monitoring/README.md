@@ -269,8 +269,8 @@ The P0 consumer-side closure adds an idempotent consumer
 (`platform-runtime/event-consumer.js`, ledger `platform.consumed_events`) and
 outbox queue metrics on the publisher. The contract is covered by offline
 tests (`npm run test:consumer` in `platform-runtime`); the live closed-loop
-check (`deploy/event-bus/consumer-pilot.ps1 -Action check`) is the acceptance
-step and no live acceptance report has been recorded yet.
+check (`deploy/event-bus/consumer-pilot.ps1 -Action check`) passed on
+2026-11-12 and is recorded in `monitoring/consumer-closure-2026-11-12.md`.
 
 ## Runtime `.env` key audit (2026-11-05)
 
