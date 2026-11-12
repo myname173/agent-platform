@@ -205,6 +205,52 @@ means the index is missing and hybrid did not run. Design, offline results,
 mutation proofs and the full 未验 list are in
 `monitoring/kb-hybrid-search-2026-11-12.md`.
 
+## KB rerank (post-retrieval cross-encoder)
+
+An optional cross-encoder rerank layer sits **after** RRF fusion and **before**
+the result is formatted. It calls DashScope (阿里百炼) `qwen3-rerank` with the
+**same vendor, same `DASHSCOPE_API_KEY` and same `this.helpers.httpRequest`** as
+the embeddings — no new service, dependency or secret. The canonical
+`rerankKbRows` lives in the same `KB-HYBRID-EMBED` region of
+`n8n/lib/kb-hybrid.mjs` (`httpRequest` injected like `pg`, so the module stays
+importable offline) and is embedded verbatim in the same three `kb_search` Code
+nodes; the existing drift guard covers it with no new mechanism.
+
+It is **opt-in, default off** (`KB_RERANK_ENABLED=false`): the five `KB_RERANK_*`
+vars are injected into the n8n service only, so the live stack is unchanged.
+**Fail-open degrade is the central safety property** — a missing key, empty
+query/pool, non-function `httpRequest`, API error/non-2xx, missing
+`output.results` or unmappable index all return the fused pool **unchanged**
+(same array reference, RRF order, `reranked:false`) and never throw into the
+host. Rerank is HTTP, not pg, so the try/catch is effective (the §9.13
+runner-kill trap does not apply). On success `score` becomes the rerank relative
+score (0..1, **not a cosine, not cross-request comparable**); the prior score is
+kept in `prevScore` and `vectorScore` is preserved. The `retrieval` flag chain is
+now `vector | hybrid | vector+rerank | hybrid+rerank`. The MCP `score>0.2` filter
+applies **only in pure vector mode** (RRF and rerank scores are not cosines). No
+table, index or extension changes; `kb-schema.sql` is untouched.
+
+Offline contracts (request shape, index mapping, clamps, fail-open negative
+controls, drift, behavioral mutation proof, wiring) are in
+`n8n/scripts/kb-hybrid.test.mjs` (27 tests) and the `--rerank` flag parser is
+covered in `kb-eval.test.mjs`; both run in the existing CI jobs (no `ci.yml`
+change). **Rerank efficacy is not measured offline and no real rerank API call
+was made here.** The before/after ruler is operator-run on the deployment
+machine:
+
+```powershell
+node n8n/scripts/kb-eval.mjs --isolated-stack                    # vector baseline
+node n8n/scripts/kb-eval.mjs --isolated-stack --hybrid           # BM25+vector RRF
+node n8n/scripts/kb-eval.mjs --isolated-stack --hybrid --rerank  # + cross-encoder
+```
+
+`--rerank` is the ruler's explicit toggle, independent of the production
+`KB_RERANK_ENABLED` switch. Compare `hit_at_1` / `mrr` and `retrieval_mode` vs
+`requested_mode`; `--rerank` reporting a mode **without** `+rerank` means the
+rerank degraded (key/endpoint/model) and did NOT run. Design, offline results,
+mutation proofs, the Self-RAG/adaptive-routing comparison and the full 未验 list
+are in `monitoring/kb-rerank-design-2026-11-12.md`.
+
 ## Phase 2 async KB save
 
 The Redis Streams worker is optional and only handles `kb_save`:

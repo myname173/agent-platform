@@ -66,6 +66,13 @@ services:
       # Knowledge base: pg module for SQL in Code nodes + DashScope embeddings
       - NODE_FUNCTION_ALLOW_EXTERNAL=pg
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      # KB cross-encoder rerank (opt-in; default off = zero regression). The three
+      # kb_search Code nodes read these via $env; blank model/url use canonical defaults.
+      - KB_RERANK_ENABLED=${KB_RERANK_ENABLED:-false}
+      - KB_RERANK_MODEL=${KB_RERANK_MODEL:-qwen3-rerank}
+      - KB_RERANK_URL=${KB_RERANK_URL:-}
+      - KB_RERANK_TOP_N=${KB_RERANK_TOP_N:-0}
+      - KB_RERANK_INSTRUCT=${KB_RERANK_INSTRUCT:-}
       - UPSTREAM_API_KEY=${UPSTREAM_API_KEY}
       - GENERIC_TIMEZONE=Asia/Shanghai
       - MCP_API_KEY=${MCP_API_KEY}

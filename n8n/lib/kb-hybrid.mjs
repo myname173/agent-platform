@@ -111,6 +111,69 @@ async function hybridKbSearch(pg, vec, query, k, opts) {
     retrieval: 'hybrid',
   };
 }
+
+// Default DashScope text-rerank endpoint (classic host, consistent with the
+// embedding call). Override via cfg.endpoint for a workspace-scoped host.
+const KB_RERANK_URL = 'https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank';
+// Conservative per-item char clamp as a proxy for the 4000-token/item limit
+// (Chinese ~1.5 tokens/char). The 750-char chunks are well under; this is a
+// safety net so an oversized chunk never triggers an HTTP 400 (the API does not
+// truncate over-limit input, it rejects it).
+const KB_RERANK_MAX_ITEM_CHARS = 2600;
+
+// Cross-encoder rerank of the fused candidate rows (DashScope text-rerank).
+// `httpRequest` is injected like `pg` so the module stays dependency-free and
+// offline-testable; it takes {method,url,headers,body,timeout} and returns parsed
+// JSON (the n8n this.helpers.httpRequest contract). cfg = {apiKey,model,endpoint,
+// instruct,timeoutMs}. Fail-open is the central safety property: any missing
+// precondition or error returns the rows UNCHANGED (RRF order) and prevRetrieval,
+// never throwing into the host. Returns {rows, retrieval, reranked}. On success
+// each row keeps its fields and gains score=relevance_score (relative 0..1, NOT a
+// cosine, not comparable across requests), rerankScore, and prevScore (the
+// pre-rerank ranking score); vectorScore is preserved. retrieval becomes
+// prevRetrieval+'+rerank' so the active stage stays observable (a silent no-op is
+// visible). The relevance_score is relative, so callers must NOT apply a cosine
+// threshold to it (mcp skips its >0.2 filter outside pure vector mode).
+async function rerankKbRows(httpRequest, cfg, query, rows, topN, prevRetrieval) {
+  const c = cfg || {};
+  const key = String(c.apiKey == null ? '' : c.apiKey).trim();
+  const list = Array.isArray(rows) ? rows : [];
+  const q = String(query == null ? '' : query).trim();
+  const prev = String(prevRetrieval || 'vector');
+  if (!key || !list.length || !q || typeof httpRequest !== 'function') {
+    return { rows: list, retrieval: prev, reranked: false };
+  }
+  const cap = Math.min(Math.max(Number(topN) || list.length, 1), list.length);
+  const clamp = (s) => String(s == null ? '' : s).slice(0, KB_RERANK_MAX_ITEM_CHARS);
+  const documents = list.map((r) => clamp(r.content));
+  const parameters = { top_n: cap, return_documents: false };
+  if (c.instruct) parameters.instruct = String(c.instruct);
+  try {
+    const resp = await httpRequest({
+      method: 'POST',
+      url: c.endpoint || KB_RERANK_URL,
+      headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+      body: { model: c.model || 'qwen3-rerank', input: { query: clamp(q), documents }, parameters },
+      timeout: Number(c.timeoutMs) || 15000,
+    });
+    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
+    const results = data && data.output && Array.isArray(data.output.results) ? data.output.results : null;
+    if (!results || !results.length) return { rows: list, retrieval: prev, reranked: false };
+    const mapped = [];
+    for (const r of results) {
+      const idx = Number(r && r.index);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) continue;
+      const src = list[idx];
+      const rel = Number(r.relevance_score);
+      mapped.push({ ...src, prevScore: src.score, score: rel, rerankScore: rel });
+    }
+    if (!mapped.length) return { rows: list, retrieval: prev, reranked: false };
+    return { rows: mapped.slice(0, cap), retrieval: prev + '+rerank', reranked: true };
+  } catch (e) {
+    // API down / timeout / non-2xx / bad JSON: drop rerank, keep RRF order.
+    return { rows: list, retrieval: prev, reranked: false };
+  }
+}
 // <<< KB-HYBRID-EMBED-END
 
-export { rrfFuse, bm25Available, hybridKbSearch, KB_BM25_PROBE_SQL, kbVectorSql, kbBm25Sql };
+export { rrfFuse, bm25Available, hybridKbSearch, rerankKbRows, KB_BM25_PROBE_SQL, kbVectorSql, kbBm25Sql, KB_RERANK_URL, KB_RERANK_MAX_ITEM_CHARS };
