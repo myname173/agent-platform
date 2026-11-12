@@ -9,6 +9,11 @@
  * Live use requires --isolated-stack, an explicit operator confirmation that
  * DB/embedding settings target a disposable test environment, not shared KB.
  * This flag is a confirmation, not automatic isolation/provisioning.
+ * Optional --hybrid selects BM25+vector RRF retrieval (the production hybrid
+ * path); without it the run is vector-only. Both go through the same canonical
+ * helper the workflow Code nodes embed, so the ruler measures production code.
+ * If pg_search/the bm25 index is absent, --hybrid degrades to vector and the
+ * report's retrieval_mode shows 'vector' against requested_mode 'hybrid'.
  * pg is loaded only inside main; imports and pure metric tests require no pg.
  * No .env is loaded. Reports default to the project root .eval-local/judge.
  */
@@ -17,8 +22,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
+import { hybridKbSearch } from '../lib/kb-hybrid.mjs';
 
 export const HIT_AT_1_THRESHOLD = 0.80;
+
+/** Pure flag parser. Live eval needs --isolated-stack; --hybrid is optional and
+ *  order-independent. Rejects unknown flags, duplicates, and any other shape.
+ *  Exported so the guard is testable without touching env/files/network. */
+export function parseEvalFlags(argv) {
+  const allowed = new Set(['--isolated-stack', '--hybrid']);
+  const ok = Array.isArray(argv) && argv.length >= 1 && argv.length <= 2
+    && argv.includes('--isolated-stack')
+    && argv.every((a) => allowed.has(a))
+    && new Set(argv).size === argv.length;
+  return { ok, hybrid: ok && argv.includes('--hybrid') };
+}
 const PROJECT_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding';
 const isText = (value) => typeof value === 'string' && value.trim().length > 0;
@@ -94,8 +112,9 @@ export function validateGoldenSet(gs) {
 
 export async function main(argv = process.argv.slice(2), { env = process.env, log = console.log, error = console.error } = {}) {
   // MUST run before reading any config/input, loading pg, connecting, or embedding.
-  if (argv.length !== 1 || argv[0] !== '--isolated-stack') {
-    error('SETUP ERROR: live KB evaluation requires explicit --isolated-stack confirmation of a disposable test environment; it writes KB data and consumes embeddings. Shared KB must not be used.');
+  const { ok, hybrid } = parseEvalFlags(argv);
+  if (!ok) {
+    error('SETUP ERROR: live KB evaluation requires explicit --isolated-stack confirmation of a disposable test environment; it writes KB data and consumes embeddings. Shared KB must not be used. Optional --hybrid selects BM25+vector RRF retrieval (default vector-only).');
     return 2;
   }
   let pg;
@@ -159,6 +178,7 @@ export async function main(argv = process.argv.slice(2), { env = process.env, lo
     }
 
     const rankings = [];
+    const seenModes = new Set();
     for (const [index, row] of gs.cases.entries()) {
       if (row.expect_title === null) {
         rankings.push(null);
@@ -166,17 +186,21 @@ export async function main(argv = process.argv.slice(2), { env = process.env, lo
         continue; // No embedding/retrieval: that cannot test answer refusal.
       }
       const vector = await embed(row.q, 'query');
-      const result = await pg.query(
-        `SELECT d.title, 1 - (c.embedding <=> $1::vector) AS score
-           FROM kb_chunks c JOIN kb_documents d ON d.doc_id = c.doc_id
-          WHERE d.status = 'active' AND d.doc_id = ANY($2::text[])
-          ORDER BY c.embedding <=> $1::vector LIMIT 5`,
-        [vector, docIds],
-      );
-      rankings.push(result.rows.map((r) => r.title));
-      log(`TESTED retrieval case ${index + 1}`);
+      // Same canonical helper the workflow Code nodes embed. docIds restricts to
+      // the frozen corpus; k=5 matches the ruler's top-5 cutoff. In vector mode
+      // this reproduces the previous cosine ordering exactly; in hybrid mode it
+      // fuses BM25 + vector with RRF. retrieval reports what actually ran.
+      const { rows, retrieval } = await hybridKbSearch(pg, JSON.parse(vector), row.q, 5, { docIds });
+      seenModes.add(retrieval);
+      rankings.push(rows.map((r) => r.title));
+      log(`TESTED retrieval case ${index + 1} (${retrieval})`);
     }
-    const report = { ...evaluateRetrieval(gs.cases, rankings), ran_at: new Date().toISOString() };
+    const report = {
+      ...evaluateRetrieval(gs.cases, rankings),
+      requested_mode: hybrid ? 'hybrid' : 'vector',
+      retrieval_mode: [...seenModes].sort().join('+') || 'vector',
+      ran_at: new Date().toISOString(),
+    };
     const { detail, ...summary } = report;
     log(JSON.stringify(summary, null, 2));
     const outFile = path.join(PROJECT_ROOT, '.eval-local', 'judge', `kb-${Date.now().toString(36)}.json`);

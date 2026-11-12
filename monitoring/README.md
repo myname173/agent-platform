@@ -177,6 +177,34 @@ One read-only mining run (`--days 3 --limit 2000`) covered
 executions, messages or candidates, without truncation. Both source tables'
 latest records were still dated November 2; zero candidates is not a health verdict.
 
+## KB hybrid retrieval (Agentic RAG)
+
+KB retrieval gained an optional BM25 full-text leg fused with the pgvector ANN
+leg via Reciprocal Rank Fusion. The canonical helper lives in
+`n8n/lib/kb-hybrid.mjs` and is embedded verbatim in the three `kb_search` Code
+nodes (chat-gateway, kb-ingest, mcp-server); a drift guard fails CI if a copy
+diverges. Retrieval **degrades to vector-only** whenever `pg_search` / the
+`kb_chunks_bm25` index is absent, so the current live stack (extension available
+but not installed) is unchanged. The schema addition is guarded, idempotent and
+failure-tolerant.
+
+Offline contracts (RRF, availability, degradation, drift, schema) are in
+`n8n/scripts/kb-hybrid.test.mjs` and run in the `kb-hybrid-contract-tests` CI
+job. **Retrieval efficacy is not measured offline.** The before/after ruler is
+operator-run on the deployment machine:
+
+```powershell
+docker exec -i postgres psql -U n8n -d n8n < n8n/scripts/kb-schema.sql
+node n8n/scripts/kb-eval.mjs --isolated-stack            # vector baseline
+node n8n/scripts/kb-eval.mjs --isolated-stack --hybrid   # BM25+vector RRF
+```
+
+Compare `hit_at_1` / `mrr` and `retrieval_mode` vs `requested_mode` in the
+`.eval-local/judge/kb-*.json` reports; `--hybrid` reporting `retrieval_mode=vector`
+means the index is missing and hybrid did not run. Design, offline results,
+mutation proofs and the full 未验 list are in
+`monitoring/kb-hybrid-search-2026-11-12.md`.
+
 ## Phase 2 async KB save
 
 The Redis Streams worker is optional and only handles `kb_save`:
