@@ -94,3 +94,20 @@ UPDATE platform.outbox
 CREATE INDEX IF NOT EXISTS platform_outbox_ready_idx ON platform.outbox (state, next_retry_at);
 CREATE INDEX IF NOT EXISTS platform_outbox_claim_idx
   ON platform.outbox (kind, state, next_retry_at, lease_until, outbox_id);
+
+-- P0 idempotent consumer ledger: one row per (topic, dedupe_key). The primary
+-- key is the idempotency boundary; event-consumer.js self-ensures the same DDL
+-- at startup, so applying this file is optional for the pilot.
+CREATE TABLE IF NOT EXISTS platform.consumed_events (
+  topic            text NOT NULL,
+  dedupe_key       text NOT NULL,
+  event_id         text NOT NULL,
+  trace_id         text,
+  event_type       text,
+  source           text,
+  payload          jsonb,
+  consumed_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (topic, dedupe_key)
+);
+CREATE INDEX IF NOT EXISTS platform_consumed_events_trace_idx
+  ON platform.consumed_events (trace_id, consumed_at);

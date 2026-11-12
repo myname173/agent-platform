@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node test-runtime.mjs",
+    "test:consumer": "node --test test-event-consumer.mjs",
     "test:load": "node load-test.mjs"
   },
   "dependencies": {

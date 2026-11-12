@@ -1,8 +1,8 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
-verified_at: 2026-11-10
-verified_commit: 342959a
-verified_scope: 评测分支基点 + 未提交接续工作树（§15）；其余架构仍沿用 f5060c5 核验口径，不表示全量重新核验
+verified_at: 2026-11-12
+verified_commit: ca07ddd
+verified_scope: P0 消费者闭环（§1.2 event-bus-outbox、§5.1 consumed_events、§6 事件总线配置）按本分支工作树核验；评测分支口径见 §15；其余架构沿用既有核验口径，不表示全量重新核验
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
@@ -15,7 +15,7 @@ conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读
 ## 0. 三十秒心智模型
 
 - **一个自托管平台，跑在一台机器上。** n8n 是唯一的业务逻辑与 Agent 编排中枢；前端（LobeHub / 控制台 / Telegram / MCP）最终都只调用 n8n，彼此不直接互调（唯一旁路是 LobeHub → stream-bridge → n8n，见 §2.1；`README.md:9-17`、`README.md:125`）。
-- **12 个常驻 Docker 服务 + 3 个可选 profile。** 不是 README 写的 8 或 9 个（见 §11 偏差 D1）。
+- **12 个常驻 Docker 服务 + 4 个可选 profile。** 不是 README 写的 8 或 9 个（见 §11 偏差 D1）。
 - **源码即工作流。** 26 个 n8n workflow 以 JSON 形式入库，部署靠脚本推送，不在 n8n UI 里改（`README.md:1073-1095`）。
 - **密钥全在 `.env`（gitignore）。** workflow JSON 内不出现密钥值，运行时读 `$env.*`（`n8n/scripts/validate-workflows.mjs:1-11`）。
 - **控制台是 Next.js BFF。** 浏览器只访问 `/api/*`；n8n 的 `N8N_API_KEY` 只在服务端出现（`README.md:271-275`）。
@@ -37,8 +37,8 @@ conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读
 | 8 | `minio` | `minio` | **`rustfs/rustfs:latest`** | 9000 / 9001 | S3 兼容对象存储（服务名沿用 `minio`） | `docker-compose.yml:313-343` |
 | 9 | `stream-bridge` | `stream-bridge` | `n8nio/runners:latest` + 只读挂载 `./stream-bridge` | 127.0.0.1:3211 | OpenAI 兼容流式旁路，LobeHub 的模型入口 | `docker-compose.yml:348-377` |
 | 10 | `platform-runtime` | `platform-runtime` | build `./platform-runtime` | 127.0.0.1:13220→3220 | 原子协调原语（幂等、任务、锁、限流、指标） | `docker-compose.yml:382-419` |
-| 11 | `backup` | `platform-backup` | build `./backup` | 无 | 栈内备份：启动即跑，之后每 N 小时 | `docker-compose.yml:529-554` |
-| 12 | `caddy` | `caddy` | `caddy:2-alpine` | 8443-8446 | 局域网 TLS 反向代理（可选停用） | `docker-compose.yml:558-585` |
+| 11 | `backup` | `platform-backup` | build `./backup` | 无 | 栈内备份：启动即跑，之后每 N 小时 | `docker-compose.yml:625-654` |
+| 12 | `caddy` | `caddy` | `caddy:2-alpine` | 8443-8446 | 局域网 TLS 反向代理（可选停用） | `docker-compose.yml:658-685` |
 
 ### 1.2 可选 profile
 
@@ -47,11 +47,12 @@ conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读
 | `phase2` | `platform-worker` | Redis Streams 消费者，异步 `kb_save` | `docker-compose.yml:425-453` |
 | `observability` | `prometheus` | 抓取 runtime / bridge 指标（127.0.0.1:9090） | `docker-compose.yml:459-479`、`monitoring/prometheus.yml` |
 | `event-bus` | `kafka` | KRaft 单节点试点，**不替代** Redis Streams | `docker-compose.yml:485-521` |
+| `event-bus-outbox` | `platform-outbox-publisher`、`platform-event-consumer` | Outbox 试点闭环：publisher 租约式投递 `platform.outbox` → Kafka（指标 :9101）；consumer 幂等落 `platform.consumed_events`，重放是计数 no-op（指标 :9102）。Runtime 仍不写 outbox（`PLATFORM_OUTBOX_WRITE_MODE=off`） | `docker-compose.yml:559-587,592-617`、`deploy/event-bus/README.md` |
 
 ### 1.3 网络与卷（fresh clone 注意）
 
-- 只有一张网络 `n8n-net`，声明为 **external**（`docker-compose.yml:587-590`）。
-- 卷 `n8n_data` 也是 **external**（`docker-compose.yml:593-595`）；其余卷由 compose 管理。
+- 只有一张网络 `n8n-net`，声明为 **external**（`docker-compose.yml:687-690`）。
+- 卷 `n8n_data` 也是 **external**（`docker-compose.yml:693-695`）；其余卷由 compose 管理。
 - 因此全新机器直接 `docker compose up -d` 会因外部资源缺失而失败，需先：
   `docker network create n8n-net && docker volume create n8n_data`
   （迁移脚本里有同样的创建逻辑：`migration/restore.sh:80-86`；README 快速启动**未写**这一步）。
@@ -189,11 +190,11 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 ### 5.1 Postgres
 
 - 镜像 `paradedb/paradedb:latest-pg17`，启动参数预加载 `pg_search,pg_cron`（`docker-compose.yml:156-164`；缺 `pg_cron` 会让全新卷启动失败，注释已记录）。
-- 卷名是 `postgres_data_pg17`（`docker-compose.yml:596-598`），旧卷 `postgres_data` 留作回滚（`README.md:127-129`）。
+- 卷名是 `postgres_data_pg17`（`docker-compose.yml:696-698`），旧卷 `postgres_data` 留作回滚（`README.md:127-129`）。
 - 此评测分支的 n8n Data Table 定义为 **26 张**（不是现网实存数量）：原 `n8n/scripts/deploy.mjs:46-315` 的 24 张，加 PR #8 在 320-353 行定义的 `eval_runs`（18 列）与 `eval_results`（12 列）。
   原 24 张为 `chat_messages, chat_executions, admin_audit, idempotency_records, kb_usage, daily_briefs, workflow_tools, topic_watch, todos, people, projects, tool_contract, mcp_servers, sandbox_approvals, documents, weekly_reviews, selfcheck_runs, heartbeats, telegram_state, reminders, ops_alerts, ops_alert_silence, gateway_keys, agenda_runs`。2026-11-10 本机 API 只读核验两张 eval 表尚未部署，见 §15。
 - 实例上还可能有额外的 `cron_runs`（列 `job/period/ran_at/source`）：它**不在** `DATA_TABLE_COLUMNS` 里，是 `topic-watch` 与 `weekly-review` 的守卫节点在运行时「查不到就自己建」出来的，因此不受 `ensureColumns` 保护（`n8n/workflows/topic-watch.json` 的 `Already Ran Today` / `Mark Ran`）。
-- 另有 `platform` schema（`CREATE SCHEMA IF NOT EXISTS platform`，`n8n/scripts/platform-schema.sql:7`），runtime 使用 `platform.requests / platform.events / platform.tool_runs`（`platform-runtime/server.js:133-230`）。
+- 另有 `platform` schema（`CREATE SCHEMA IF NOT EXISTS platform`，`n8n/scripts/platform-schema.sql:7`），runtime 使用 `platform.requests / platform.events / platform.tool_runs`（`platform-runtime/server.js:133-230`）。事件总线试点另用两张：`platform.outbox`（事务 outbox，publisher 租约投递）与 `platform.consumed_events`（消费者幂等台账，PK `(topic, dedupe_key)`，consumer 启动自建；`n8n/scripts/platform-schema.sql:101-113`、`platform-runtime/event-consumer.js:25-37`）。
 - `deploy.mjs` 只造 data table，**下面这些它一概不碰**，缺了得自己补：`vector` 扩展 + `kb_documents` / `kb_chunks`（`n8n/scripts/kb-schema.sql`，第一行就是 `CREATE EXTENSION IF NOT EXISTS vector`）、`ops_alerts`（`n8n/scripts/ops-schema.sql`）、`agent_memories`（`memory.json` 的 `ensureTable` 运行时自建，但它的 `embedding vector(1024)` 依赖上面那个扩展）、LobeHub 自己的 `lobechat` 库（由 LobeHub 容器首启时建，记忆镜像写它的 `user_memories`）。生产镜像 paradedb 自带 pgvector，`postgres:*-alpine` **不带**；本地用 alpine 镜像就必须自己补扩展，否则任何 `::vector` 都会让 Postgres 回错误响应，后果见 §9 第 13 条。
 
 ### 5.1.1 项目维度（`projects` + `project_ref`）
@@ -224,6 +225,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | 局域网 | `PLATFORM_LAN_IP`、`LAN_IP` | 手机访问、预签名上传、Caddy 证书 SAN 都依赖它（`.env.example:108-118`） |
 | 端口 | `N8N_PORT`、`CONSOLE_PORT`、`LOBECHAT_PORT`、`SEARXNG_PORT`、`MINIO_*_PORT`、`STREAM_BRIDGE_PORT`、`CADDY_PORT_*` | 只改宿主端口，容器端口固定（`docker-compose.yml:11-18`） |
 | 资源/行为 | `RETENTION_DAYS_*`、`IDEMPOTENCY_WINDOW_SEC`、`MAX_TOOL_ROUNDS`、`PLATFORM_RATE_LIMIT_RPM`、`EMBEDDING_*`、`ALERT_*` | 多数有代码内默认值 |
+| 事件总线（可选） | `PLATFORM_OUTBOX_*`、`PLATFORM_CONSUMER_GROUP`、`PLATFORM_CONSUMER_FROM_BEGINNING` | 仅 `event-bus-outbox` profile 生效；`PLATFORM_OUTBOX_WRITE_MODE` 保持 `off`（Runtime 不写 outbox）；指标端口 9101/9102 为容器内固定值（`.env.example`、`docker-compose.yml:559-617`） |
 | 备份 | `BACKUP_INTERVAL_HOURS=6`、`BACKUP_MIN_AGE_HOURS=20`、`BACKUP_OFFSITE_DIR` | 新鲜度守卫（`.env.example:126-136`） |
 | 控制台 | `CONSOLE_CLERK_PUBLISHABLE_KEY`、`frontent/.env.local` | 前者是构建参数（改后需重建镜像），后者被 compose 以 `required:false` 挂入（`docker-compose.yml:129-140`） |
 
@@ -235,6 +237,9 @@ docker compose up -d                 # 12 个常驻服务（需先创建 n8n-net
 docker compose --profile phase2 up -d platform-worker
 docker compose --profile observability up -d prometheus
 docker compose --profile event-bus up -d kafka
+# Outbox + 幂等消费者试点（闭环验收脚本，细节见 deploy/event-bus/README.md）
+powershell -File deploy/event-bus/outbox-pilot.ps1 -Action check
+powershell -File deploy/event-bus/consumer-pilot.ps1 -Action check
 
 # 工作流：源码 → 运行实例
 N8N_URL=http://localhost:5678 N8N_API_KEY=<key> node n8n/scripts/deploy.mjs

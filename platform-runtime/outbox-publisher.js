@@ -1,6 +1,8 @@
+import http from 'node:http';
 import os from 'node:os';
 import { Kafka } from 'kafkajs';
 import pg from 'pg';
+import { collectOutboxStats, renderOutboxMetrics } from './outbox-metrics.js';
 
 const { Pool } = pg;
 const DB = {
@@ -18,11 +20,14 @@ const BATCH_SIZE = Math.max(1, Math.min(100, Number(process.env.OUTBOX_BATCH_SIZ
 const LEASE_SEC = Math.max(5, Number(process.env.OUTBOX_LEASE_SEC || 30));
 const MAX_ATTEMPTS = Math.max(1, Number(process.env.OUTBOX_MAX_ATTEMPTS || 5));
 const PUBLISHER_ID = process.env.OUTBOX_PUBLISHER_ID || `outbox-publisher-${os.hostname()}-${process.pid}`;
+const METRICS_PORT = Number(process.env.OUTBOX_METRICS_PORT || 9101);
 
 const pool = new Pool({ ...DB, max: 2, connectionTimeoutMillis: 3000, query_timeout: 5000 });
 const kafka = new Kafka({ clientId: PUBLISHER_ID, brokers: BROKERS });
 const producer = kafka.producer({ allowAutoTopicCreation: false });
 let stopping = false;
+let metricsServer;
+const counters = { published: 0, retry: 0, deadLetter: 0 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -96,6 +101,7 @@ const markFailed = async (row, error) => {
     state: deadLetter ? 'DEAD_LETTER' : 'RETRY',
     error: String(error.message || error).slice(0, 300),
   }));
+  return deadLetter ? 'dead_letter' : 'retry';
 };
 
 const publishRow = async (row) => {
@@ -126,6 +132,7 @@ const publishRow = async (row) => {
 const shutdown = async () => {
   if (stopping) return;
   stopping = true;
+  if (metricsServer) metricsServer.close();
   await producer.disconnect().catch(() => {});
   await pool.end().catch(() => {});
   process.exit(0);
@@ -136,12 +143,39 @@ process.once('SIGINT', shutdown);
 
 await pool.query('SELECT 1');
 await producer.connect();
+
+// P0 metrics surface: pending/retry/dead-letter visibility required by the
+// promotion rule. Scraped by Prometheus; never affects the delivery loop.
+metricsServer = http.createServer(async (req, res) => {
+  if (req.method === 'GET' && req.url === '/healthz') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ ok: true, service: 'platform-outbox-publisher' }));
+  }
+  if (req.method !== 'GET' || req.url !== '/metrics') {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ ok: false, error: 'not found' }));
+  }
+  try {
+    const stats = await collectOutboxStats(pool, KIND);
+    res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
+    res.end(renderOutboxMetrics({ kind: KIND, stats, counters }));
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'platform.outbox.metrics_error', error: String(error.message || error).slice(0, 300) }));
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: 'metrics_unavailable' }));
+  }
+});
+metricsServer.listen(METRICS_PORT, '0.0.0.0', () => {
+  console.log(JSON.stringify({ event: 'platform.outbox.metrics_listening', port: METRICS_PORT }));
+});
+
 console.log(JSON.stringify({
   event: 'platform.outbox.publisher_ready',
   publisher_id: PUBLISHER_ID,
   kind: KIND,
   topic: TOPIC,
   brokers: BROKERS,
+  metrics_port: METRICS_PORT,
 }));
 
 while (!stopping) {
@@ -155,6 +189,7 @@ while (!stopping) {
       try {
         await publishRow(row);
         await markDelivered(row);
+        counters.published += 1;
         console.log(JSON.stringify({
           event: 'platform.outbox.published',
           outbox_id: String(row.outbox_id),
@@ -163,7 +198,9 @@ while (!stopping) {
           attempts: row.attempts,
         }));
       } catch (error) {
-        await markFailed(row, error);
+        const outcome = await markFailed(row, error);
+        if (outcome === 'dead_letter') counters.deadLetter += 1;
+        else counters.retry += 1;
       }
     }
   } catch (error) {

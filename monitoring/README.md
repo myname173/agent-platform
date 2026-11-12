@@ -10,6 +10,11 @@ metrics path:
   durable state and request latency metrics.
 - `stream-bridge:3211/metrics` exposes request count, errors, rate limiting and
   latency metrics.
+- `platform-outbox-publisher:9101/metrics` and
+  `platform-event-consumer:9102/metrics` expose outbox queue state and
+  idempotent-consumption counters. They only exist while the optional
+  `event-bus-outbox` profile is running; Prometheus reports these targets down
+  when the profile is stopped (expected, see `monitoring/prometheus.yml`).
 
 Prometheus is only for internal runtime metrics. Grafana and a second business
 metrics exporter are intentionally not part of this stack, so Console and
@@ -259,6 +264,13 @@ explicit.
 Kafka is available as an opt-in single-node KRaft profile for event-contract
 and produce/consume validation. It does not replace the Redis Streams
 `kb_save` queue. See `deploy/event-bus/README.md`.
+
+The P0 consumer-side closure adds an idempotent consumer
+(`platform-runtime/event-consumer.js`, ledger `platform.consumed_events`) and
+outbox queue metrics on the publisher. The contract is covered by offline
+tests (`npm run test:consumer` in `platform-runtime`); the live closed-loop
+check (`deploy/event-bus/consumer-pilot.ps1 -Action check`) is the acceptance
+step and no live acceptance report has been recorded yet.
 
 ## Runtime `.env` key audit (2026-11-05)
 
