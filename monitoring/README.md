@@ -452,6 +452,41 @@ metrics (prometheus-adapter) are the documented follow-up. The live drill is
 operator-run; evidence and 未跑 items are recorded in
 `monitoring/kind-elastic-2026-11-12.md`.
 
+## P4 OpenTelemetry cross-service tracing
+
+Cross-service spans are opt-in via the `tracing` profile (otel-collector +
+Jaeger, loopback-only). One canonical dependency-free tracer
+(`monitoring/otel/tracer.js`) is vendored verbatim into `stream-bridge/tracer.js`
+and `platform-runtime/tracer.cjs`; a drift guard fails CI if a copy diverges
+(same pattern as KB hybrid). n8n uses its **native** OTel (`N8N_OTEL_*`, gated to
+2.37.7-available vars) because Code nodes cannot import an SDK. The collector's
+OTLP receiver accepts n8n's http/protobuf and the hand-rolled tracer's OTLP/JSON
+on the same :4318 endpoint. Export is **fail-open** (a down collector never
+breaks a request) and **disabled by default** (empty endpoint / `N8N_OTEL_ENABLED=false`
+= byte-for-byte the pre-tracing behavior).
+
+Offline contracts (traceparent, OTLP/JSON span shape, propagation, fail-open,
+drift) are in `monitoring/otel/tracer.test.mjs` and run in the
+`otel-tracing-contract-tests` CI job. A disposable, isolated collector+Jaeger
+acceptance check drives the real tracer end-to-end without touching the shared
+stack:
+
+```bash
+node monitoring/otel/otlp-acceptance.mjs   # throwaway containers, always cleans up
+```
+
+**Live cross-service continuity into n8n is not verified offline.** Whether n8n
+2.37.7 extracts the incoming `traceparent` to continue a trace is undocumented
+upstream and is the key operator-run gate on the deployment machine:
+
+```bash
+# .env: OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318, N8N_OTEL_ENABLED=true
+docker compose --profile tracing up -d     # Jaeger UI: http://127.0.0.1:16686
+```
+
+Design, offline results, mutation proofs, the disposable acceptance and the full
+未验 list are in `monitoring/otel-tracing-2026-11-12.md`.
+
 ## Phase 5.3 Kafka event-bus pilot
 
 Kafka is available as an opt-in single-node KRaft profile for event-contract

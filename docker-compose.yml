@@ -128,6 +128,19 @@ services:
       - LOBEHUB_OWNER_EMAIL=${LOBEHUB_OWNER_EMAIL:-owner@agent-platform.local}
       # Fallback for link building when CONSOLE_URL is empty.
       - APP_URL=http://${PLATFORM_LAN_IP:-127.0.0.1}:${CONSOLE_PORT:-3000}
+      # P4 OpenTelemetry tracing (n8n native, opt-in). N8N_OTEL_ENABLED=false
+      # (default) loads no SDK — the core stack is unchanged. Only vars available
+      # in 2.37.7 are set here; protocol selection / propagators arrived in later
+      # releases. Default transport is http/protobuf; the tracing-profile collector
+      # also accepts the bridge/runtime hand-rolled tracer's OTLP/JSON on :4318.
+      # Incoming traceparent extraction is undocumented upstream — cross-service
+      # continuity into n8n is verified on the deployment machine, with the business
+      # x-trace-id kept as a span attribute for correlation regardless.
+      - N8N_OTEL_ENABLED=${N8N_OTEL_ENABLED:-false}
+      - N8N_OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      - N8N_OTEL_EXPORTER_SERVICE_NAME=n8n
+      - N8N_OTEL_TRACES_SAMPLE_RATE=${OTEL_TRACES_SAMPLE_RATE:-1.0}
+      - N8N_OTEL_TRACES_PRODUCTION_ONLY=${N8N_OTEL_TRACES_PRODUCTION_ONLY:-false}
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
@@ -383,6 +396,12 @@ services:
       - PLATFORM_RATE_LIMIT_RPM=${PLATFORM_RATE_LIMIT_RPM:-60}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      # P4 tracing (opt-in). Empty endpoint = tracer disabled = byte-for-byte the
+      # pre-tracing behavior. Set OTEL_EXPORTER_OTLP_ENDPOINT in .env and start the
+      # `tracing` profile to emit spans. Service name is fixed per service.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=stream-bridge
+      - OTEL_SDK_DISABLED=${OTEL_SDK_DISABLED:-false}
     ports:
       - "127.0.0.1:${STREAM_BRIDGE_PORT:-3211}:3211"
     restart: unless-stopped
@@ -419,6 +438,12 @@ services:
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
       - DB_POSTGRESDB_USER=${POSTGRES_USER}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      # P4 tracing (opt-in). Empty endpoint = tracer disabled = unchanged behavior.
+      # The SERVER span extracts the traceparent injected by stream-bridge's CLIENT
+      # span, so bridge -> runtime stays one continuous trace.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=platform-runtime
+      - OTEL_SDK_DISABLED=${OTEL_SDK_DISABLED:-false}
     # K8s pilot bridge: host loopback only; in-stack clients still use
     # platform-runtime:3220.
     ports:
@@ -496,6 +521,48 @@ services:
         condition: service_healthy
       stream-bridge:
         condition: service_started
+    networks:
+      - n8n-net
+
+  # --------------------------------------------------------------------------
+  # P4: optional OpenTelemetry tracing pilot (opt-in `tracing` profile). The core
+  # stack is unchanged. The collector's OTLP receiver accepts BOTH n8n's native
+  # http/protobuf and the bridge/runtime hand-rolled tracer's OTLP/JSON on :4318,
+  # then forwards to Jaeger over OTLP/gRPC. To light up spans: set
+  # OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 (bridge/runtime) and
+  # N8N_OTEL_ENABLED=true (n8n) in .env, then `docker compose --profile tracing up -d`.
+  # Jaeger UI: http://127.0.0.1:16686. Export is fail-open: a down collector never
+  # breaks a request. See monitoring/otel-tracing-2026-11-12.md.
+  # --------------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector:0.115.0
+    container_name: platform-otel-collector
+    profiles: ["tracing"]
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      - "127.0.0.1:${OTEL_COLLECTOR_HTTP_PORT:-4318}:4318"
+    expose:
+      - "4317"
+    volumes:
+      - ./monitoring/otel/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    depends_on:
+      jaeger:
+        condition: service_started
+    networks:
+      - n8n-net
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: platform-jaeger
+    profiles: ["tracing"]
+    restart: unless-stopped
+    environment:
+      # Jaeger >=1.35 accepts OTLP directly; the collector forwards to jaeger:4317.
+      - COLLECTOR_OTLP_ENABLED=true
+      - MEMORY_MAX_TRACES=${JAEGER_MEMORY_MAX_TRACES:-50000}
+    ports:
+      - "127.0.0.1:${JAEGER_PORT:-16686}:16686"
     networks:
       - n8n-net
 

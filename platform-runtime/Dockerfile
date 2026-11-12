@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY server.js ./
+COPY tracer.cjs ./
 COPY worker.js ./
 COPY event-publisher.js ./
 COPY outbox-publisher.js ./

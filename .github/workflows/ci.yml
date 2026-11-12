@@ -144,3 +144,22 @@ jobs:
       #   node n8n/scripts/kb-eval.mjs --isolated-stack          # vector baseline
       #   node n8n/scripts/kb-eval.mjs --isolated-stack --hybrid  # BM25+vector RRF
       # Offline green is not retrieval acceptance.
+
+  otel-tracing-contract-tests:
+    name: OTel tracing contracts (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test traceparent, OTLP/JSON span shape, propagation, fail-open and vendored-copy drift
+        run: node --test monitoring/otel/tracer.test.mjs
+      # No dependencies and no collector: the tracer is dependency-free CommonJS
+      # and the tests capture the OTLP/JSON payload with a fake fetch, including
+      # fail-open negative controls and a byte-identity drift guard across the
+      # canonical tracer and both vendored copies (stream-bridge/tracer.js,
+      # platform-runtime/tracer.cjs). Live cross-service trace continuity — most
+      # importantly whether n8n extracts the incoming traceparent — is operator-run
+      # on the deployment machine with the `tracing` profile (otel-collector +
+      # Jaeger). Offline green is not live tracing acceptance.

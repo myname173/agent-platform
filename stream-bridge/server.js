@@ -8,6 +8,7 @@
    NOTE: keep SERVER_TOOLS in sync with n8n/workflows/chat-gateway.json. */
 const http = require('http');
 const { randomUUID } = require('crypto');
+const { createTracer } = require('./tracer.js');
 
 const PORT = Number(process.env.PORT || 3211);
 const GATEWAY = String(process.env.GATEWAY_URL || 'http://n8n:5678/webhook/v1').replace(/\/$/, '');
@@ -21,6 +22,16 @@ const RUNTIME_ENABLED = String(process.env.PLATFORM_RUNTIME_ENABLED || 'true').t
 const RUNTIME_RATE_LIMIT_RPM = Math.max(1, Number(process.env.PLATFORM_RATE_LIMIT_RPM || 60));
 const MODEL_UPSTREAM = process.env.UPSTREAM_MODEL || 'deepseek-v4-flash';
 const AUTH_PREFIX = 'Bea' + 'rer ';
+// OpenTelemetry tracing (opt-in). Disabled unless OTEL_EXPORTER_OTLP_ENDPOINT is
+// set; OTEL_SDK_DISABLED=true force-disables. When disabled the tracer is a no-op
+// and inject() leaves headers untouched, so behavior is byte-for-byte unchanged.
+const OTEL_ENDPOINT = String(process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '').trim();
+const OTEL_DISABLED = String(process.env.OTEL_SDK_DISABLED || '').toLowerCase() === 'true';
+const otel = createTracer({
+  serviceName: String(process.env.OTEL_SERVICE_NAME || 'stream-bridge'),
+  endpoint: OTEL_ENDPOINT,
+  enabled: !OTEL_DISABLED,
+});
 const LATENCY_BUCKETS = [50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000];
 const bridgeMetrics = {
   requests_total: 0,
@@ -87,19 +98,58 @@ function traceHeaders(req, traceId, requestId) {
   };
 }
 
-async function runtimePost(path, payload) {
+/* SERVER span for one inbound request. Skips health/metrics noise. The span's
+ * trace id follows an incoming traceparent when present (distributed continuity),
+ * otherwise the business x-trace-id; the business ids are kept as attributes so a
+ * trace can always be correlated back to logs even if propagation is broken. */
+function otelServerSpan(req, path0) {
+  if (!otel.enabled) return null;
+  if (path0 === '/healthz' || path0 === '/metrics' || path0 === '/readyz') return null;
+  const traceId = traceIdFor(req);
+  const requestId = requestIdFor(req);
+  return otel.startSpan('stream-bridge ' + (req.method || 'POST') + ' ' + path0, {
+    kind: otel.SPAN_KIND.SERVER,
+    parent: otel.extract(req.headers),
+    traceId,
+    attributes: {
+      'http.method': req.method,
+      'http.route': path0,
+      'trace.id': traceId,
+      'request.id': requestId,
+      'client': String(req.headers['x-client'] || 'stream-bridge'),
+    },
+  });
+}
+
+function otelEndServer(span, res) {
+  if (!span) return;
+  const code = res.statusCode;
+  otel.endSpan(span, {
+    status: code >= 500 ? otel.STATUS.ERROR : otel.STATUS.OK,
+    attributes: { 'http.status_code': code },
+  });
+}
+
+async function runtimePost(path, payload, parentSpan) {
   if (!RUNTIME_ENABLED || !RUNTIME_KEY) return null;
+  const span = otel.startSpan('runtime ' + path, {
+    kind: otel.SPAN_KIND.CLIENT,
+    parent: parentSpan || null,
+    attributes: { 'rpc.system': 'http', 'http.url': RUNTIME_URL + path },
+  });
   try {
     const r = await fetch(RUNTIME_URL + path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-platform-runtime-key': RUNTIME_KEY },
+      headers: otel.inject({ 'Content-Type': 'application/json', 'x-platform-runtime-key': RUNTIME_KEY }, span),
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(1200),
     });
+    otel.endSpan(span, { status: r.ok ? otel.STATUS.OK : otel.STATUS.ERROR, attributes: { 'http.status_code': r.status } });
     if (!r.ok) return null;
     return await r.json();
   } catch (error) {
     // Runtime coordination is fail-open during rollout; n8n remains the compatibility path.
+    otel.endSpan(span, { error });
     return null;
   }
 }
@@ -112,7 +162,7 @@ async function runtimeRateLimit(req, body, traceId, requestId) {
     window_sec: 60,
     trace_id: traceId,
     request_id: requestId,
-  });
+  }, req._otelSpan);
 }
 
 const SERVER_TOOLS = [
@@ -248,17 +298,24 @@ async function handleEmbeddings(res, body) {
 async function proxyGateway(req, res, raw) {
   const traceId = traceIdFor(req);
   const requestId = requestIdFor(req);
+  const span = otel.startSpan('gateway chat/completions', {
+    kind: otel.SPAN_KIND.CLIENT,
+    parent: req._otelSpan || null,
+    attributes: { 'rpc.system': 'http', 'http.url': GATEWAY + '/chat/completions', 'trace.id': traceId },
+  });
   try {
     const r = await fetch(GATEWAY + '/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: req.headers['authorization'] || '', ...traceHeaders(req, traceId, requestId) },
+      headers: otel.inject({ 'Content-Type': 'application/json', Authorization: req.headers['authorization'] || '', ...traceHeaders(req, traceId, requestId) }, span),
       body: raw,
       signal: AbortSignal.timeout(300000),
     });
     const text = await r.text();
+    otel.endSpan(span, { status: r.ok ? otel.STATUS.OK : otel.STATUS.ERROR, attributes: { 'http.status_code': r.status } });
     res.writeHead(r.status, { 'Content-Type': 'application/json', 'x-trace-id': traceId, 'x-request-id': requestId });
     res.end(text);
   } catch (e) {
+    otel.endSpan(span, { error: e });
     jsonOut(res, 502, { error: { message: 'gateway unavailable: ' + String(e.message).slice(0, 160) }, trace_id: traceId, request_id: requestId }, { 'x-trace-id': traceId, 'x-request-id': requestId });
   }
 }
@@ -326,10 +383,15 @@ async function handleStream(req, res, body) {
   let bufferMode = false;
   const toolBuffer = [];
 
+  const upSpan = otel.startSpan('upstream chat/completions (stream)', {
+    kind: otel.SPAN_KIND.CLIENT,
+    parent: req._otelSpan || null,
+    attributes: { 'rpc.system': 'http', 'http.url': UPSTREAM + '/chat/completions', 'llm.model': MODEL_UPSTREAM, 'trace.id': traceId },
+  });
   try {
     const r = await fetch(UPSTREAM + '/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: AUTH_PREFIX + UP_KEY },
+      headers: otel.inject({ 'Content-Type': 'application/json', Authorization: AUTH_PREFIX + UP_KEY }, upSpan),
       body: JSON.stringify(upstreamBody),
       signal: AbortSignal.timeout(180000),
     });
@@ -369,7 +431,9 @@ async function handleStream(req, res, body) {
         if (d.role) { sseSend(res, j); continue; }
       }
     }
+    otel.endSpan(upSpan, { status: otel.STATUS.OK, attributes: { 'http.status_code': r.status, 'llm.usage.total_tokens': usage && usage.total_tokens } });
   } catch (e) {
+    otel.endSpan(upSpan, { error: e });
     console.log('[stream] upstream fail: ' + String((e && e.message) || e).slice(0, 300));
     if (!sseStarted) upstreamFailed = true;
     else {
@@ -430,16 +494,23 @@ async function handleStream(req, res, body) {
 
   let gj = null;
   let gok = false;
+  const fbSpan = otel.startSpan('gateway chat/completions (fallback)', {
+    kind: otel.SPAN_KIND.CLIENT,
+    parent: req._otelSpan || null,
+    attributes: { 'rpc.system': 'http', 'http.url': GATEWAY + '/chat/completions', 'trace.id': traceId, 'bridge.fallback': true },
+  });
   try {
     const r = await fetch(GATEWAY + '/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: req.headers['authorization'] || '', ...traceHeaders(req, traceId, requestId), 'x-session-id': sid, 'x-client': client },
+      headers: otel.inject({ 'Content-Type': 'application/json', Authorization: req.headers['authorization'] || '', ...traceHeaders(req, traceId, requestId), 'x-session-id': sid, 'x-client': client }, fbSpan),
       body: JSON.stringify({ ...body, stream: false }),
       signal: abortCtrl.signal,
     });
     gj = await r.json();
     gok = r.ok;
+    otel.endSpan(fbSpan, { status: r.ok ? otel.STATUS.OK : otel.STATUS.ERROR, attributes: { 'http.status_code': r.status } });
   } catch (e) {
+    otel.endSpan(fbSpan, { error: e });
     console.log('[fallback] gateway error: ' + String(e && e.message || e));
   } finally {
     clearInterval(heartbeatTimer);
@@ -593,6 +664,9 @@ const server = http.createServer(async (req, res) => {
   const startedAt = Date.now();
   const path0 = req.url ? req.url.split('?')[0] : '';
   res.once('finish', () => observeBridgeRequest(path0, res.statusCode, Date.now() - startedAt));
+  const serverSpan = otelServerSpan(req, path0);
+  req._otelSpan = serverSpan;
+  if (serverSpan) res.once('finish', () => otelEndServer(serverSpan, res));
   try {
     if (path0 === '/healthz') return jsonOut(res, 200, { ok: true, upstream: !!UP_KEY, gateway: GATEWAY, embeddings: !!DASH_KEY, voice: !!VOICE_TOKEN, runtime: { enabled: RUNTIME_ENABLED, configured: !!RUNTIME_KEY, url: RUNTIME_URL }, tools: SERVER_TOOLS.map((t) => t.function.name) });
     if (path0 === '/metrics' && req.method === 'GET') {
@@ -637,3 +711,10 @@ const server = http.createServer(async (req, res) => {
   }
 });
 server.listen(PORT, () => console.log('stream-bridge on ' + PORT + ' (gateway=' + GATEWAY + ')'));
+// Flush buffered spans on shutdown. Registered only when tracing is enabled so the
+// disabled path keeps Node's default signal behavior byte-for-byte.
+if (otel.enabled) {
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, () => { otel.shutdown().catch(() => {}).finally(() => process.exit(0)); });
+  }
+}
