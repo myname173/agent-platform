@@ -572,6 +572,37 @@ services:
       - OUTBOX_BATCH_SIZE=${PLATFORM_OUTBOX_BATCH_SIZE:-50}
       - OUTBOX_LEASE_SEC=${PLATFORM_OUTBOX_LEASE_SEC:-30}
       - OUTBOX_MAX_ATTEMPTS=${PLATFORM_OUTBOX_MAX_ATTEMPTS:-5}
+      - OUTBOX_METRICS_PORT=9101
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - n8n-net
+
+  # P0: idempotent consumer closing the outbox loop. Records each
+  # (topic, dedupe_key) exactly once in platform.consumed_events; replay is a
+  # counted no-op. Pilot scope: outbox topic only, no business side effects.
+  platform-event-consumer:
+    build:
+      context: ./platform-runtime
+    image: agent-platform/event-consumer:0.1
+    container_name: platform-event-consumer
+    profiles: ["event-bus-outbox"]
+    restart: unless-stopped
+    command: ["node", "event-consumer.js"]
+    environment:
+      - KAFKA_BROKERS=kafka:19092
+      - KAFKA_TOPIC=${PLATFORM_OUTBOX_KAFKA_TOPIC:-platform.events.outbox.v1}
+      - PLATFORM_CONSUMER_GROUP=${PLATFORM_CONSUMER_GROUP:-platform-event-consumer-v1}
+      - PLATFORM_CONSUMER_FROM_BEGINNING=${PLATFORM_CONSUMER_FROM_BEGINNING:-true}
+      - PLATFORM_CONSUMER_METRICS_PORT=9102
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}

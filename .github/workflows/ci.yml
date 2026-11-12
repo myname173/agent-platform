@@ -59,6 +59,25 @@ jobs:
       # which cannot be bootstrapped headlessly. Run them post-deploy instead:
       #   N8N_URL=… CHAT_API_KEY=… node n8n/scripts/smoke-test.mjs
 
+  consumer-contract-tests:
+    name: Event consumer offline contracts (not live acceptance)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform-runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies from lockfile
+        run: npm ci --ignore-scripts
+      - name: Test idempotent consumption, offset ordering and outbox metrics
+        run: node --test test-event-consumer.mjs
+      # The live closed-loop check needs Docker + Kafka and is operator-run:
+      #   deploy/event-bus/consumer-pilot.ps1 -Action check
+      # Offline green is not live acceptance.
+
   eval-contract-tests:
     name: Eval offline contracts (not live acceptance)
     runs-on: ubuntu-latest

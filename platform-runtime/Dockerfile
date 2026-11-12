@@ -7,7 +7,10 @@ COPY server.js ./
 COPY worker.js ./
 COPY event-publisher.js ./
 COPY outbox-publisher.js ./
+COPY outbox-metrics.js ./
+COPY event-consumer.js ./
 COPY test-runtime.mjs ./
+COPY test-event-consumer.mjs ./
 COPY load-test.mjs ./
 
 EXPOSE 3220

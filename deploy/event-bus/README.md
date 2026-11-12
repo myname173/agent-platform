@@ -42,15 +42,71 @@ the existing `platform.outbox` table and publishes them to a separate topic:
 The pilot verifies outbox claim, Kafka publish, `DELIVERED` confirmation and
 unique seed keys. The Phase 6.5B schema now uses explicit `lease_until`,
 `locked_at` and `locked_by` fields for `DELIVERING` rows; `next_retry_at`
-remains the retry schedule. A production promotion still needs consumer-side
-idempotency, pending/retry/dead-letter metrics and a multi-broker or managed
-Kafka target.
+remains the retry schedule. Consumer-side idempotency and pending/retry/
+dead-letter metrics now exist (see the consumer section below); a production
+promotion still needs a Runtime transactional-write canary and a multi-broker
+or managed Kafka target.
 
 Stop only the isolated publisher with:
 
 ```powershell
 .\deploy\event-bus\outbox-pilot.ps1 -Action down
 ```
+
+## Idempotent consumer (P0 consumer-side closure)
+
+`platform-event-consumer` (profile `event-bus-outbox`) consumes the outbox
+topic and records each `(topic, dedupe_key)` exactly once in
+`platform.consumed_events`. The ledger primary key is the idempotency
+boundary: the DB transaction commits **before** the Kafka offset, so a crash
+in between redelivers the message and `ON CONFLICT DO NOTHING` turns the
+replay into a counted no-op. The consumer self-ensures its schema at startup
+(the same DDL is appended to `n8n/scripts/platform-schema.sql`).
+
+Scope is the same isolation rule as the publisher: outbox topic only, no
+Runtime state writes, no Redis Streams `kb_save`, no n8n side effects. A
+crashed consumer exits non-zero so `restart: unless-stopped` recovers it;
+it never sits alive-but-stalled.
+
+```powershell
+.\deploy\event-bus\consumer-pilot.ps1 -Action up
+.\deploy\event-bus\consumer-pilot.ps1 -Action check
+```
+
+`check` is a closed-loop proof with a negative control:
+
+1. seed `Count` outbox rows and wait for `DELIVERED`;
+2. wait until the ledger holds exactly those `dedupe_key`s;
+3. start a **second consumer group** that replays the whole topic from the
+   beginning, wait for catch-up, and require the ledger to be unchanged
+   (replay must be all duplicates — one new row fails the check);
+4. require the publisher metrics surface to expose all five outbox states.
+
+Offline contract tests (no broker, no database, no credentials):
+
+```powershell
+cd platform-runtime
+npm run test:consumer
+```
+
+They cover the dedupe branching, transaction shape, the offset-commit
+ordering (a failing handler must not advance the offset) and the metrics
+rendering. The live `ON CONFLICT` semantics are covered by step 3 above,
+not by the offline fakes.
+
+### Metrics
+
+- `platform-outbox-publisher:9101/metrics` — `platform_outbox_rows{kind,state}`
+  for all five states (zero-filled, so `DEAD_LETTER 0` is visible rather than
+  absent), `platform_outbox_oldest_ready_seconds`, `platform_outbox_published_total`,
+  `platform_outbox_failed_total{outcome="retry|dead_letter"}`.
+- `platform-event-consumer:9102/metrics` — `platform_event_consumer_processed_total`,
+  `platform_event_consumer_duplicates_total`, `platform_event_consumer_invalid_total`,
+  `platform_event_consumer_errors_total`.
+
+`monitoring/prometheus.yml` scrapes both when the `observability` profile is
+running; the targets report down while `event-bus-outbox` is stopped, which
+is expected.
 
 ## 高吞吐实验
 
@@ -130,3 +186,12 @@ real producer/consumer path only after a measured need for sustained high
 event throughput, multiple independent consumers, long replay retention or
 cross-cluster replication. A single-node Docker Kafka instance is for contract
 and recovery experiments, not HA.
+
+Status of the former promotion blockers: consumer-side idempotency and
+pending/retry/dead-letter metrics are implemented and covered by offline
+contract tests; the live closed-loop check (`consumer-pilot.ps1 -Action
+check`) is the acceptance gate and had not been run at the time of writing
+(Docker engine off). Still open before any production promotion: a canary for
+Runtime transactional outbox writes (`PLATFORM_OUTBOX_WRITE_MODE` stays `off`),
+a durable publish cursor or full transactional outbox for the direct
+`platform.events.v1` publisher, and a multi-broker or managed Kafka target.
