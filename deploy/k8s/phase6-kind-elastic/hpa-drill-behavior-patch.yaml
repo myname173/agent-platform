@@ -1,0 +1,12 @@
+# Drill-only: shorten the scale-down stabilization window so the elastic
+# drill can observe scale-in within a few minutes. The production component
+# keeps 300s; this patch exists only in the kind elastic root.
+# Applied via target selector to BOTH HPAs (worker and gateway).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: not-used
+spec:
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 30

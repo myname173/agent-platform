@@ -1,0 +1,8 @@
+# Hand replica ownership to the HPA: a null value in a strategic-merge patch
+# removes the field, so re-applies of this overlay cannot fight the scaler.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-worker
+spec:
+  replicas: null

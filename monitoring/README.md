@@ -283,6 +283,29 @@ deployment machine. kindnet does not enforce NetworkPolicy, and this is local
 multi-node verification, not production HA. Evidence and the live-drill status
 are recorded in `monitoring/kind-multinode-2026-11-12.md`.
 
+## Kind elastic drill (P3)
+
+`deploy/k8s/phase6-production/components/elastic/` is an opt-in Kustomize
+Component adding two CPU-utilization HPAs (worker min 2/max 6, gateway
+min 2/max 4, target 70%, 300s scale-down stabilization) and deleting
+`spec.replicas` from both Deployments. The base render stays
+static-two-replica. `deploy/k8s/phase6-kind-elastic/` composes it onto the P2
+kind boundary with drill-only tweaks (30s stabilization, raised admission
+budgets); `kind-pilot.mjs elastic` installs the vendored metrics-server
+v0.9.1, drives 16-way parallel `/run` load, asserts gateway scale-out > 2 and
+≤ 4, asserts the idle worker stays at 2 (negative control), waits for
+scale-in, and restores the static boundary even on failure.
+
+```bash
+node deploy/k8s/phase6-kind/kind-pilot.mjs render-elastic  # offline, kubectl only
+node deploy/k8s/phase6-kind/kind-pilot.mjs elastic         # after `all`, operator-run
+```
+
+CPU is a placeholder metric for these I/O-bound services; custom/external
+metrics (prometheus-adapter) are the documented follow-up. The live drill is
+operator-run; evidence and 未跑 items are recorded in
+`monitoring/kind-elastic-2026-11-12.md`.
+
 ## Phase 5.3 Kafka event-bus pilot
 
 Kafka is available as an opt-in single-node KRaft profile for event-contract

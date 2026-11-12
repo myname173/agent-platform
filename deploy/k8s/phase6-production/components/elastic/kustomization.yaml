@@ -1,0 +1,15 @@
+# Opt-in elasticity component for the production-candidate boundary.
+# Consumed via `components:` from a root kustomization (the kind verification
+# root at deploy/k8s/phase6-kind-elastic does this). The base phase6-production
+# render stays static-two-replica; adding this component hands replica
+# ownership to the HPAs (spec.replicas is removed from both Deployments).
+#
+# Cluster prerequisite: a working metrics-server (metrics.k8s.io API).
+# Without it the HPAs report <unknown> targets and do not scale.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - hpa.yaml
+patches:
+  - path: worker-replicas-null.yaml
+  - path: gateway-replicas-null.yaml
