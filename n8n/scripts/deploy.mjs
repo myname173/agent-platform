@@ -17,6 +17,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { patchPlatformSandboxCaller } from './sandbox-caller-patch.mjs';
 
 const N8N_URL = (process.env.N8N_URL || 'http://localhost:5678').replace(/\/$/, '');
 const N8N_API_KEY = process.env.N8N_API_KEY;
@@ -1219,25 +1220,9 @@ function patchPlatformKbCaller(wf) {
   return wf;
 }
 
-// Route ordinary run_python calls through the K8s Job gateway when configured.
-// Approved network calls retain the Compose sandbox because the pilot Job has
-// a deny-all NetworkPolicy by design.
-function patchPlatformSandboxCaller(wf) {
-  const execute = (wf.nodes || []).find((item) => item.name === 'Execute Tool');
-  if (!execute?.parameters?.jsCode || execute.parameters.jsCode.includes('SANDBOX_APPROVED_URL')) return wf;
-  const marker = [
-    "const callSandbox = (allowNetwork) => this.helpers.httpRequest({",
-    "        method: 'POST',",
-    "        url: 'http://n8n-sandbox:8000/run',",
-  ].join('\n');
-  const replacement = [
-    "const callSandbox = (allowNetwork) => this.helpers.httpRequest({",
-    "        method: 'POST',",
-    "        url: ((allowNetwork ? ($env.SANDBOX_APPROVED_URL || $env.SANDBOX_URL) : ($env.SANDBOX_URL || 'http://n8n-sandbox:8000')).replace(/\\/$/, '')) + '/run',",
-  ].join('\n');
-  if (execute.parameters.jsCode.includes(marker)) execute.parameters.jsCode = execute.parameters.jsCode.replace(marker, replacement);
-  return wf;
-}
+// Route ordinary run_python calls through the K8s Job gateway when configured
+// and label the caller for gateway admission. Lives in sandbox-caller-patch.mjs
+// so offline contract tests can exercise it without a live n8n instance.
 
 // Keep retrieved KB text in the data plane. It may contain user-controlled or
 // imported instructions, so the model must never treat a passage as authority

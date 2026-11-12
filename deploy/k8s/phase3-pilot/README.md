@@ -83,7 +83,7 @@ The K8s gateway creates one short-lived Job per ordinary `run_python` call.
 Build and apply it after the sandbox image is available:
 
 ```powershell
-docker build -f n8n/sandbox-gateway.Dockerfile -t agent-platform/sandbox-gateway:0.2 n8n
+docker build -f n8n/sandbox-gateway.Dockerfile -t agent-platform/sandbox-gateway:0.3 n8n
 kubectl apply -n agent-platform -f deploy/k8s/phase3-pilot/sandbox-gateway-rbac.yaml
 kubectl apply -n agent-platform -f deploy/k8s/phase3-pilot/sandbox-gateway-deployment.yaml
 kubectl apply -n agent-platform -f deploy/k8s/phase3-pilot/sandbox-gateway-service.yaml
@@ -101,6 +101,58 @@ Set `SANDBOX_URL=http://host.docker.internal:18080` and redeploy the Chat
 Gateway. `SANDBOX_APPROVED_URL` remains `http://n8n-sandbox:8000`, so an
 approved request that explicitly needs network access keeps the existing
 Compose behavior; ordinary requests use the deny-all K8s Job.
+
+The deploy patch (`n8n/scripts/sandbox-caller-patch.mjs`) also sends
+`x-sandbox-caller: chat-gateway`; `agent-eval.mjs` sends `agent-eval`. The
+header is admission accounting, not authentication — the shared
+`x-sandbox-key` remains the only trust boundary.
+
+## Request admission
+
+The gateway (image `0.3`) admits requests in this order: shared-key auth,
+caller identity, allowlist + per-caller token bucket, input validation,
+global in-flight Job cap. Every rejection returns a distinct error code,
+a structured JSON log line (`event=request_rejected`) and a counter on
+`GET /metrics` (`sandbox_gateway_requests_total{caller,decision}`), so
+refusals are observable without log parsing. `/metrics` needs no key and
+exposes counters only; scrape it in-cluster or through the loopback bridge.
+
+| Env | Default | Meaning |
+|---|---|---|
+| `SANDBOX_RATE_RPM` | `30` | Sustained requests per minute per caller (token refill rate). |
+| `SANDBOX_RATE_BURST` | `10` | Token bucket capacity per caller (instant burst). |
+| `SANDBOX_MAX_INFLIGHT` | `4` | Global cap on concurrent Jobs; each Job may use 1 CPU / 2Gi. |
+| `SANDBOX_ALLOWED_CALLERS` | empty | Comma-separated allowlist. Empty = accounting mode: every authenticated caller is admitted and labelled. Set e.g. `chat-gateway,agent-eval` to enforce; anyone else (including header-less callers, which map to `default`) gets 403. |
+
+Rejection codes: 401 `unauthorized` (bad key), 400 `invalid_caller`
+(identity outside `[a-z0-9][a-z0-9_-]{0,31}` — refused, never normalised),
+403 `caller_not_allowed`, 429 `rate_limited` and 429 `busy` (both carry
+`Retry-After`). Rate tokens are spent before body parsing, so malformed
+floods still cost the caller quota; concurrency slots are only taken after
+validation and are released even when the Job fails.
+
+Boundaries to keep honest:
+
+- Admission state is in-memory and **per replica**. The phase6 two-replica
+  overlay therefore gets per-replica budgets, not a shared cluster budget.
+- Caller identity is self-declared behind the shared key; it separates
+  budgets and attribution, it does not authenticate. Promoting to the
+  allowlist only blocks callers that do not know a listed name.
+- A malformed `SANDBOX_ALLOWED_CALLERS` entry fails startup (fail closed)
+  rather than silently dropping the entry.
+
+Offline contracts: `node --test n8n/sandbox-gateway.test.mjs` (CI job
+`sandbox-admission-contract-tests`). Live acceptance is operator-run against
+the bridge; offline green is not live acceptance:
+
+```powershell
+node deploy/k8s/phase3-pilot/admission-check.mjs
+# allowlist-enforcement pass (list must include the three admission-check* callers):
+node deploy/k8s/phase3-pilot/admission-check.mjs --allowlist chat-gateway,agent-eval,admission-check,admission-check-rate,admission-check-busy
+```
+
+The 2026-11-12 live run (both modes plus restore) is recorded in
+`monitoring/sandbox-admission-2026-11-12.md`.
 
 ## Enable the Worker on Docker Desktop
 

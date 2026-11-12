@@ -42,7 +42,7 @@ if ($Action -eq 'forward') {
 if ($Action -eq 'apply') {
   if ($BuildImages) {
     Invoke-Native $Docker @('build', '-f', 'n8n/sandbox.Dockerfile', '-t', 'agent-platform/sandbox:3.14-k8s-pilot', 'n8n')
-    Invoke-Native $Docker @('build', '-f', 'n8n/sandbox-gateway.Dockerfile', '-t', 'agent-platform/sandbox-gateway:0.2', 'n8n')
+    Invoke-Native $Docker @('build', '-f', 'n8n/sandbox-gateway.Dockerfile', '-t', 'agent-platform/sandbox-gateway:0.3', 'n8n')
   }
 
   Invoke-Native $Kubectl @('apply', '-f', (Join-Path $PilotDir 'namespace.yaml'))
