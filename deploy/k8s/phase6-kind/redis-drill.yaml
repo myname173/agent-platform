@@ -1,0 +1,77 @@
+# Drill-only Redis fixture. This is NOT the production Redis and does not
+# change stateful ownership: Compose remains authoritative (see
+# monitoring/production-topology-decision-2026-10-30.md). No PVC, no AOF/RDB,
+# no backup — it exists so the real worker image can start and stay Ready
+# during scheduling drills, and it is deleted with the cluster.
+#
+# Why not reuse the Compose Redis: the drill must not join the live
+# platform:jobs consumer group, and host.docker.internal reachability differs
+# between Docker Desktop and Linux kind hosts. An isolated fixture keeps the
+# drill self-contained on any machine with Docker + kind + kubectl.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-drill
+  labels:
+    app.kubernetes.io/name: redis-drill
+    app.kubernetes.io/part-of: agent-platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-drill
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-drill
+        app.kubernetes.io/part-of: agent-platform
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          imagePullPolicy: IfNotPresent
+          args: ["redis-server", "--save", "", "--appendonly", "no"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            periodSeconds: 2
+            failureThreshold: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-drill
+  labels:
+    app.kubernetes.io/name: redis-drill
+    app.kubernetes.io/part-of: agent-platform
+spec:
+  selector:
+    app.kubernetes.io/name: redis-drill
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

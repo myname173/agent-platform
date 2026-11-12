@@ -1,0 +1,24 @@
+# Local multi-node verification cluster for the phase6-production overlay.
+# NOT a production cluster: kind runs inside Docker on one host. See README.md
+# and monitoring/production-topology-decision-2026-10-30.md.
+#
+# Node image is pinned to match the kubectl client line used by the pilot
+# (v1.36.x). kind pulls it on first use; `docker pull kindest/node:v1.36.1`
+# ahead of time makes cluster creation offline-friendly.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.36.1
+  - role: worker
+    image: kindest/node:v1.36.1
+    # Gateway NodePort 30080 -> host loopback 18081. The docker-desktop pilot
+    # uses 18080, so both can coexist. kube-proxy is a DaemonSet and survives
+    # `kubectl drain`, so this mapping keeps working during the PDB drill.
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 18081
+        listenAddress: 127.0.0.1
+        protocol: TCP
+  - role: worker
+    image: kindest/node:v1.36.1

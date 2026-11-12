@@ -1,8 +1,8 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
 verified_at: 2026-11-12
-verified_commit: f9bc8fe
-verified_scope: P0 消费者闭环（§1.2 event-bus-outbox、§5.1 consumed_events、§6 事件总线配置）与 P1 沙箱网关准入（§3、§12 边界、deploy/k8s/phase3-pilot）按本分支工作树核验；评测分支口径见 §15；其余架构沿用既有核验口径，不表示全量重新核验
+verified_commit: 587cd07
+verified_scope: P0 消费者闭环（§1.2 event-bus-outbox、§5.1 consumed_events、§6 事件总线配置）、P1 沙箱网关准入（§3、§12 边界、deploy/k8s/phase3-pilot）与 P2 kind 多节点验证叠加层（deploy/k8s/phase6-kind，仅离线核验，集群演练未跑）按本分支工作树核验；评测分支口径见 §15；其余架构沿用既有核验口径，不表示全量重新核验
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
@@ -103,8 +103,8 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | `caddy/` | 4 | 运行 | `Caddyfile`、域名版示例、探测脚本 |
 | `backup/` | 3 | 运行 | 栈内备份镜像 |
 | `searxng/` | 1 | 运行 | 搜索配置 |
-| `monitoring/` | 19 | 可选 | Prometheus 配置 + README + 17 份验收/决策报告 |
-| `deploy/` | 34 | 按需 | external / cloudflare / event-bus / k8s 叠加层，主 compose 不引用 |
+| `monitoring/` | 20 | 可选 | Prometheus 配置 + README + 18 份验收/决策报告 |
+| `deploy/` | 43 | 按需 | external / cloudflare / event-bus / k8s 叠加层（含 phase6-kind 多节点验证，非生产），主 compose 不引用 |
 | `migration/` | 7 | 一次性 | 迁移三件套 preflight → restore → verify |
 | `scripts/` | 28 | 开发 | 演示生成、截图采集、S3 校验、密钥扫描、钩子 |
 | `custom-theme/` | 13 | 手工 | 注入运行中的 LobeHub 容器（非 compose） |
@@ -354,7 +354,7 @@ grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 本评测分支 26，
 # §3 的目录文件数：只数受版本控制的文件（构建产物如 tsconfig.tsbuildinfo 不算）
 for d in n8n frontent platform-runtime stream-bridge monitoring deploy scripts; do
   echo "$d=$(git ls-files $d | wc -l)"
-done                                                      # 86 620 13 1 19 34 28
+done                                                      # 86 620 13 1 20 43 28
 
 # 密钥闸门
 node n8n/scripts/validate-workflows.mjs
