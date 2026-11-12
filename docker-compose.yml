@@ -73,6 +73,16 @@ services:
       - KB_RERANK_URL=${KB_RERANK_URL:-}
       - KB_RERANK_TOP_N=${KB_RERANK_TOP_N:-0}
       - KB_RERANK_INSTRUCT=${KB_RERANK_INSTRUCT:-}
+      # KB CRAG-lite graded corrective retrieval (opt-in; default off = zero regression).
+      # The three kb_search Code nodes read these via $env; blank web url uses the
+      # canonical SearXNG host. Web fallback defaults off (grade-only safe path).
+      - KB_CRAG_ENABLED=${KB_CRAG_ENABLED:-false}
+      - KB_CRAG_LOW_THRESHOLD=${KB_CRAG_LOW_THRESHOLD:-0.2}
+      - KB_CRAG_HIGH_THRESHOLD=${KB_CRAG_HIGH_THRESHOLD:-0.5}
+      - KB_CRAG_WEB_FALLBACK=${KB_CRAG_WEB_FALLBACK:-false}
+      - KB_CRAG_WEB_URL=${KB_CRAG_WEB_URL:-}
+      - KB_CRAG_WEB_TOP_N=${KB_CRAG_WEB_TOP_N:-3}
+      - KB_CRAG_WEB_TIMEOUT_MS=${KB_CRAG_WEB_TIMEOUT_MS:-12000}
       - UPSTREAM_API_KEY=${UPSTREAM_API_KEY}
       - GENERIC_TIMEZONE=Asia/Shanghai
       - MCP_API_KEY=${MCP_API_KEY}

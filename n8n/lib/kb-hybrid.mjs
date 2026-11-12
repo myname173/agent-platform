@@ -174,6 +174,117 @@ async function rerankKbRows(httpRequest, cfg, query, rows, topN, prevRetrieval) 
     return { rows: list, retrieval: prev, reranked: false };
   }
 }
+
+// CRAG-lite (graded corrective retrieval). Inspired by Corrective RAG (Yan et al.
+// 2024, arXiv 2401.15884) but a BOUNDED approximation, NOT full CRAG: a heuristic
+// cosine three-band grader (no trained T5 evaluator), no decompose-then-recompose,
+// no query rewriter (original query), keep+label KB rows (never discard), one
+// bounded SearXNG call. Must not be claimed as "CRAG" or "Self-RAG".
+//
+// Default SearXNG endpoint — the SAME contract the inline web_search tool uses
+// (GET /search?q&format=json). All Code nodes run in the n8n container, so this
+// host is reachable from every kb_search call site. Override via webCfg.endpoint.
+const KB_CRAG_WEB_URL = 'http://searxng:8080/search';
+// Cosine three-band thresholds. LOW reuses the MCP >0.2 cosine floor; HIGH is the
+// "sufficient" bar. Both env-configurable; their calibration on the real KB cosine
+// distribution is a deployment-machine 未验. Grading on COSINE (vectorScore), not
+// the rerank relevance_score: the latter is relative within one request and cannot
+// signal absolute insufficiency (the best of an all-irrelevant pool still scores
+// high). Cosine is always computed by the vector leg, so CRAG-lite is independent
+// of rerank and works in vector / hybrid / rerank modes alike.
+const KB_CRAG_LOW_THRESHOLD = 0.2;
+const KB_CRAG_HIGH_THRESHOLD = 0.5;
+// Web supplement bounds: tighter than the 20s standalone web_search so a corrective
+// lookup cannot blow up kb_search latency; top-N supplement rows.
+const KB_CRAG_WEB_TIMEOUT_MS = 12000;
+const KB_CRAG_WEB_TOP_N = 3;
+
+// Grade retrieved KB evidence into correct / incorrect / ambiguous from the best
+// cosine across the rows. Pure; never touches the network. Returns {grade,
+// topCosine}. Rules (design §4.1):
+//   0 rows                       -> incorrect (nothing retrieved)
+//   no finite cosine (all null)  -> ambiguous (e.g. all BM25-only hits; augment,
+//                                   don't discard — conservative)
+//   topCos >= HIGH               -> correct
+//   topCos <  LOW                -> incorrect
+//   otherwise                    -> ambiguous
+// cfg = {low, high}; empty/absent values fall back to the defaults (0 is a valid
+// threshold, so an empty env string must NOT collapse to 0).
+function gradeKbEvidence(rows, cfg) {
+  const c = cfg || {};
+  const num = (v, d) => {
+    if (v == null || String(v).trim() === '') return d;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : d;
+  };
+  const low = num(c.low, KB_CRAG_LOW_THRESHOLD);
+  const high = num(c.high, KB_CRAG_HIGH_THRESHOLD);
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return { grade: 'incorrect', topCosine: null };
+  let topCos = null;
+  for (const r of list) {
+    const v = r && r.vectorScore != null ? Number(r.vectorScore) : NaN;
+    if (Number.isFinite(v) && (topCos == null || v > topCos)) topCos = v;
+  }
+  if (topCos == null) return { grade: 'ambiguous', topCosine: null };
+  const grade = topCos >= high ? 'correct' : topCos < low ? 'incorrect' : 'ambiguous';
+  return { grade, topCosine: topCos };
+}
+
+// Graded corrective retrieval over the (possibly reranked) KB rows. `httpRequest`
+// is injected like `pg`/rerank so the module stays dependency-free and offline-
+// testable. cfg = {low, high, webFallback}; webCfg = {endpoint, topN, timeoutMs}.
+// The grade ALWAYS runs; the web supplement is behind cfg.webFallback (decision C:
+// default false = grade-only safe path). Returns {rows, retrieval, crag, web}:
+//   - rows: the KB rows UNCHANGED (same array reference; we keep+label, never
+//     discard, unlike full CRAG). retrieval is passed through (CRAG is orthogonal
+//     to the retrieval mode; observability lives in `crag`, not a retrieval suffix).
+//   - crag: {grade, action, topCosine, webAdded} — always present, so a silent
+//     no-op is visible. action is 'none' (correct, grade-only, or web failed) or
+//     'web' (a supplement was appended).
+//   - web: [{title, url, snippet, source:'web'}] — the labeled supplement, empty
+//     unless a correction fired. Web scores are NOT merged with KB cosine/rerank
+//     scores (different scales); it is a separate list.
+// Fail-open is the central safety property: correct grade, web disabled, missing
+// query/callback, or ANY web error (throw / timeout / non-2xx / bad shape) returns
+// the KB rows unchanged with action='none' and the grade still recorded — never
+// throws into the host. (HTTP, not pg, so try/catch is effective; the §9.13
+// runner-kill trap does not apply.) One correction pass, never recursive; the
+// agent loop and MAX_TOOL_ROUNDS are untouched (0 extra agent rounds).
+async function cragLiteKbRows(httpRequest, cfg, query, rows, retrieval, webCfg) {
+  const c = cfg || {};
+  const list = Array.isArray(rows) ? rows : [];
+  const prev = String(retrieval || 'vector');
+  const q = String(query == null ? '' : query).trim();
+  const graded = gradeKbEvidence(list, c);
+  const none = { rows: list, retrieval: prev, crag: { grade: graded.grade, action: 'none', topCosine: graded.topCosine, webAdded: 0 }, web: [] };
+  if (graded.grade === 'correct') return none;
+  const webOn = c.webFallback === true || String(c.webFallback == null ? '' : c.webFallback).toLowerCase() === 'true';
+  if (!webOn || !q || typeof httpRequest !== 'function') return none;
+  const w = webCfg || {};
+  const topN = Math.min(Math.max(Number(w.topN) || KB_CRAG_WEB_TOP_N, 1), 10);
+  try {
+    const resp = await httpRequest({
+      method: 'GET',
+      url: w.endpoint || KB_CRAG_WEB_URL,
+      qs: { q, format: 'json' },
+      timeout: Number(w.timeoutMs) || KB_CRAG_WEB_TIMEOUT_MS,
+    });
+    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
+    const results = data && Array.isArray(data.results) ? data.results : null;
+    if (!results || !results.length) return none;
+    const web = results.slice(0, topN).map((r) => ({
+      title: String((r && r.title) || ''),
+      url: String((r && r.url) || ''),
+      snippet: String((r && r.content) || '').slice(0, 300),
+      source: 'web',
+    }));
+    return { rows: list, retrieval: prev, crag: { grade: graded.grade, action: 'web', topCosine: graded.topCosine, webAdded: web.length }, web };
+  } catch (e) {
+    // Web down / timeout / non-2xx / bad JSON: fail-open, KB rows unchanged.
+    return none;
+  }
+}
 // <<< KB-HYBRID-EMBED-END
 
-export { rrfFuse, bm25Available, hybridKbSearch, rerankKbRows, KB_BM25_PROBE_SQL, kbVectorSql, kbBm25Sql, KB_RERANK_URL, KB_RERANK_MAX_ITEM_CHARS };
+export { rrfFuse, bm25Available, hybridKbSearch, rerankKbRows, gradeKbEvidence, cragLiteKbRows, KB_BM25_PROBE_SQL, kbVectorSql, kbBm25Sql, KB_RERANK_URL, KB_RERANK_MAX_ITEM_CHARS, KB_CRAG_WEB_URL, KB_CRAG_LOW_THRESHOLD, KB_CRAG_HIGH_THRESHOLD, KB_CRAG_WEB_TIMEOUT_MS, KB_CRAG_WEB_TOP_N };
