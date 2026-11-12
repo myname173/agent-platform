@@ -20,6 +20,14 @@
  * retrieval_mode shows what actually ran against requested_mode (e.g. 'vector'
  * vs 'hybrid+rerank'), so a silent no-op is visible. --rerank is the ruler's
  * explicit toggle, independent of the production KB_RERANK_ENABLED env switch.
+ * Optional --crag adds the CRAG-lite graded corrective stage on top: it grades
+ * the retrieved evidence (cosine three-band) and, only if KB_CRAG_WEB_FALLBACK is
+ * on, appends a bounded web supplement. --crag records grade distribution +
+ * web-trigger rate in a separate `crag` report object; it does NOT change the
+ * title-based hit@1/MRR ranking (the web supplement has no KB title and must not
+ * pollute it). The kb-eval ruler cannot measure CRAG's answer-quality benefit —
+ * that is the agent answer-eval. A zero web-trigger rate with web fallback off is
+ * expected (grade-only); with it on, it means the grade never fired.
  * pg is loaded only inside main; imports and pure metric tests require no pg.
  * No .env is loaded. Reports default to the project root .eval-local/judge.
  */
@@ -28,7 +36,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
-import { hybridKbSearch, rerankKbRows } from '../lib/kb-hybrid.mjs';
+import { hybridKbSearch, rerankKbRows, cragLiteKbRows } from '../lib/kb-hybrid.mjs';
 
 export const HIT_AT_1_THRESHOLD = 0.80;
 
@@ -37,12 +45,12 @@ export const HIT_AT_1_THRESHOLD = 0.80;
  *  and any other shape. Exported so the guard is testable without touching
  *  env/files/network. */
 export function parseEvalFlags(argv) {
-  const allowed = new Set(['--isolated-stack', '--hybrid', '--rerank']);
-  const ok = Array.isArray(argv) && argv.length >= 1 && argv.length <= 3
+  const allowed = new Set(['--isolated-stack', '--hybrid', '--rerank', '--crag']);
+  const ok = Array.isArray(argv) && argv.length >= 1 && argv.length <= 4
     && argv.includes('--isolated-stack')
     && argv.every((a) => allowed.has(a))
     && new Set(argv).size === argv.length;
-  return { ok, hybrid: ok && argv.includes('--hybrid'), rerank: ok && argv.includes('--rerank') };
+  return { ok, hybrid: ok && argv.includes('--hybrid'), rerank: ok && argv.includes('--rerank'), crag: ok && argv.includes('--crag') };
 }
 const PROJECT_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding';
@@ -119,9 +127,9 @@ export function validateGoldenSet(gs) {
 
 export async function main(argv = process.argv.slice(2), { env = process.env, log = console.log, error = console.error } = {}) {
   // MUST run before reading any config/input, loading pg, connecting, or embedding.
-  const { ok, hybrid, rerank } = parseEvalFlags(argv);
+  const { ok, hybrid, rerank, crag } = parseEvalFlags(argv);
   if (!ok) {
-    error('SETUP ERROR: live KB evaluation requires explicit --isolated-stack confirmation of a disposable test environment; it writes KB data and consumes embeddings. Shared KB must not be used. Optional --hybrid selects BM25+vector RRF retrieval (default vector-only); optional --rerank adds the cross-encoder rerank stage (fails open to the pre-rerank order).');
+    error('SETUP ERROR: live KB evaluation requires explicit --isolated-stack confirmation of a disposable test environment; it writes KB data and consumes embeddings. Shared KB must not be used. Optional --hybrid selects BM25+vector RRF retrieval (default vector-only); optional --rerank adds the cross-encoder rerank stage (fails open to the pre-rerank order); optional --crag adds graded corrective retrieval (grade distribution + web-trigger stats only, no ranking change).');
     return 2;
   }
   let pg;
@@ -159,17 +167,25 @@ export async function main(argv = process.argv.slice(2), { env = process.env, lo
     };
 
     // Node-side stand-in for n8n's this.helpers.httpRequest: same contract the
-    // canonical rerankKbRows expects ({method,url,headers,body,timeout} -> parsed
-    // JSON). Non-2xx throws, which rerankKbRows catches and fails open. This keeps
-    // the ruler on the exact production rerank code path, not a reimplementation.
-    const httpRequest = async ({ method, url, headers, body, timeout }) => {
-      const resp = await fetch(url, {
+    // canonical rerankKbRows / cragLiteKbRows expect ({method,url,headers,body,qs,
+    // timeout} -> parsed JSON). Handles rerank (POST + JSON body) and the CRAG web
+    // supplement (GET + qs query string). Non-2xx throws, which both helpers catch
+    // and fail open. This keeps the ruler on the exact production code path, not a
+    // reimplementation.
+    const httpRequest = async ({ method, url, headers, body, qs, timeout }) => {
+      let target = url;
+      if (qs && typeof qs === 'object') {
+        const u = new URL(url);
+        for (const [k, v] of Object.entries(qs)) u.searchParams.set(k, String(v));
+        target = u.toString();
+      }
+      const resp = await fetch(target, {
         method,
         headers,
-        body: JSON.stringify(body),
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
         signal: AbortSignal.timeout(Number(timeout) || 15000),
       });
-      if (!resp.ok) throw new Error(`rerank failed: HTTP ${resp.status}`);
+      if (!resp.ok) throw new Error(`http failed: HTTP ${resp.status}`);
       return resp.json();
     };
 
@@ -201,6 +217,7 @@ export async function main(argv = process.argv.slice(2), { env = process.env, lo
 
     const rankings = [];
     const seenModes = new Set();
+    const cragStats = crag ? { web_fallback_enabled: String(env.KB_CRAG_WEB_FALLBACK || '').toLowerCase() === 'true', graded: 0, correct: 0, incorrect: 0, ambiguous: 0, web_triggered: 0 } : null;
     for (const [index, row] of gs.cases.entries()) {
       if (row.expect_title === null) {
         rankings.push(null);
@@ -222,6 +239,19 @@ export async function main(argv = process.argv.slice(2), { env = process.env, lo
           row.q, rows, Number(env.KB_RERANK_TOP_N) || 5, retrieval);
         rows = rr.rows; retrieval = rr.retrieval;
       }
+      if (crag) {
+        // Same canonical CRAG-lite the Code nodes run; env config shared with
+        // production (KB_CRAG_*). Grades the evidence and (only if web fallback is
+        // on) appends a bounded supplement. KB rows are kept unchanged, so the
+        // title ranking below is unaffected — we only tally grade/trigger stats.
+        const cr = await cragLiteKbRows(httpRequest,
+          { low: env.KB_CRAG_LOW_THRESHOLD, high: env.KB_CRAG_HIGH_THRESHOLD, webFallback: env.KB_CRAG_WEB_FALLBACK },
+          row.q, rows, retrieval,
+          { endpoint: env.KB_CRAG_WEB_URL, topN: env.KB_CRAG_WEB_TOP_N, timeoutMs: env.KB_CRAG_WEB_TIMEOUT_MS });
+        cragStats.graded++;
+        cragStats[cr.crag.grade]++;
+        if (cr.crag.action === 'web') cragStats.web_triggered++;
+      }
       seenModes.add(retrieval);
       rankings.push(rows.map((r) => r.title));
       log(`TESTED retrieval case ${index + 1} (${retrieval})`);
@@ -230,6 +260,7 @@ export async function main(argv = process.argv.slice(2), { env = process.env, lo
       ...evaluateRetrieval(gs.cases, rankings),
       requested_mode: (hybrid ? 'hybrid' : 'vector') + (rerank ? '+rerank' : ''),
       retrieval_mode: [...seenModes].sort().join('+') || 'vector',
+      ...(cragStats ? { crag: cragStats } : {}),
       ran_at: new Date().toISOString(),
     };
     const { detail, ...summary } = report;

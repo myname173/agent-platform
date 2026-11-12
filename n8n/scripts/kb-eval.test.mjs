@@ -149,14 +149,14 @@ test('live entry refuses without explicit isolated-stack confirmation before con
 test('parseEvalFlags accepts --isolated-stack with optional --hybrid/--rerank (orthogonal, order-independent), rejects everything else', () => {
   // Pure guard: no env/files/network. Positives must not be reachable by the
   // live-I/O path in tests; this only checks the flag decision.
-  assert.deepEqual(parseEvalFlags(['--isolated-stack']), { ok: true, hybrid: false, rerank: false });
-  assert.deepEqual(parseEvalFlags(['--isolated-stack', '--hybrid']), { ok: true, hybrid: true, rerank: false });
-  assert.deepEqual(parseEvalFlags(['--hybrid', '--isolated-stack']), { ok: true, hybrid: true, rerank: false });
-  assert.deepEqual(parseEvalFlags(['--isolated-stack', '--rerank']), { ok: true, hybrid: false, rerank: true });
-  assert.deepEqual(parseEvalFlags(['--rerank', '--isolated-stack']), { ok: true, hybrid: false, rerank: true });
-  assert.deepEqual(parseEvalFlags(['--isolated-stack', '--hybrid', '--rerank']), { ok: true, hybrid: true, rerank: true });
-  assert.deepEqual(parseEvalFlags(['--rerank', '--hybrid', '--isolated-stack']), { ok: true, hybrid: true, rerank: true });
-  assert.deepEqual(parseEvalFlags(['--hybrid', '--rerank', '--isolated-stack']), { ok: true, hybrid: true, rerank: true });
+  assert.deepEqual(parseEvalFlags(['--isolated-stack']), { ok: true, hybrid: false, rerank: false, crag: false });
+  assert.deepEqual(parseEvalFlags(['--isolated-stack', '--hybrid']), { ok: true, hybrid: true, rerank: false, crag: false });
+  assert.deepEqual(parseEvalFlags(['--hybrid', '--isolated-stack']), { ok: true, hybrid: true, rerank: false, crag: false });
+  assert.deepEqual(parseEvalFlags(['--isolated-stack', '--rerank']), { ok: true, hybrid: false, rerank: true, crag: false });
+  assert.deepEqual(parseEvalFlags(['--rerank', '--isolated-stack']), { ok: true, hybrid: false, rerank: true, crag: false });
+  assert.deepEqual(parseEvalFlags(['--isolated-stack', '--hybrid', '--rerank']), { ok: true, hybrid: true, rerank: true, crag: false });
+  assert.deepEqual(parseEvalFlags(['--rerank', '--hybrid', '--isolated-stack']), { ok: true, hybrid: true, rerank: true, crag: false });
+  assert.deepEqual(parseEvalFlags(['--hybrid', '--rerank', '--isolated-stack']), { ok: true, hybrid: true, rerank: true, crag: false });
   for (const argv of [
     [], ['--help'], ['--hybrid'], ['--rerank'], ['--hybrid', '--rerank'],
     ['--isolated-stack=false'], ['--isolated-stack', 'false'],
@@ -166,6 +166,31 @@ test('parseEvalFlags accepts --isolated-stack with optional --hybrid/--rerank (o
     ['--isolated-stack', '--hybrid', '--rerank', '--extra'],
     ['--isolated-stack', '--hybrid', '--rerank', '--isolated-stack'],
     null, 'string',
+  ]) {
+    assert.equal(parseEvalFlags(argv).ok, false, 'must reject ' + JSON.stringify(argv));
+  }
+});
+
+test('parseEvalFlags --crag is orthogonal to --hybrid/--rerank, order-independent, length cap 4', () => {
+  // --crag alone (with the mandatory isolated-stack) is valid: vector+crag.
+  assert.deepEqual(parseEvalFlags(['--isolated-stack', '--crag']), { ok: true, hybrid: false, rerank: false, crag: true });
+  assert.deepEqual(parseEvalFlags(['--crag', '--isolated-stack']), { ok: true, hybrid: false, rerank: false, crag: true });
+  // Every subset of the three optional flags, in a scrambled order, is accepted.
+  assert.deepEqual(parseEvalFlags(['--isolated-stack', '--hybrid', '--crag']), { ok: true, hybrid: true, rerank: false, crag: true });
+  assert.deepEqual(parseEvalFlags(['--isolated-stack', '--rerank', '--crag']), { ok: true, hybrid: false, rerank: true, crag: true });
+  assert.deepEqual(parseEvalFlags(['--isolated-stack', '--hybrid', '--rerank', '--crag']), { ok: true, hybrid: true, rerank: true, crag: true });
+  // All 4! orderings of the full set are accepted (order-independence).
+  const full = ['--isolated-stack', '--hybrid', '--rerank', '--crag'];
+  const perms = (a) => a.length <= 1 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [x, ...p]));
+  for (const p of perms(full)) assert.deepEqual(parseEvalFlags(p), { ok: true, hybrid: true, rerank: true, crag: true }, 'order ' + p.join(' '));
+  // Negatives: --crag without isolated-stack, duplicates, unknown, length > 4.
+  for (const argv of [
+    ['--crag'], ['--crag', '--hybrid'],
+    ['--isolated-stack', '--crag', '--crag'],
+    ['--isolated-stack', '--hybrid', '--crag', '--crag'],
+    ['--isolated-stack', '--crag', '--extra'],
+    ['--isolated-stack', '--hybrid', '--rerank', '--crag', '--extra'],
+    ['--isolated-stack', '--hybrid', '--rerank', '--crag', '--isolated-stack'],
   ]) {
     assert.equal(parseEvalFlags(argv).ok, false, 'must reject ' + JSON.stringify(argv));
   }

@@ -251,6 +251,78 @@ rerank degraded (key/endpoint/model) and did NOT run. Design, offline results,
 mutation proofs, the Self-RAG/adaptive-routing comparison and the full 未验 list
 are in `monitoring/kb-rerank-design-2026-11-12.md`.
 
+## KB CRAG-lite (graded corrective retrieval)
+
+An optional **graded corrective-retrieval** layer sits **after** retrieval/rerank
+and **before** the result is formatted — a bounded, "lite" approximation of CRAG
+(Yan et al. 2024, arXiv 2401.15884), **not full CRAG and not Self-RAG** (no trained
+T5 evaluator, no decompose-then-recompose, no query rewriter, no reflection
+tokens). The canonical `gradeKbEvidence` (pure) + `cragLiteKbRows` (grade + bounded
+correction) live in the same `KB-HYBRID-EMBED` region of `n8n/lib/kb-hybrid.mjs`
+(the web callback is an injected `httpRequest`, so the module stays importable
+offline) and are embedded verbatim in the same three `kb_search` Code nodes; the
+existing drift guard covers them with no new mechanism.
+
+The grader is a **cosine three-band** rule on `vectorScore` — **not** the rerank
+relative score (which is within-request and cannot signal absolute
+insufficiency): `topCos >= HIGH (0.5)` → `correct`, `< LOW (0.2)` → `incorrect`,
+between → `ambiguous`; 0 rows → `incorrect`, all-null cosine → `ambiguous`.
+`LOW`/`HIGH` are env-configurable and **their calibration is 未验**. Because it
+grades on cosine, CRAG-lite is **independent of rerank** (vector/hybrid/rerank all
+work). It is **opt-in, default off** (`KB_CRAG_ENABLED=false`): the seven
+`KB_CRAG_*` vars are injected into the n8n service only, so the live stack is
+byte-identical to today.
+
+**Decision C — grade always, web fallback configurable.** The grade always runs
+when enabled; the web supplement is behind a second switch `KB_CRAG_WEB_FALLBACK`
+(**default `false`** = grade-only, the safe path). `correct` → no action;
+`incorrect`/`ambiguous` → record the grade + insufficiency signal, and **only if
+web fallback is on** make **one bounded SearXNG call** (original query, no
+rewriter), **keep + label** the KB rows (not discard, unlike full CRAG) and append
+a `source:'web'` supplement. **Fail-open is the central safety property** — any
+web error/timeout/non-2xx/bad shape returns the KB rows **unchanged** (same array
+reference, `action:'none'`, grade still recorded) and never throws into the host
+(HTTP, not pg, so the §9.13 runner-kill trap does not apply). The correction is
+**internal to one `kb_search` call (0 extra agent rounds)**; `MAX_TOOL_ROUNDS` is
+untouched. The `retrieval` flag chain is unchanged (CRAG is orthogonal);
+observability is a separate `crag:{grade,action,topCosine,webAdded}` object plus
+`Execute Tool`'s `__trace.crag_grade/crag_action`. Gateway model-wiring forwards
+`web_supplement` + `evidence_grade` and adds DIRECTIVE rule (9): on
+`incorrect`/`ambiguous`, prefer the web supplement and cite `[来源:web]` (not a KB
+title), else admit insufficiency honestly. No table/index/extension/service/key/
+dependency changes; SearXNG is reused and `kb-schema.sql` is untouched.
+
+**Private-KB caveat:** this KB is private internal documents, so a question the
+KB cannot answer is often unanswerable from the public web too — web fallback's
+value is **conditional** and must be measured, not assumed.
+
+Offline contracts (grade bands/boundaries/config, correction trigger, web request
+shape, `source:'web'` labeling, clamps, **fail-open negative controls**,
+precondition skips, retrieval passthrough, drift, wiring + model-wiring guards,
+and **two behavioral mutation proofs**) are in `n8n/scripts/kb-hybrid.test.mjs`
+(51 tests) and the `--crag` flag parser is covered in `kb-eval.test.mjs` (11
+tests); both run in the existing CI jobs (no `ci.yml` change). An on-disk mutation
+shakeout (mislabel `source:'web'`→`'kb'` in the canonical module only) turned the
+drift + behavioral guards **red (4 failures)**, then restored byte-identical →
+green. **CRAG efficacy is not measured offline and no real web/rerank/embedding
+API call was made here.** `kb-eval --crag` records **grade distribution +
+web-trigger rate only** — the title-based hit@1/MRR ranking still uses KB rows
+(the web supplement has no KB title and must not pollute it), so the ruler
+**cannot** measure CRAG's answer-quality benefit. That is the agent answer-eval
+(未验, deployment machine):
+
+```powershell
+node n8n/scripts/kb-eval.mjs --isolated-stack                          # vector baseline
+node n8n/scripts/kb-eval.mjs --isolated-stack --hybrid --rerank        # + cross-encoder
+node n8n/scripts/kb-eval.mjs --isolated-stack --hybrid --rerank --crag # + grade/web-trigger stats
+```
+
+`--crag` is the ruler's explicit toggle, independent of the production
+`KB_CRAG_ENABLED` switch; a zero web-trigger rate means the grade never fired
+(thresholds too tight, or KB always sufficient) — observable, not silent. Design,
+offline results, mutation proofs, the full-CRAG/Self-RAG honesty boundary and the
+complete 未验 list are in `monitoring/kb-crag-lite-design-2026-11-12.md`.
+
 ## Phase 2 async KB save
 
 The Redis Streams worker is optional and only handles `kb_save`:
