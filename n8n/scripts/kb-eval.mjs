@@ -10,10 +10,16 @@
  * DB/embedding settings target a disposable test environment, not shared KB.
  * This flag is a confirmation, not automatic isolation/provisioning.
  * Optional --hybrid selects BM25+vector RRF retrieval (the production hybrid
- * path); without it the run is vector-only. Both go through the same canonical
- * helper the workflow Code nodes embed, so the ruler measures production code.
- * If pg_search/the bm25 index is absent, --hybrid degrades to vector and the
- * report's retrieval_mode shows 'vector' against requested_mode 'hybrid'.
+ * path); without it the run is vector-only. Optional --rerank adds the
+ * cross-encoder rerank stage on top of whichever retrieval ran (the production
+ * KB_RERANK_ENABLED path). The flags are orthogonal and order-independent. All
+ * go through the same canonical helper the workflow Code nodes embed, so the
+ * ruler measures production code. If pg_search/the bm25 index is absent,
+ * --hybrid degrades to vector; if the rerank key/endpoint is missing or the API
+ * errors, --rerank fails open to the pre-rerank order. Either way the report's
+ * retrieval_mode shows what actually ran against requested_mode (e.g. 'vector'
+ * vs 'hybrid+rerank'), so a silent no-op is visible. --rerank is the ruler's
+ * explicit toggle, independent of the production KB_RERANK_ENABLED env switch.
  * pg is loaded only inside main; imports and pure metric tests require no pg.
  * No .env is loaded. Reports default to the project root .eval-local/judge.
  */
@@ -22,20 +28,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
-import { hybridKbSearch } from '../lib/kb-hybrid.mjs';
+import { hybridKbSearch, rerankKbRows } from '../lib/kb-hybrid.mjs';
 
 export const HIT_AT_1_THRESHOLD = 0.80;
 
-/** Pure flag parser. Live eval needs --isolated-stack; --hybrid is optional and
- *  order-independent. Rejects unknown flags, duplicates, and any other shape.
- *  Exported so the guard is testable without touching env/files/network. */
+/** Pure flag parser. Live eval needs --isolated-stack; --hybrid and --rerank are
+ *  optional, orthogonal and order-independent. Rejects unknown flags, duplicates,
+ *  and any other shape. Exported so the guard is testable without touching
+ *  env/files/network. */
 export function parseEvalFlags(argv) {
-  const allowed = new Set(['--isolated-stack', '--hybrid']);
-  const ok = Array.isArray(argv) && argv.length >= 1 && argv.length <= 2
+  const allowed = new Set(['--isolated-stack', '--hybrid', '--rerank']);
+  const ok = Array.isArray(argv) && argv.length >= 1 && argv.length <= 3
     && argv.includes('--isolated-stack')
     && argv.every((a) => allowed.has(a))
     && new Set(argv).size === argv.length;
-  return { ok, hybrid: ok && argv.includes('--hybrid') };
+  return { ok, hybrid: ok && argv.includes('--hybrid'), rerank: ok && argv.includes('--rerank') };
 }
 const PROJECT_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding';
@@ -112,9 +119,9 @@ export function validateGoldenSet(gs) {
 
 export async function main(argv = process.argv.slice(2), { env = process.env, log = console.log, error = console.error } = {}) {
   // MUST run before reading any config/input, loading pg, connecting, or embedding.
-  const { ok, hybrid } = parseEvalFlags(argv);
+  const { ok, hybrid, rerank } = parseEvalFlags(argv);
   if (!ok) {
-    error('SETUP ERROR: live KB evaluation requires explicit --isolated-stack confirmation of a disposable test environment; it writes KB data and consumes embeddings. Shared KB must not be used. Optional --hybrid selects BM25+vector RRF retrieval (default vector-only).');
+    error('SETUP ERROR: live KB evaluation requires explicit --isolated-stack confirmation of a disposable test environment; it writes KB data and consumes embeddings. Shared KB must not be used. Optional --hybrid selects BM25+vector RRF retrieval (default vector-only); optional --rerank adds the cross-encoder rerank stage (fails open to the pre-rerank order).');
     return 2;
   }
   let pg;
@@ -149,6 +156,21 @@ export async function main(argv = process.argv.slice(2), { env = process.env, lo
       const embedding = (await resp.json()).output?.embeddings?.[0]?.embedding;
       if (!Array.isArray(embedding) || embedding.length !== 1024 || !embedding.every(Number.isFinite)) throw new Error('invalid embedding response');
       return '[' + embedding.join(',') + ']';
+    };
+
+    // Node-side stand-in for n8n's this.helpers.httpRequest: same contract the
+    // canonical rerankKbRows expects ({method,url,headers,body,timeout} -> parsed
+    // JSON). Non-2xx throws, which rerankKbRows catches and fails open. This keeps
+    // the ruler on the exact production rerank code path, not a reimplementation.
+    const httpRequest = async ({ method, url, headers, body, timeout }) => {
+      const resp = await fetch(url, {
+        method,
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(Number(timeout) || 15000),
+      });
+      if (!resp.ok) throw new Error(`rerank failed: HTTP ${resp.status}`);
+      return resp.json();
     };
 
     const docIds = [];
@@ -190,14 +212,23 @@ export async function main(argv = process.argv.slice(2), { env = process.env, lo
       // the frozen corpus; k=5 matches the ruler's top-5 cutoff. In vector mode
       // this reproduces the previous cosine ordering exactly; in hybrid mode it
       // fuses BM25 + vector with RRF. retrieval reports what actually ran.
-      const { rows, retrieval } = await hybridKbSearch(pg, JSON.parse(vector), row.q, 5, { docIds });
+      let { rows, retrieval } = await hybridKbSearch(pg, JSON.parse(vector), row.q, 5, { docIds });
+      if (rerank) {
+        // Same canonical rerank the Code nodes run; env config is shared with
+        // production (KB_RERANK_MODEL/URL/TOP_N/INSTRUCT). Fails open to the
+        // pre-rerank order, so retrieval_mode reveals whether rerank truly ran.
+        const rr = await rerankKbRows(httpRequest,
+          { apiKey: key, model: env.KB_RERANK_MODEL, endpoint: env.KB_RERANK_URL, instruct: env.KB_RERANK_INSTRUCT },
+          row.q, rows, Number(env.KB_RERANK_TOP_N) || 5, retrieval);
+        rows = rr.rows; retrieval = rr.retrieval;
+      }
       seenModes.add(retrieval);
       rankings.push(rows.map((r) => r.title));
       log(`TESTED retrieval case ${index + 1} (${retrieval})`);
     }
     const report = {
       ...evaluateRetrieval(gs.cases, rankings),
-      requested_mode: hybrid ? 'hybrid' : 'vector',
+      requested_mode: (hybrid ? 'hybrid' : 'vector') + (rerank ? '+rerank' : ''),
       retrieval_mode: [...seenModes].sort().join('+') || 'vector',
       ran_at: new Date().toISOString(),
     };

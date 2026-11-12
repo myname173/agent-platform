@@ -1,8 +1,8 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
 verified_at: 2026-11-12
-verified_commit: 418e6f4
-verified_scope: P0 消费者闭环（§1.2 event-bus-outbox、§5.1 consumed_events、§6 事件总线配置）、P1 沙箱网关准入（§3、§12 边界、deploy/k8s/phase3-pilot）、P2 kind 多节点验证叠加层（deploy/k8s/phase6-kind，仅离线核验，集群演练未跑）、P3 HPA 弹性层（deploy/k8s/phase6-production/components/elastic + phase6-kind-elastic，仅离线核验，弹性演练未跑）与 KB 混合检索（§4.4、§5.1，n8n/lib/kb-hybrid.mjs + 三处 kb_search 内嵌 +  guarded bm25 索引 + kb-eval --hybrid，仅离线核验，现网检索增益未测）按本分支工作树核验；评测分支口径见 §15；其余架构沿用既有核验口径，不表示全量重新核验
+verified_commit: 0cb8c76
+verified_scope: P0 消费者闭环（§1.2 event-bus-outbox、§5.1 consumed_events、§6 事件总线配置）、P1 沙箱网关准入（§3、§12 边界、deploy/k8s/phase3-pilot）、P2 kind 多节点验证叠加层（deploy/k8s/phase6-kind，仅离线核验，集群演练未跑）、P3 HPA 弹性层（deploy/k8s/phase6-production/components/elastic + phase6-kind-elastic，仅离线核验，弹性演练未跑）、KB 混合检索（§4.4、§5.1，n8n/lib/kb-hybrid.mjs + 三处 kb_search 内嵌 +  guarded bm25 索引 + kb-eval --hybrid，仅离线核验，现网检索增益未测）与 KB 重排单层（§4.4、§6，rerankKbRows 内嵌同三处 + kb-eval --rerank + KB_RERANK_* 配置，opt-in 默认关、fail-open 降级，仅离线核验，现网重排增益未测）按本分支工作树核验；评测分支口径见 §15；其余架构沿用既有核验口径，不表示全量重新核验
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
@@ -185,6 +185,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 - 工具循环上限由 `MAX_TOOL_ROUNDS` 控制，默认 2（`docker-compose.yml:59`）。
 - Code 节点可用的外部模块：`pg`（`NODE_FUNCTION_ALLOW_EXTERNAL=pg`）、内置 `crypto`（`docker-compose.yml:63-67`）。
 - `kb_search` 是**混合检索**（Agentic RAG）：pgvector ANN + ParadeDB BM25 两条腿用 RRF（k=60，按 `chunk_id` 融合）合并。规范模块 `n8n/lib/kb-hybrid.mjs` 因沙箱不能 import 而**逐字内嵌**进 `chat-gateway`(Execute Tool)、`kb-ingest`(Run KB Ops)、`mcp-server`(Do MCP) 三处，`kb-hybrid.test.mjs` 的漂移守卫盯着三份副本不许分叉。**降级是核心安全属性**：跑 BM25 前先做目录探测（`pg_extension`/`to_regclass`/`pg_proc`/`pg_operator`，缺则回 0/NULL 不报错，遵守 §9 第 13 条），`pg_search` 或 `kb_chunks_bm25` 索引不在就回退纯向量、排序与 top-k 与改造前逐字一致；返回里带 `retrieval` 标志（`hybrid`/`vector`）防静默空转。现网 Postgres 的 `pg_search` 只是 available、扩展未装，所以当前一律走向量、零回归。MCP 的 `score>0.2` 过滤只在向量模式保留（混合模式 score 是 RRF 值不是余弦）。工具**数量没变**。
+- `kb_search` 在 RRF 融合**之后**可选叠一层**交叉编码器重排**（rerank，post-retrieval）：调 DashScope（阿里百炼）`qwen3-rerank`，与 embedding **同厂商、同 `DASHSCOPE_API_KEY`、同 `this.helpers.httpRequest`**，零新服务/新依赖/新密钥。规范函数 `rerankKbRows` 加在 `n8n/lib/kb-hybrid.mjs` 的同一个 `KB-HYBRID-EMBED` 区间内（`httpRequest` 像 `pg` 一样注入，保持模块可离线 import），**逐字内嵌**进同三处 Code 节点，漂移守卫自动覆盖。**opt-in 默认关**：仅当 `$env.KB_RERANK_ENABLED==='true'` 且融合池非空才跑（`docker-compose.yml` n8n 服务注入五个 `KB_RERANK_*`，`.env.example` 声明）。**fail-open 降级是核心安全属性**：缺 key/空 query/空池/`httpRequest` 非函数/调用抛错或非 2xx/响应缺 `output.results`/无合法 index 映射，一律原样返回融合池（同一数组引用、RRF 排序不变、`reranked:false`），绝不把异常抛进宿主——重排是 HTTP 不是 pg，所以 try/catch 真能接住（不受 §9 第 13 条沙箱杀进程约束）。成功时按 `results[].index` 映回融合行、保留全部字段，`score` 改成重排相对分（0..1，**不是余弦、不可跨请求比**），旧分存 `prevScore`、`vectorScore` 保留，切到 `top_n`。`retrieval` 标志链扩成 `vector | hybrid | vector+rerank | hybrid+rerank` 防静默空转。**MCP 的 `score>0.2` 过滤改为只在纯 `vector` 模式生效**（hybrid 的 RRF 分、两种 rerank 的相对分都不是余弦，一律跳过）。每条目字符 clamp 2600（4000-token/条上限的保守代理）。**无新表/索引/扩展**（`kb-schema.sql` 不动），工具数量没变。现网重排增益（hit@1/MRR）未测，见 `monitoring/kb-rerank-design-2026-11-12.md`。
 
 ## 5. 数据与状态
 
@@ -197,7 +198,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 - 实例上还可能有额外的 `cron_runs`（列 `job/period/ran_at/source`）：它**不在** `DATA_TABLE_COLUMNS` 里，是 `topic-watch` 与 `weekly-review` 的守卫节点在运行时「查不到就自己建」出来的，因此不受 `ensureColumns` 保护（`n8n/workflows/topic-watch.json` 的 `Already Ran Today` / `Mark Ran`）。
 - 另有 `platform` schema（`CREATE SCHEMA IF NOT EXISTS platform`，`n8n/scripts/platform-schema.sql:7`），runtime 使用 `platform.requests / platform.events / platform.tool_runs`（`platform-runtime/server.js:133-230`）。事件总线试点另用两张：`platform.outbox`（事务 outbox，publisher 租约投递）与 `platform.consumed_events`（消费者幂等台账，PK `(topic, dedupe_key)`，consumer 启动自建；`n8n/scripts/platform-schema.sql:101-113`、`platform-runtime/event-consumer.js:25-37`）。
 - `deploy.mjs` 只造 data table，**下面这些它一概不碰**，缺了得自己补：`vector` 扩展 + `kb_documents` / `kb_chunks`（`n8n/scripts/kb-schema.sql`，第一行就是 `CREATE EXTENSION IF NOT EXISTS vector`）、`ops_alerts`（`n8n/scripts/ops-schema.sql`）、`agent_memories`（`memory.json` 的 `ensureTable` 运行时自建，但它的 `embedding vector(1024)` 依赖上面那个扩展）、LobeHub 自己的 `lobechat` 库（由 LobeHub 容器首启时建，记忆镜像写它的 `user_memories`）。生产镜像 paradedb 自带 pgvector，`postgres:*-alpine` **不带**；本地用 alpine 镜像就必须自己补扩展，否则任何 `::vector` 都会让 Postgres 回错误响应，后果见 §9 第 13 条。
-- `kb-schema.sql` 末尾另有一段 **guarded** 的可选 BM25 索引：`DO $$ … IF pg_available_extensions 里有 pg_search THEN CREATE EXTENSION + CREATE INDEX IF NOT EXISTS kb_chunks_bm25 … USING bm25 (chunk_id, content) WITH (key_field='chunk_id') … EXCEPTION WHEN OTHERS THEN RAISE NOTICE … $$`。装不上（缺扩展/没预加载/版本不符）只记 notice、不报错，留下纯向量检索；幂等可重跑。它是 §4.4 混合检索的 BM25 腿来源，运行时探测到它存在才会跑 BM25。vector 扩展与 HNSW 索引不动。现网验收（索引真建出来、中文分词排序、hit@1/MRR 增益）未测，见 `monitoring/kb-hybrid-search-2026-11-12.md`。
+- `kb-schema.sql` 末尾另有一段 **guarded** 的可选 BM25 索引：`DO $$ … IF pg_available_extensions 里有 pg_search THEN CREATE EXTENSION + CREATE INDEX IF NOT EXISTS kb_chunks_bm25 … USING bm25 (chunk_id, content) WITH (key_field='chunk_id') … EXCEPTION WHEN OTHERS THEN RAISE NOTICE … $$`。装不上（缺扩展/没预加载/版本不符）只记 notice、不报错，留下纯向量检索；幂等可重跑。它是 §4.4 混合检索的 BM25 腿来源，运行时探测到它存在才会跑 BM25。vector 扩展与 HNSW 索引不动。现网验收（索引真建出来、中文分词排序、hit@1/MRR 增益）未测，见 `monitoring/kb-hybrid-search-2026-11-12.md`。**重排层（§4.4）不碰任何 schema**：它是检索之后的一次 HTTP 调用，无新表、新索引、新扩展，`kb-schema.sql` 逐字不变。
 
 ### 5.1.1 项目维度（`projects` + `project_ref`）
 
@@ -227,6 +228,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | 局域网 | `PLATFORM_LAN_IP`、`LAN_IP` | 手机访问、预签名上传、Caddy 证书 SAN 都依赖它（`.env.example:108-118`） |
 | 端口 | `N8N_PORT`、`CONSOLE_PORT`、`LOBECHAT_PORT`、`SEARXNG_PORT`、`MINIO_*_PORT`、`STREAM_BRIDGE_PORT`、`CADDY_PORT_*` | 只改宿主端口，容器端口固定（`docker-compose.yml:11-18`） |
 | 资源/行为 | `RETENTION_DAYS_*`、`IDEMPOTENCY_WINDOW_SEC`、`MAX_TOOL_ROUNDS`、`PLATFORM_RATE_LIMIT_RPM`、`EMBEDDING_*`、`ALERT_*` | 多数有代码内默认值 |
+| KB 重排（可选） | `KB_RERANK_ENABLED`、`KB_RERANK_MODEL`、`KB_RERANK_URL`、`KB_RERANK_TOP_N`、`KB_RERANK_INSTRUCT` | 仅注入 n8n 服务（Code 节点在 n8n 容器内读 `$env`）；默认 `ENABLED=false` → 零回归；`MODEL=qwen3-rerank`、`URL` 空→模块默认经典 host、`TOP_N=0`→用 k、`INSTRUCT` 空→不传；复用 `DASHSCOPE_API_KEY`，无新密钥（`.env.example`、`docker-compose.yml:71-75`、§4.4） |
 | 事件总线（可选） | `PLATFORM_OUTBOX_*`、`PLATFORM_CONSUMER_GROUP`、`PLATFORM_CONSUMER_FROM_BEGINNING` | 仅 `event-bus-outbox` profile 生效；`PLATFORM_OUTBOX_WRITE_MODE` 保持 `off`（Runtime 不写 outbox）；指标端口 9101/9102 为容器内固定值（`.env.example`、`docker-compose.yml:559-617`） |
 | 备份 | `BACKUP_INTERVAL_HOURS=6`、`BACKUP_MIN_AGE_HOURS=20`、`BACKUP_OFFSITE_DIR` | 新鲜度守卫（`.env.example:126-136`） |
 | 控制台 | `CONSOLE_CLERK_PUBLISHABLE_KEY`、`frontent/.env.local` | 前者是构建参数（改后需重建镜像），后者被 compose 以 `required:false` 挂入（`docker-compose.yml:129-140`） |
