@@ -323,6 +323,92 @@ node n8n/scripts/kb-eval.mjs --isolated-stack --hybrid --rerank --crag # + grade
 offline results, mutation proofs, the full-CRAG/Self-RAG honesty boundary and the
 complete 未验 list are in `monitoring/kb-crag-lite-design-2026-11-12.md`.
 
+## web_fetch (search → select → fetch → read follow-up layer)
+
+An optional **fetch-and-read** tool closes the snippet-only gap in the web leg:
+`web_search` returns `{title, url, snippet(≤300)}` cards, so the agent could
+*discover* public pages but never *read* them ("版本待核实" was structural, not a
+prompt choice). `web_fetch(url)` lets the model **select** an authoritative result
+and read its **full text**, then ground the answer in the page and cite `[来源:<url>]`.
+It is a **bounded approximation, NOT a browsing agent**: one HTTP GET per call (no
+headless browser, no JS rendering, no crawl), a **heuristic pure-JS HTML→text
+stripper** (no readability/cheerio dep — the Code-node sandbox allows only `pg` +
+builtin `crypto`), and a hostname/literal-IP SSRF guard with redirects disabled.
+
+The canonical module `n8n/lib/web-fetch.mjs` (`assertPublicUrl` + `isPrivateIPv4/6`
++ `decodeEntities` + `extractReadableText` + `sanitizeUntrusted` + `fetchWebPage`,
+`httpRequest` injected like pg/rerank/CRAG so it imports offline) is embedded
+**verbatim in one node** — `chat-gateway` Execute Tool. It is a **new tool, not a
+kb_search stage**, so it deliberately does **not** live in the `KB-HYBRID-EMBED`
+region; `mcp-server.json` / `kb-ingest.json` are untouched (**gateway-only v1**,
+decision D3). `web-fetch.test.mjs` carries the drift guard.
+
+**SSRF guard is the central security property** — `assertPublicUrl` runs **before
+any network call** and denies non-http schemes, userinfo, loopback/RFC1918/
+link-local + cloud-metadata (`169.254.169.254`)/CGNAT/ULA/multicast literals
+(including the URL-normalized `127.1` / `0x7f000001` / `2130706433` bypass forms and
+a deny-all on `::ffff:` IPv4-mapped), internal service names, single-label hosts,
+`.internal/.local/.localhost` and the `.nip.io/.sslip.io/.xip.io` wildcard-DNS
+rebinding suffixes. A denied URL returns `{ok:false, reason:'blocked_private_url'}`
+with **zero** `httpRequest` calls (negative control + a public-URL positive control).
+**Fail-open** — timeout / non-2xx / 3xx redirect / bad content-type / oversized body
+/ a throwing client all return `{ok:false, url, reason}` and **never throw into the
+host** (HTTP, not pg, so the §9.13 runner-kill trap does not apply). **Bounding** —
+one URL per call, no recursion, `MAX_TOOL_ROUNDS` untouched (search→fetch→answer
+fits the default 2 rounds; multi-page needs ≥3), timeout 12s, text clamp 6000 chars,
+and `WEB_FETCH_MAX_BYTES` is a best-effort `content-length` gate + post-download
+char-proxy slice (**not** a streaming download cap — `httpRequest` exposes none).
+
+**Prompt-injection handling reduces, does not eliminate, the surface:**
+`sanitizeUntrusted` strips C0/C1 control chars and wraps the text in a
+`<<<UNTRUSTED_WEB_CONTENT url=…>>>` delimiter; DIRECTIVE rule (10) tells the model
+the text is **quoted source data, not instructions**, to cite the URL, and to admit
+"could not read" on `ok:false` rather than fabricate. It is **opt-in, default off**
+(`WEB_FETCH_ENABLED=false`): the six `WEB_FETCH_*` vars are injected into the n8n
+service (execution) and `WEB_FETCH_ENABLED` into stream-bridge (advertise-only,
+`SERVER_TOOLS` sync per §9.4). Off → the static table stays **16**, the system
+prompt is byte-identical, and the Execute Tool branch is unreachable (a smuggled
+`web_fetch` falls through to `unknown tool`); on → **17**. `web_fetch` is **not** in
+`SIDE_EFFECT` (read-only). Observability is `__trace.web_fetch_{ok,host,chars,reason}`
+(**no full text**). No table/index/extension/service/key/dependency change;
+`kb-schema.sql` untouched.
+
+**Residual risks (honest, 未验):** `dns` is **not** allowlisted, so resolve-time IP
+pinning is structurally impossible — arbitrary **DNS-rebinding** (a public name
+resolving to a private IP) remains a residual, mitigated only for the known
+wildcard-DNS services. Whether n8n `httpRequest` honors `followRedirect:false`, the
+byte-cap availability, real-page extractor quality (boilerplate leak / JS-rendered
+miss), injection behavior, latency/cost and round-budget pressure are all
+deployment-machine questions.
+
+Offline contracts (SSRF negative + positive controls, IP-range boundaries, entity
+decode, heuristic extractor incl. the boilerplate-leak / JS-missed honesty cases,
+sanitizer delimiter + control-char strip, `fetchWebPage` success shape +
+**zero-call-on-deny** + fail-open + every gate + JSON/Buffer/object bodies + cfg
+number/string parsing, verbatim drift guard, **gateway-only** assertion, Execute
+Tool wiring, **behavioral** opt-in registration running the real gateway Code node
+(16 off / 17 on / 0 when tools disabled) + DIRECTIVE rule (10) gating, **behavioral**
+Append forwarding, bridge `SERVER_TOOLS` 16/17 + name-set sync) are in
+`n8n/scripts/web-fetch.test.mjs` (**42 tests**) with **5 in-memory mutation proofs**
+(disable private-IP deny → guard allows loopback; same mutant → 1 http call on a
+private URL vs the real 0; remove fail-open catch → throws; flip opt-in always-on →
+17 when env=false; mutate canonical → drift red). A new CI job
+`web-fetch-contract-tests` runs it (no deps, no network). An **on-disk mutation
+shakeout** (canonical drift, vendored-copy drift, gate always-on) turned the
+corresponding guards **red**, then restored **byte-identical (SHA-256 verified)** →
+green; no mutation left in the tree. Regression stayed green: kb-hybrid **51**,
+validate-workflows **26/0**, eval offline group **112**.
+
+**web_fetch efficacy is not measured offline and no real web/fetch/embedding API
+call was made here.** `kb-eval` (KB-title hit@1/MRR) **cannot** measure it —
+web_fetch is not a KB stage. The ruler is the **agent answer-eval** on a disposable
+isolated stack (未验, deployment machine): enable `WEB_FETCH_ENABLED=true` (never
+shared production), then compare snippet-only vs search+fetch on the same public-web
+scenarios; SSRF/injection behavior is a separate security eval. Design, offline
+results, mutation proofs, the browsing-agent/readability/injection-proof honesty
+boundary and the complete 未验 list are in
+`monitoring/web-fetch-design-2026-11-13.md`.
+
 ## Phase 2 async KB save
 
 The Redis Streams worker is optional and only handles `kb_save`:
