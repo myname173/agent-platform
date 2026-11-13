@@ -144,3 +144,22 @@ jobs:
       #   node n8n/scripts/kb-eval.mjs --isolated-stack          # vector baseline
       #   node n8n/scripts/kb-eval.mjs --isolated-stack --hybrid  # BM25+vector RRF
       # Offline green is not retrieval acceptance.
+
+  web-fetch-contract-tests:
+    name: web_fetch follow-up layer contracts (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test SSRF guard, heuristic extract, fail-open, opt-in registration and vendored drift
+        run: node --test n8n/scripts/web-fetch.test.mjs
+      # No dependencies and no network: pure-function unit tests with a mock
+      # httpRequest, behavioral opt-in registration (16 off / 17 on) running the
+      # real gateway Code node, a verbatim-embedding drift guard, and mutation
+      # proofs. Live efficacy (does reading whole pages improve answers) and the
+      # SSRF DNS-rebinding / redirect residuals are operator-run on the deployment
+      # machine: WEB_FETCH_ENABLED=true on a DISPOSABLE isolated stack, then the
+      # agent answer-eval (kb-eval cannot measure it — web_fetch is not a KB stage).
+      # Offline green is not answer acceptance.

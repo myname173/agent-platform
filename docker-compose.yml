@@ -83,6 +83,15 @@ services:
       - KB_CRAG_WEB_URL=${KB_CRAG_WEB_URL:-}
       - KB_CRAG_WEB_TOP_N=${KB_CRAG_WEB_TOP_N:-3}
       - KB_CRAG_WEB_TIMEOUT_MS=${KB_CRAG_WEB_TIMEOUT_MS:-12000}
+      # web_fetch follow-up layer (opt-in; default off = zero regression, static tool
+      # table stays 16). Execute Tool reads these via $env; the fetch is gateway-side.
+      # DENY_HOSTS extends (never replaces) the built-in internal-name deny list.
+      - WEB_FETCH_ENABLED=${WEB_FETCH_ENABLED:-false}
+      - WEB_FETCH_TIMEOUT_MS=${WEB_FETCH_TIMEOUT_MS:-12000}
+      - WEB_FETCH_MAX_CHARS=${WEB_FETCH_MAX_CHARS:-6000}
+      - WEB_FETCH_MAX_BYTES=${WEB_FETCH_MAX_BYTES:-200000}
+      - WEB_FETCH_ALLOW_REDIRECTS=${WEB_FETCH_ALLOW_REDIRECTS:-false}
+      - WEB_FETCH_DENY_HOSTS=${WEB_FETCH_DENY_HOSTS:-}
       - UPSTREAM_API_KEY=${UPSTREAM_API_KEY}
       - GENERIC_TIMEZONE=Asia/Shanghai
       - MCP_API_KEY=${MCP_API_KEY}
@@ -383,6 +392,9 @@ services:
       - PLATFORM_RATE_LIMIT_RPM=${PLATFORM_RATE_LIMIT_RPM:-60}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      # web_fetch opt-in flag — keeps the bridge's advertised SERVER_TOOLS in sync
+      # with the gateway (§9.4). Execution is gateway-side; the bridge only advertises.
+      - WEB_FETCH_ENABLED=${WEB_FETCH_ENABLED:-false}
     ports:
       - "127.0.0.1:${STREAM_BRIDGE_PORT:-3211}:3211"
     restart: unless-stopped

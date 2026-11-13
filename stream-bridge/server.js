@@ -115,6 +115,10 @@ async function runtimeRateLimit(req, body, traceId, requestId) {
   });
 }
 
+// web_fetch (opt-in, default-off): keep in sync with chat-gateway.json. The bridge
+// direct-stream path falls back to the n8n gateway on any tool_calls, so execution
+// is always gateway-side; this only keeps the advertised tool surface coherent.
+const WEB_FETCH_ENABLED = String(process.env.WEB_FETCH_ENABLED || '').toLowerCase() === 'true';
 const SERVER_TOOLS = [
   { type: 'function', function: { name: 'web_search', description: 'Search the public web for current information, facts, news or documentation. Returns ranked results with title, url and snippet.', parameters: { type: 'object', properties: { query: { type: 'string', description: 'The search query' } }, required: ['query'] } } },
   { type: 'function', function: { name: 'kb_search', description: 'Search the private knowledge base (ingested internal documents, notes and references).', parameters: { type: 'object', properties: { query: { type: 'string', description: 'The search query' }, top_k: { type: 'integer', description: 'How many passages (1-10, default 6)' } }, required: ['query'] } } },
@@ -132,6 +136,7 @@ const SERVER_TOOLS = [
   { type: 'function', function: { name: 'run_python', description: 'Run a short Python snippet in an isolated sandbox and read back its stdout. Use for arithmetic, statistics, CSV/JSON processing, parsing, formatting, date maths - anything easier to compute than to write. Standard library only (no numpy/pandas). Network access, subprocesses and file writes are GATED, not impossible: when a snippet needs them the platform parks it and asks the owner to approve; once approved the run goes through with that access granted. Print what you want returned; return values are not captured. 15s timeout, 8KB output cap.', parameters: { type: 'object', properties: { code: { type: 'string', description: 'Python code. It must print() whatever you want to see.' }, why: { type: 'string', description: 'One line: what this computes and why.' } }, required: ['code'] } } },
   { type: 'function', function: { name: 'mcp_list_tools', description: 'List the tools exposed by a configured external MCP server. Call this before mcp_call to learn the exact tool names and argument shapes. Servers are registered by the owner; if a name is unknown the call fails and tells you so.', parameters: { type: 'object', properties: { server: { type: 'string' } }, required: ['server'] } } },
   { type: 'function', function: { name: 'mcp_call', description: 'Call a tool on a configured external MCP server. Pass the server name, the exact tool name from mcp_list_tools, and a JSON object of arguments. Reaching these servers is allowed by policy — the owner registered them — unlike arbitrary network access from run_python.', parameters: { type: 'object', properties: { server: { type: 'string' }, tool: { type: 'string' }, arguments: { type: 'object' } }, required: ['server', 'tool'] } } },
+  ...(WEB_FETCH_ENABLED ? [{ type: 'function', function: { name: 'web_fetch', description: 'Fetch and read the full text of a public web page by URL. Use after web_search when a snippet is insufficient and a result looks authoritative; pass the exact url of that result. Returns {ok, url, title, text, chars} on success or {ok:false, url, reason} on failure. One URL per call; no internal/private addresses, binaries, or JS-rendered content.', parameters: { type: 'object', properties: { url: { type: 'string', description: 'The exact public http(s) URL to read (usually from a web_search result)' } }, required: ['url'] } } }] : []),
 ];
 
 /* ---- L2: registered workflow tools (cached 60s) ---- */
