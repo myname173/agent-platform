@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-platform · 产品导览（Agent 视角）</title>
+<style>
+  :root{
+    --bg:#0a0d12; --panel:#10151d; --line:#1f2733; --ink:#e6edf3; --mut:#8b98a9;
+    --acc:#4f8cff; --ok:#3fb950; --warn:#d29922;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    background:var(--bg); color:var(--ink); overflow:hidden;
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .deck{position:fixed; inset:0;}
+  .slide{
+    position:absolute; inset:0; display:none; flex-direction:column;
+    padding:26px 40px 60px; gap:12px;
+  }
+  .slide.active{display:flex;}
+  .kicker{
+    font-size:12px; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--acc); font-weight:600;
+  }
+  h1{font-size:clamp(28px,4vw,46px); line-height:1.15; font-weight:700;}
+  h2{font-size:clamp(20px,2.6vw,32px); line-height:1.2; font-weight:700;}
+  .cap{color:var(--mut); font-size:clamp(13px,1.3vw,16px); line-height:1.5; max-width:70ch;}
+  .cap b{color:var(--ink); font-weight:600;}
+  .shots{flex:1; min-height:0; display:flex; gap:12px;}
+  .shots.stack{flex-direction:column;}
+  .shots.grid{display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr;}
+  figure{
+    position:relative; flex:1; min-width:0; min-height:0; overflow:hidden;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+  }
+  figure img{
+    position:absolute; inset:0; width:100%; height:100%;
+    object-fit:cover; object-position:top center; display:block;
+  }
+  figure .tag{
+    position:absolute; top:10px; left:10px; z-index:2;
+    background:rgba(10,13,18,.82); border:1px solid var(--line); color:var(--ink);
+    font-size:11px; padding:3px 9px; border-radius:999px; backdrop-filter:blur(4px);
+  }
+  /* cover + architecture */
+  .center{flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; gap:22px;}
+  .chips{display:flex; flex-wrap:wrap; gap:10px;}
+  .chip{
+    border:1px solid var(--line); background:var(--panel); border-radius:999px;
+    padding:7px 16px; font-size:14px; color:var(--ink);
+  }
+  .chip b{color:var(--acc);}
+  .arch{display:flex; align-items:stretch; gap:10px; flex-wrap:wrap;}
+  .node{
+    flex:1; min-width:150px; border:1px solid var(--line); background:var(--panel);
+    border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; gap:6px;
+  }
+  .node .t{font-weight:600; font-size:15px;}
+  .node .d{color:var(--mut); font-size:12.5px; line-height:1.45;}
+  .node.hl{border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset;}
+  .arrow{align-self:center; color:var(--mut); font-size:20px;}
+  ul.tight{list-style:none; display:flex; flex-direction:column; gap:10px;}
+  ul.tight li{padding-left:20px; position:relative; color:var(--mut); font-size:15px; line-height:1.5;}
+  ul.tight li::before{content:"▸"; position:absolute; left:0; color:var(--acc);}
+  ul.tight li b{color:var(--ink);}
+  .note{font-size:12.5px; color:var(--mut); border-left:2px solid var(--warn); padding-left:10px; line-height:1.5;}
+  /* chrome */
+  .hud{
+    position:fixed; left:0; right:0; bottom:0; height:48px; z-index:10;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 22px; background:linear-gradient(transparent, rgba(10,13,18,.9));
+  }
+  .dots{display:flex; gap:6px; align-items:center;}
+  .dot{width:7px; height:7px; border-radius:999px; background:#2a3449; cursor:pointer; border:none; padding:0;}
+  .dot.on{background:var(--acc); width:20px;}
+  .nav{display:flex; gap:8px; align-items:center;}
+  .nav button{
+    background:var(--panel); border:1px solid var(--line); color:var(--ink);
+    width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:15px;
+  }
+  .nav button:hover{border-color:var(--acc);}
+  .count{color:var(--mut); font-size:12px; min-width:52px; text-align:center; font-variant-numeric:tabular-nums;}
+  .hint{color:var(--mut); font-size:12px;}
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+  <!-- 1 cover -->
+  <section class="slide">
+    <div class="center">
+      <div class="kicker">Product Tour · Agent 视角</div>
+      <h1>agent-platform<br>一个会干活的私域 Agent</h1>
+      <p class="cap">跑在你自己机器上的自托管 Agent 平台：<b>查知识、上网核实、办事、被观测</b>。下面全部为实机截图。</p>
+      <div class="chips">
+        <span class="chip"><b>12</b> 常驻服务</span>
+        <span class="chip"><b>16</b> 网关工具</span>
+        <span class="chip"><b>26</b> 工作流源码入库</span>
+        <span class="chip"><b>1</b> 个网关收所有入口</span>
+      </div>
+      <p class="hint">→ / 空格 翻页 · ← 回退 · 点击底部圆点跳页</p>
+    </div>
+  </section>
+
+  <!-- 2 architecture -->
+  <section class="slide">
+    <div class="kicker">Architecture</div>
+    <h2>所有入口，只认一个网关</h2>
+    <p class="cap">LobeHub / 控制台 / Telegram / MCP 都不互调，统一进 n8n 网关跑工具循环。</p>
+    <div class="center">
+      <div class="arch">
+        <div class="node"><span class="t">入口</span><span class="d">LobeHub · 控制台 · Telegram · MCP</span></div>
+        <div class="arrow">→</div>
+        <div class="node"><span class="t">stream-bridge</span><span class="d">OpenAI 兼容流式旁路，工具调用回落网关</span></div>
+        <div class="arrow">→</div>
+        <div class="node hl"><span class="t">n8n 网关</span><span class="d">鉴权 · 记忆 · 工具循环（16 工具）</span></div>
+        <div class="arrow">→</div>
+        <div class="node"><span class="t">工具 / 状态</span><span class="d">KB · web · 沙箱 · runtime · Postgres/Redis</span></div>
+      </div>
+      <div>
+        <div class="kicker" style="margin-bottom:10px;">网关工具面 · 16 静态 + 动态 wf_* / client_tools</div>
+        <div class="chips">
+          <span class="chip">kb_search</span><span class="chip">web_search</span><span class="chip">run_python</span>
+          <span class="chip">todo_add</span><span class="chip">todo_list</span><span class="chip">todo_done</span>
+          <span class="chip">create_reminder</span><span class="chip">list_reminders</span><span class="chip">cancel_reminder</span>
+          <span class="chip">kb_save</span><span class="chip">meeting_actions</span><span class="chip">run_brief</span>
+          <span class="chip">platform_status</span><span class="chip">list_alerts</span><span class="chip">mcp_list_tools</span>
+          <span class="chip">mcp_call</span>
+        </div>
+      </div>
+      <p class="note">业务逻辑全在 n8n 工作流（JSON 入库、脚本部署）；密钥只在 .env，前端不存 token。</p>
+    </div>
+  </section>
+
+  <!-- 3 RAG chat -->
+  <section class="slide">
+    <div class="kicker">能力 ① · 私域知识</div>
+    <h2>先查知识库，答案带出处</h2>
+    <p class="cap">混合检索 → 重排 → CRAG-lite 评分；命中即引用 <b>[来源: 文档名]</b>，不瞎编。</p>
+    <div class="shots"><figure><span class="tag">控制台 · AI 联调 · kb_search</span><img src="{{IMG:02_ai_chat_kb.png}}" alt="KB RAG 对话"></figure></div>
+  </section>
+
+  <!-- 4 RAG drill -->
+  <section class="slide">
+    <div class="kicker">能力 ① · 检索质量</div>
+    <h2>检索演练：排序一眼可见</h2>
+    <p class="cap">同一查询实时召回 Top-K 并打分：<b>相关块 92%</b>，无关块 ≤21%，分离清晰。</p>
+    <div class="shots"><figure><span class="tag">控制台 · Knowledge · 检索演练</span><img src="{{IMG:03_knowledge_search.png}}" alt="检索演练排序"></figure></div>
+  </section>
+
+  <!-- 5 web -->
+  <section class="slide">
+    <div class="kicker">能力 ② · 上网核实</div>
+    <h2>知识库没有，就自己上网搜</h2>
+    <p class="cap">并行多次 <b>web_search</b>；开口先声明局限（只看标题摘要、版本待核实）。</p>
+    <div class="shots"><figure><span class="tag">控制台 · AI 联调 · web_search</span><img src="{{IMG:02_ai_chat_web.png}}" alt="web 搜索对话"></figure></div>
+  </section>
+
+  <!-- 6 web tail -->
+  <section class="slide">
+    <div class="kicker">能力 ② · 来源与诚实</div>
+    <h2>每条结论标 [来源:web]</h2>
+    <p class="cap">只取多篇互相印证的部分；低质站点与过时风险<b>主动说明</b>，不装确定。</p>
+    <div class="shots"><figure><span class="tag">控制台 · AI 联调 · 回答尾部</span><img src="{{IMG:02_ai_chat_web_tail.png}}" alt="web 来源标注"></figure></div>
+  </section>
+
+  <!-- 7 action -->
+  <section class="slide">
+    <div class="kicker">能力 ③ · 办事</div>
+    <h2>一句话，落成待办 + 提醒</h2>
+    <p class="cap">并行调 <b>todo_add + create_reminder</b>；按指派人时区算时间，落库可追溯。</p>
+    <div class="shots"><figure><span class="tag">控制台 · AI 联调 · 工具调用</span><img src="{{IMG:02_ai_chat_action.png}}" alt="办事工具调用"></figure></div>
+  </section>
+
+  <!-- 8 people + projects -->
+  <section class="slide">
+    <div class="kicker">能力 ④ · 协作</div>
+    <h2>按人、按项目组织活儿</h2>
+    <p class="cap">成员各有<b>时区与通道</b>，议程按人推送；待办/文档按<b>项目</b>归集。</p>
+    <div class="shots stack">
+      <figure><span class="tag">控制台 · People</span><img src="{{IMG:06_people.png}}" alt="成员"></figure>
+      <figure><span class="tag">控制台 · Projects</span><img src="{{IMG:33_projects.png}}" alt="项目"></figure>
+    </div>
+  </section>
+
+  <!-- 9 trace -->
+  <section class="slide">
+    <div class="kicker">可观测</div>
+    <h2>一次对话 = 一条跨服务 trace</h2>
+    <p class="cap">OTel 串起 bridge → 网关 → 工作流节点：<b>51 spans</b>，限流/上游/回落逐段可见。</p>
+    <div class="shots"><figure><span class="tag">Jaeger · trace 瀑布</span><img src="{{IMG:41_jaeger_trace.png}}" alt="Jaeger trace"></figure></div>
+  </section>
+
+  <!-- 10 overview -->
+  <section class="slide">
+    <div class="kicker">运营</div>
+    <h2>对话量 / 错误率 / 延迟 / 成本，一屏</h2>
+    <p class="cap">Overview 汇总真实流量指标与今日待办、委派，运营不用翻日志。</p>
+    <div class="shots"><figure><span class="tag">控制台 · Overview</span><img src="{{IMG:01_overview.png}}" alt="运营总览"></figure></div>
+  </section>
+
+  <!-- 11 grid ops -->
+  <section class="slide">
+    <div class="kicker">运营 · 控制面</div>
+    <h2>工作流 / 告警 / 模型 / 密钥</h2>
+    <p class="cap">工作流源码可视化、告警自愈、模型可换、密钥分级管理。</p>
+    <div class="shots grid">
+      <figure><span class="tag">Workflows</span><img src="{{IMG:09_workflows.png}}" alt="工作流"></figure>
+      <figure><span class="tag">Alerts</span><img src="{{IMG:07_alerts.png}}" alt="告警"></figure>
+      <figure><span class="tag">Models</span><img src="{{IMG:05_models.png}}" alt="模型"></figure>
+      <figure><span class="tag">Keys</span><img src="{{IMG:04_keys.png}}" alt="密钥"></figure>
+    </div>
+  </section>
+
+  <!-- 12 grid knowledge -->
+  <section class="slide">
+    <div class="kicker">运营 · 知识与内容</div>
+    <h2>摄取 / 文档 / 简报 / 订阅</h2>
+    <p class="cap">知识入库→分块→嵌入；doc-forge 出文档；简报与主题盯梢定时产出。</p>
+    <div class="shots grid">
+      <figure><span class="tag">Knowledge</span><img src="{{IMG:03_knowledge.png}}" alt="知识库"></figure>
+      <figure><span class="tag">Docs</span><img src="{{IMG:10_docs.png}}" alt="文档"></figure>
+      <figure><span class="tag">Briefs</span><img src="{{IMG:30_briefs.png}}" alt="简报"></figure>
+      <figure><span class="tag">Topics</span><img src="{{IMG:31_topics.png}}" alt="订阅"></figure>
+    </div>
+  </section>
+
+  <!-- 13 settings / safety -->
+  <section class="slide">
+    <div class="kicker">边界与安全</div>
+    <h2>沙箱准入 · 限流 · 审计 · 保留期</h2>
+    <p class="cap">Python 沙箱共享密钥 + 请求级准入；runtime 限流/幂等；操作写审计；数据按保留期清理。</p>
+    <div class="shots"><figure><span class="tag">控制台 · Settings</span><img src="{{IMG:32_settings.png}}" alt="设置"></figure></div>
+  </section>
+
+  <!-- 14 closing -->
+  <section class="slide">
+    <div class="kicker">Summary</div>
+    <h2>它把 Agent 做成了可运营的产品</h2>
+    <div class="center">
+      <ul class="tight">
+        <li><b>会查</b>：混合检索 + 重排 + CRAG-lite，答案带出处。</li>
+        <li><b>会搜</b>：web_search 并行核实，标来源、承认不确定。</li>
+        <li><b>会办</b>：16 工具并行调用，按人时区落库。</li>
+        <li><b>可见</b>：跨服务 trace + 运营指标 + 告警自愈。</li>
+        <li><b>可控</b>：沙箱准入、限流、审计、保留期、密钥分级。</li>
+      </ul>
+      <p class="note">口径：截图来自一次性隔离演示栈（opt-in 全开），非现网默认配置；检索增益为冻结语料离线实测，现网答案质量增益未验。演示栈可 <b>down -v</b> 一键回滚，零碰现网。</p>
+    </div>
+  </section>
+
+</div>
+
+<div class="hud">
+  <div class="dots" id="dots"></div>
+  <div class="nav">
+    <span class="hint">实机截图 · 隔离演示栈</span>
+    <button id="prev" aria-label="上一页">←</button>
+    <span class="count" id="count"></span>
+    <button id="next" aria-label="下一页">→</button>
+  </div>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const dots=document.getElementById('dots');
+  const count=document.getElementById('count');
+  let i=0;
+  slides.forEach((_,k)=>{
+    const b=document.createElement('button');
+    b.className='dot'; b.setAttribute('aria-label','第'+(k+1)+'页');
+    b.onclick=()=>go(k);
+    dots.appendChild(b);
+  });
+  function go(k){
+    i=Math.max(0,Math.min(slides.length-1,k));
+    slides.forEach((s,k2)=>s.classList.toggle('active',k2===i));
+    [...dots.children].forEach((d,k2)=>d.classList.toggle('on',k2===i));
+    count.textContent=(i+1)+' / '+slides.length;
+  }
+  document.getElementById('prev').onclick=()=>go(i-1);
+  document.getElementById('next').onclick=()=>go(i+1);
+  addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();go(i+1);}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(i-1);}
+    else if(e.key==='Home'){go(0);} else if(e.key==='End'){go(slides.length-1);}
+  });
+  // click left/right thirds to navigate (ignore hud)
+  addEventListener('click',e=>{
+    if(e.target.closest('.hud')||e.target.closest('a')||e.target.closest('button'))return;
+    const x=e.clientX/innerWidth;
+    if(x>0.72)go(i+1); else if(x<0.12)go(i-1);
+  });
+  go(0);
+</script>
+</body>
+</html>

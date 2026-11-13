@@ -1,0 +1,255 @@
+# Isolated "everything-ON" demo backend for the interview deck.
+# ZERO touch to the production stack: distinct container names, host ports,
+# network and volumes. Secrets are pulled from the repo-root .env via ${VAR}
+# substitution (compose --project-directory <repo root>); .env is never edited.
+# Run:  docker compose -p agentdemo --project-directory <repo> -f interview-demo/_demo/demo-compose.yml up -d
+# Rollback: docker compose -p agentdemo ... down -v   (removes only demo volumes)
+name: agentdemo
+
+networks:
+  demo-net:
+    driver: bridge
+
+volumes:
+  demo_pg_data:
+  demo_n8n_data:
+  demo_redis_data:
+
+services:
+  demo-postgres:
+    image: paradedb/paradedb:latest-pg17
+    container_name: demo-postgres
+    command: postgres -c shared_preload_libraries=pg_search,pg_cron
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - demo_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      demo-net:
+        aliases: [postgres]
+
+  demo-redis:
+    image: redis:7.4-alpine
+    container_name: demo-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:16380:6379"
+    volumes:
+      - demo_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      demo-net:
+        aliases: [redis]
+
+  demo-runtime:
+    image: agent-platform/platform-runtime:0.1
+    container_name: demo-runtime
+    environment:
+      - PORT=3220
+      - REDIS_URL=redis://demo-redis:6379
+      - PLATFORM_RUNTIME_KEY=${PLATFORM_RUNTIME_KEY:-}
+      - CHAT_API_KEY=${CHAT_API_KEY}
+      - IDEMPOTENCY_WINDOW_SEC=${IDEMPOTENCY_WINDOW_SEC:-300}
+      - PLATFORM_RATE_LIMIT_RPM=${PLATFORM_RATE_LIMIT_RPM:-60}
+      - PLATFORM_STATE_ENABLED=true
+      - PLATFORM_DEPLOYMENT_MODE=single-node-controlled
+      - PLATFORM_OUTBOX_WRITE_MODE=off
+      - DB_POSTGRESDB_HOST=demo-postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+    depends_on:
+      demo-postgres:
+        condition: service_healthy
+      demo-redis:
+        condition: service_healthy
+    networks:
+      demo-net:
+        aliases: [platform-runtime]
+
+  demo-sandbox:
+    image: agent-platform/sandbox:3.14
+    container_name: demo-sandbox
+    command: ["python", "-u", "/sandbox.py"]
+    volumes:
+      - ./n8n/sandbox_server.py:/sandbox.py:ro
+      - ./n8n/mock.py:/mock.py:ro
+    expose:
+      - "8000"
+    environment:
+      - SANDBOX_KEY=${CHAT_API_KEY}
+      - SANDBOX_PORT=8000
+      - SANDBOX_TIMEOUT=15
+      - SANDBOX_AS_MB=1536
+    networks:
+      demo-net:
+        aliases: [n8n-sandbox]
+
+  demo-searxng:
+    image: searxng/searxng:latest
+    container_name: demo-searxng
+    ports:
+      - "127.0.0.1:18081:8080"
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    networks:
+      demo-net:
+        aliases: [searxng]
+
+  demo-n8n:
+    image: docker.n8n.io/n8nio/n8n:${N8N_VERSION}
+    container_name: demo-n8n
+    ports:
+      - "127.0.0.1:15678:5678"
+    # demo-n8n's own legacy API key (gitignored) so the gateway's self-API calls
+    # ($env.N8N_API_KEY) authenticate against THIS instance, not the live JWT.
+    env_file:
+      - path: ./.eval-local/demo/console-override.env
+        required: false
+    environment:
+      - N8N_RUNNERS_AUTH_TOKEN=${N8N_RUNNERS_AUTH_TOKEN}
+      - N8N_RELEASE_TYPE=stable
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - CHAT_API_KEY=${CHAT_API_KEY}
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:15678/
+      - PLATFORM_RUNTIME_URL=http://demo-runtime:3220
+      - PLATFORM_RUNTIME_KEY=${PLATFORM_RUNTIME_KEY:-}
+      - PLATFORM_TOOL_IDEMPOTENCY_MODE=${PLATFORM_TOOL_IDEMPOTENCY_MODE:-fallback}
+      - SANDBOX_URL=http://demo-sandbox:8000
+      - SANDBOX_APPROVED_URL=http://demo-sandbox:8000
+      - MAX_TOOL_ROUNDS=3
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+      - NODE_FUNCTION_ALLOW_EXTERNAL=pg
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=demo-postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - UPSTREAM_API_KEY=${UPSTREAM_API_KEY}
+      - MCP_API_KEY=${MCP_API_KEY}
+      - EMBEDDING_PROVIDER=dashscope/qwen3.7-text-embedding-flash
+      - EMBEDDING_DIM=1024
+      - EMBED_QUOTA_TOKENS=${EMBED_QUOTA_TOKENS:-1000000}
+      - GENERIC_TIMEZONE=Asia/Shanghai
+      - TZ=Asia/Shanghai
+      # --- opt-in agent-RAG layers: ALL ON for the demo ---
+      - KB_RERANK_ENABLED=true
+      - KB_RERANK_MODEL=${KB_RERANK_MODEL:-qwen3-rerank}
+      - KB_RERANK_URL=${KB_RERANK_URL:-}
+      - KB_RERANK_TOP_N=${KB_RERANK_TOP_N:-0}
+      - KB_RERANK_INSTRUCT=${KB_RERANK_INSTRUCT:-}
+      - KB_CRAG_ENABLED=true
+      - KB_CRAG_LOW_THRESHOLD=${KB_CRAG_LOW_THRESHOLD:-0.2}
+      - KB_CRAG_HIGH_THRESHOLD=${KB_CRAG_HIGH_THRESHOLD:-0.5}
+      - KB_CRAG_WEB_FALLBACK=true
+      - KB_CRAG_WEB_URL=http://demo-searxng:8080/search
+      - KB_CRAG_WEB_TOP_N=${KB_CRAG_WEB_TOP_N:-3}
+      - KB_CRAG_WEB_TIMEOUT_MS=${KB_CRAG_WEB_TIMEOUT_MS:-12000}
+      # --- OTel tracing: ON for the demo ---
+      # n8n reads N8N_OTEL_* (NOT the generic OTEL_* names); default endpoint is
+      # localhost:4318 + /v1/traces (HTTP/protobuf), so the collector host must be
+      # set explicitly or n8n exports to itself and fails.
+      - N8N_OTEL_ENABLED=true
+      - N8N_OTEL_TRACES_PRODUCTION_ONLY=false
+      - N8N_OTEL_EXPORTER_OTLP_ENDPOINT=http://demo-collector:4318
+      - N8N_OTEL_EXPORTER_SERVICE_NAME=n8n
+      - N8N_OTEL_TRACES_SAMPLE_RATE=1.0
+      - N8N_OTEL_TRACES_INCLUDE_NODE_SPANS=true
+      - N8N_OTEL_TRACES_INJECT_OUTBOUND=true
+    volumes:
+      - demo_n8n_data:/home/node/.n8n
+    depends_on:
+      demo-postgres:
+        condition: service_healthy
+    networks: [demo-net]
+
+  demo-bridge:
+    image: n8nio/runners:latest
+    container_name: demo-bridge
+    entrypoint: ["node", "/app/server.js"]
+    working_dir: /app
+    volumes:
+      - ./interview-demo/_demo/bridge:/app:ro
+    environment:
+      - PORT=3211
+      - GATEWAY_URL=http://demo-n8n:5678/webhook/v1
+      - UPSTREAM_BASE_URL=https://api.deepseek.com
+      - UPSTREAM_API_KEY=${UPSTREAM_API_KEY}
+      - CHAT_API_KEY=${CHAT_API_KEY}
+      - LOG_URL=http://demo-n8n:5678/webhook/internal/log-turn
+      - PLATFORM_RUNTIME_URL=http://demo-runtime:3220
+      - PLATFORM_RUNTIME_KEY=${PLATFORM_RUNTIME_KEY:-}
+      - PLATFORM_RUNTIME_ENABLED=true
+      - PLATFORM_RATE_LIMIT_RPM=${PLATFORM_RATE_LIMIT_RPM:-60}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://demo-collector:4318
+      - OTEL_SERVICE_NAME=stream-bridge
+      - OTEL_SDK_DISABLED=false
+    ports:
+      - "127.0.0.1:13211:3211"
+    depends_on:
+      - demo-n8n
+    networks: [demo-net]
+
+  demo-collector:
+    image: otel/opentelemetry-collector:0.115.0
+    container_name: demo-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./interview-demo/_demo/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "127.0.0.1:14318:4318"
+    networks: [demo-net]
+
+  demo-jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: demo-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - MEMORY_MAX_TRACES=5000
+    ports:
+      - "127.0.0.1:16686:16686"
+    networks: [demo-net]
+
+  demo-console:
+    image: agent-platform-console:latest
+    container_name: demo-console
+    env_file:
+      - path: ./frontent/.env.local
+        required: false
+      # gitignored override: demo-n8n's own legacy API key (later file wins over env.local)
+      - path: ./.eval-local/demo/console-override.env
+        required: false
+    environment:
+      - N8N_URL=http://demo-n8n:5678
+      # /api/chat otherwise derives the bridge host from N8N_URL.includes('n8n:')
+      # -> 'stream-bridge:3211', which doesn't exist on the demo network. Point it
+      # at the demo bridge explicitly (the route's first-priority override).
+      - STREAM_BRIDGE_URL=http://demo-bridge:3211/v1
+      - PLATFORM_RUNTIME_URL=http://demo-runtime:3220
+      - PLATFORM_RUNTIME_KEY=${PLATFORM_RUNTIME_KEY:-}
+    ports:
+      - "127.0.0.1:13000:3000"
+    depends_on:
+      - demo-n8n
+    networks: [demo-net]
