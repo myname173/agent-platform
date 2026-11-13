@@ -1,7 +1,14 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
+import { createRequire } from 'node:module';
 import { createClient } from 'redis';
 import pg from 'pg';
+
+// The shared tracer is CommonJS; this package is "type":"module", so load the
+// .cjs vendored copy explicitly via createRequire (byte-identical to the canonical
+// monitoring/otel/tracer.js, drift-guarded by monitoring/otel/tracer.test.mjs).
+const require = createRequire(import.meta.url);
+const { createTracer } = require('./tracer.cjs');
 
 const { Pool } = pg;
 
@@ -24,6 +31,17 @@ const DB = {
   user: process.env.DB_POSTGRESDB_USER || 'n8n',
   password: process.env.DB_POSTGRESDB_PASSWORD || '',
 };
+
+// OpenTelemetry tracing (opt-in). Disabled unless OTEL_EXPORTER_OTLP_ENDPOINT is
+// set; OTEL_SDK_DISABLED=true force-disables. When disabled every tracer call is a
+// no-op, so the runtime behaves byte-for-byte as it did before tracing existed.
+const OTEL_ENDPOINT = String(process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '').trim();
+const OTEL_DISABLED = String(process.env.OTEL_SDK_DISABLED || '').toLowerCase() === 'true';
+const otel = createTracer({
+  serviceName: String(process.env.OTEL_SERVICE_NAME || 'platform-runtime'),
+  endpoint: OTEL_ENDPOINT,
+  enabled: !OTEL_DISABLED,
+});
 
 const redis = createClient({ url: REDIS_URL });
 redis.on('error', (error) => console.error('[runtime] redis error', error.message));
@@ -492,6 +510,32 @@ async function lockRelease(body) {
   return { ok: true, released: released === 1, resource };
 }
 
+/* SERVER span for one inbound coordination request. Skips health/ready/metrics
+ * noise. The trace id follows an incoming traceparent (injected by stream-bridge's
+ * CLIENT span) so the cross-service span tree stays continuous; the business
+ * trace_id from the body is attached at end time for log correlation. */
+function otelServerSpan(req, path) {
+  if (!otel.enabled) return null;
+  if (path === '/healthz' || path === '/readyz' || path === '/metrics') return null;
+  return otel.startSpan('platform-runtime ' + (req.method || 'POST') + ' ' + path, {
+    kind: otel.SPAN_KIND.SERVER,
+    parent: otel.extract(req.headers),
+    attributes: {
+      'http.method': req.method,
+      'http.route': path,
+      'request.id': String(req.headers['x-request-id'] || ''),
+    },
+  });
+}
+
+function otelEndServer(span, res, bizTraceId) {
+  if (!span) return;
+  const code = res.statusCode;
+  const attributes = { 'http.status_code': code };
+  if (bizTraceId) attributes['trace.id'] = bizTraceId;
+  otel.endSpan(span, { status: code >= 500 ? otel.STATUS.ERROR : otel.STATUS.OK, attributes });
+}
+
 async function route(req, res, path, body) {
   if (path === '/healthz' && req.method === 'GET') {
     return json(res, 200, { ok: true, service: 'platform-runtime', redis: redis.isReady, state_store: STATE_ENABLED, idempotency_ttl_sec: IDEM_TTL });
@@ -546,9 +590,11 @@ async function route(req, res, path, body) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const path = String(req.url || '').split('?')[0];
+  const startedAt = Date.now();
+  const span = otelServerSpan(req, path);
+  let bizTraceId = '';
   try {
-    const path = String(req.url || '').split('?')[0];
-    const startedAt = Date.now();
     res.once('finish', () => {
       observeRequest(Date.now() - startedAt);
       bump('http_requests_total');
@@ -556,8 +602,10 @@ const server = http.createServer(async (req, res) => {
       if (!['/healthz', '/readyz', '/metrics'].includes(path)) {
         console.log(JSON.stringify({ event: 'runtime.request', path, method: req.method, status: res.statusCode, duration_ms: Date.now() - startedAt, trace_id: req.headers['x-trace-id'] || '', request_id: req.headers['x-request-id'] || '' }));
       }
+      otelEndServer(span, res, bizTraceId);
     });
     const body = path === '/healthz' ? {} : await readBody(req);
+    bizTraceId = String((body && body.trace_id) || '');
     await route(req, res, path, body);
   } catch (error) {
     console.error('[runtime] request failed', error.message);
@@ -570,6 +618,7 @@ server.listen(PORT, () => console.log(`[runtime] listening on ${PORT}`));
 
 const shutdown = async () => {
   server.close();
+  await otel.shutdown().catch(() => {});
   if (redis.isOpen) await redis.quit();
   await db.end().catch(() => {});
 };

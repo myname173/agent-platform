@@ -1,8 +1,8 @@
 ---
 doc: agent-platform 项目地图（面向 LLM / coding agent）
 verified_at: 2026-11-12
-verified_commit: d044fc8
-verified_scope: P0 消费者闭环（§1.2 event-bus-outbox、§5.1 consumed_events、§6 事件总线配置）、P1 沙箱网关准入（§3、§12 边界、deploy/k8s/phase3-pilot）、P2 kind 多节点验证叠加层（deploy/k8s/phase6-kind，仅离线核验，集群演练未跑）、P3 HPA 弹性层（deploy/k8s/phase6-production/components/elastic + phase6-kind-elastic，仅离线核验，弹性演练未跑）、KB 混合检索（§4.4、§5.1，n8n/lib/kb-hybrid.mjs + 三处 kb_search 内嵌 +  guarded bm25 索引 + kb-eval --hybrid，仅离线核验，现网检索增益未测）与 KB 重排单层（§4.4、§6，rerankKbRows 内嵌同三处 + kb-eval --rerank + KB_RERANK_* 配置，opt-in 默认关、fail-open 降级，仅离线核验，现网重排增益未测）与 KB CRAG-lite 评分式纠正检索（§4.4、§6，gradeKbEvidence+cragLiteKbRows 内嵌同三处 + kb-eval --crag + 七个 KB_CRAG_* 配置，余弦三档 grader、决策 C 评分恒跑/web 兜底二级开关默认关、opt-in 默认关、fail-open 降级、0 额外 agent 轮，仅离线核验+变异证明，现网答案增益/阈值校准未验）按本分支工作树核验；评测分支口径见 §15；其余架构沿用既有核验口径，不表示全量重新核验
+verified_commit: bfa106a
+verified_scope: P0 消费者闭环（§1.2 event-bus-outbox、§5.1 consumed_events、§6 事件总线配置）、P1 沙箱网关准入（§3、§12 边界、deploy/k8s/phase3-pilot）、P2 kind 多节点验证叠加层（deploy/k8s/phase6-kind，仅离线核验，集群演练未跑）、P3 HPA 弹性层（deploy/k8s/phase6-production/components/elastic + phase6-kind-elastic，仅离线核验，弹性演练未跑）、KB 混合检索（§4.4、§5.1，n8n/lib/kb-hybrid.mjs + 三处 kb_search 内嵌 +  guarded bm25 索引 + kb-eval --hybrid，仅离线核验，现网检索增益未测）与 KB 重排单层（§4.4、§6，rerankKbRows 内嵌同三处 + kb-eval --rerank + KB_RERANK_* 配置，opt-in 默认关、fail-open 降级，仅离线核验，现网重排增益未测）与 KB CRAG-lite 评分式纠正检索（§4.4、§6，gradeKbEvidence+cragLiteKbRows 内嵌同三处 + kb-eval --crag + 七个 KB_CRAG_* 配置，余弦三档 grader、决策 C 评分恒跑/web 兜底二级开关默认关、opt-in 默认关、fail-open 降级、0 额外 agent 轮，仅离线核验+变异证明，现网答案增益/阈值校准未验）与 P4 OTel 链路追踪（§1.2 tracing、§3、§6，monitoring/otel 规范 tracer + bridge/runtime 两处 vendored 副本 + 插桩 + n8n 原生 OTel + tracing profile，仅离线核验与一次性隔离 collector 实测，n8n 入站 traceparent 续接未验）按本分支工作树核验；评测分支口径见 §15；其余架构沿用既有核验口径，不表示全量重新核验
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
@@ -47,7 +47,8 @@ conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读
 | `phase2` | `platform-worker` | Redis Streams 消费者，异步 `kb_save` | `docker-compose.yml:425-453` |
 | `observability` | `prometheus` | 抓取 runtime / bridge 指标（127.0.0.1:9090） | `docker-compose.yml:459-479`、`monitoring/prometheus.yml` |
 | `event-bus` | `kafka` | KRaft 单节点试点，**不替代** Redis Streams | `docker-compose.yml:485-521` |
-| `event-bus-outbox` | `platform-outbox-publisher`、`platform-event-consumer` | Outbox 试点闭环：publisher 租约式投递 `platform.outbox` → Kafka（指标 :9101）；consumer 幂等落 `platform.consumed_events`，重放是计数 no-op（指标 :9102）。Runtime 仍不写 outbox（`PLATFORM_OUTBOX_WRITE_MODE=off`） | `docker-compose.yml:559-587,592-617`、`deploy/event-bus/README.md` |
+| `event-bus-outbox` | `platform-outbox-publisher`、`platform-event-consumer` | Outbox 试点闭环：publisher 租约式投递 `platform.outbox` → Kafka（指标 :9101）；consumer 幂等落 `platform.consumed_events`，重放是计数 no-op（指标 :9102）。Runtime 仍不写 outbox（`PLATFORM_OUTBOX_WRITE_MODE=off`） | `docker-compose.yml:643-671,676-707`、`deploy/event-bus/README.md` |
+| `tracing` | `otel-collector`、`jaeger` | P4 OTel 链路追踪试点：collector 的 OTLP receiver 同收 n8n 原生 http/protobuf 与 bridge/runtime 手写 tracer 的 OTLP/JSON（:4318），转发 Jaeger（OTLP/gRPC）；Jaeger UI 127.0.0.1:16686，内存存储、仅 loopback。默认关（`OTEL_EXPORTER_OTLP_ENDPOINT` 空 / `N8N_OTEL_ENABLED=false`），导出 fail-open | `docker-compose.yml:537-567`、`monitoring/otel/`、`monitoring/otel-tracing-2026-11-12.md` |
 
 ### 1.3 网络与卷（fresh clone 注意）
 
@@ -70,7 +71,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 ```
 
 - 装配证据：`docker-compose.yml:261`（LobeHub → bridge）、`docker-compose.yml:357`（bridge → n8n）。
-- 行为说明：`stream-bridge/server.js:1-8`、`stream-bridge/server.js:252,330,434`。
+- 行为说明：`stream-bridge/server.js:1-8`、`stream-bridge/server.js:307,392,503`。
 - **README 写的「LobeChat 直接 POST 到 n8n」已过时**（`README.md:244-247`），现在是经 stream-bridge。
 
 ### 2.2 控制台链路
@@ -98,12 +99,12 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 |---|---|---|---|
 | `n8n/` | 88 | 运行 | `workflows/*.json` 源码、`scripts/` 部署/校验/回归、`lib/kb-hybrid.mjs`（混合检索规范模块，内嵌进三处 `kb_search` Code 节点）、`sandbox.Dockerfile`、K8s 沙箱网关（`sandbox_gateway.js` + 准入 `sandbox_admission.js` / 指标 `sandbox_metrics.js` + 离线契约测试） |
 | `frontent/` | 620 | 运行 | 控制台（Next 16 App Router；目录名拼写如此） |
-| `platform-runtime/` | 13 | 运行 | `platform-runtime/server.js`（533 行）+ 可选 `worker.js`（phase2）+ outbox publisher / 幂等 event-consumer（event-bus-outbox profile） |
-| `stream-bridge/` | 1 | 运行 | 单文件 `stream-bridge/server.js`（639 行） |
+| `platform-runtime/` | 14 | 运行 | `platform-runtime/server.js`（626 行）+ vendored `tracer.cjs`（OTel 规范副本，.cjs 因包是 type:module）+ 可选 `worker.js`（phase2）+ outbox publisher / 幂等 event-consumer（event-bus-outbox profile） |
+| `stream-bridge/` | 2 | 运行 | `stream-bridge/server.js`（720 行）+ vendored `tracer.js`（OTel 规范副本，与 monitoring/otel/tracer.js 逐字一致） |
 | `caddy/` | 4 | 运行 | `Caddyfile`、域名版示例、探测脚本 |
 | `backup/` | 3 | 运行 | 栈内备份镜像 |
 | `searxng/` | 1 | 运行 | 搜索配置 |
-| `monitoring/` | 22 | 可选 | Prometheus 配置 + README + 20 份验收/决策报告 |
+| `monitoring/` | 29 | 可选 | Prometheus 配置 + README + `otel/`（规范 tracer + 契约测试 + collector 配置 + 一次性验收脚本）+ 23 份验收/决策报告 |
 | `deploy/` | 51 | 按需 | external / cloudflare / event-bus / k8s 叠加层（含 phase6-kind 多节点验证与 phase6-kind-elastic HPA 弹性演练，非生产），主 compose 不引用 |
 | `migration/` | 7 | 一次性 | 迁移三件套 preflight → restore → verify |
 | `scripts/` | 28 | 开发 | 演示生成、截图采集、S3 校验、密钥扫描、钩子 |
@@ -197,7 +198,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 - 此评测分支的 n8n Data Table 定义为 **26 张**（不是现网实存数量）：原 `n8n/scripts/deploy.mjs:46-315` 的 24 张，加 PR #8 在 320-353 行定义的 `eval_runs`（18 列）与 `eval_results`（12 列）。
   原 24 张为 `chat_messages, chat_executions, admin_audit, idempotency_records, kb_usage, daily_briefs, workflow_tools, topic_watch, todos, people, projects, tool_contract, mcp_servers, sandbox_approvals, documents, weekly_reviews, selfcheck_runs, heartbeats, telegram_state, reminders, ops_alerts, ops_alert_silence, gateway_keys, agenda_runs`。2026-11-10 本机 API 只读核验两张 eval 表尚未部署，见 §15。
 - 实例上还可能有额外的 `cron_runs`（列 `job/period/ran_at/source`）：它**不在** `DATA_TABLE_COLUMNS` 里，是 `topic-watch` 与 `weekly-review` 的守卫节点在运行时「查不到就自己建」出来的，因此不受 `ensureColumns` 保护（`n8n/workflows/topic-watch.json` 的 `Already Ran Today` / `Mark Ran`）。
-- 另有 `platform` schema（`CREATE SCHEMA IF NOT EXISTS platform`，`n8n/scripts/platform-schema.sql:7`），runtime 使用 `platform.requests / platform.events / platform.tool_runs`（`platform-runtime/server.js:133-230`）。事件总线试点另用两张：`platform.outbox`（事务 outbox，publisher 租约投递）与 `platform.consumed_events`（消费者幂等台账，PK `(topic, dedupe_key)`，consumer 启动自建；`n8n/scripts/platform-schema.sql:101-113`、`platform-runtime/event-consumer.js:25-37`）。
+- 另有 `platform` schema（`CREATE SCHEMA IF NOT EXISTS platform`，`n8n/scripts/platform-schema.sql:7`），runtime 使用 `platform.requests / platform.events / platform.tool_runs`（`platform-runtime/server.js:146-295`）。事件总线试点另用两张：`platform.outbox`（事务 outbox，publisher 租约投递）与 `platform.consumed_events`（消费者幂等台账，PK `(topic, dedupe_key)`，consumer 启动自建；`n8n/scripts/platform-schema.sql:101-113`、`platform-runtime/event-consumer.js:25-37`）。
 - `deploy.mjs` 只造 data table，**下面这些它一概不碰**，缺了得自己补：`vector` 扩展 + `kb_documents` / `kb_chunks`（`n8n/scripts/kb-schema.sql`，第一行就是 `CREATE EXTENSION IF NOT EXISTS vector`）、`ops_alerts`（`n8n/scripts/ops-schema.sql`）、`agent_memories`（`memory.json` 的 `ensureTable` 运行时自建，但它的 `embedding vector(1024)` 依赖上面那个扩展）、LobeHub 自己的 `lobechat` 库（由 LobeHub 容器首启时建，记忆镜像写它的 `user_memories`）。生产镜像 paradedb 自带 pgvector，`postgres:*-alpine` **不带**；本地用 alpine 镜像就必须自己补扩展，否则任何 `::vector` 都会让 Postgres 回错误响应，后果见 §9 第 13 条。
 - `kb-schema.sql` 末尾另有一段 **guarded** 的可选 BM25 索引：`DO $$ … IF pg_available_extensions 里有 pg_search THEN CREATE EXTENSION + CREATE INDEX IF NOT EXISTS kb_chunks_bm25 … USING bm25 (chunk_id, content) WITH (key_field='chunk_id') … EXCEPTION WHEN OTHERS THEN RAISE NOTICE … $$`。装不上（缺扩展/没预加载/版本不符）只记 notice、不报错，留下纯向量检索；幂等可重跑。它是 §4.4 混合检索的 BM25 腿来源，运行时探测到它存在才会跑 BM25。vector 扩展与 HNSW 索引不动。现网验收（索引真建出来、中文分词排序、hit@1/MRR 增益）未测，见 `monitoring/kb-hybrid-search-2026-11-12.md`。**重排层（§4.4）不碰任何 schema**：它是检索之后的一次 HTTP 调用，无新表、新索引、新扩展，`kb-schema.sql` 逐字不变。
 
@@ -217,7 +218,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 ### 5.2 Redis
 
-- 仅 platform-runtime 与其 worker 使用；键前缀 `platform:`，任务流 `platform:jobs`（`platform-runtime/server.js:436`、`docker-compose.yml:435`）。
+- 仅 platform-runtime 与其 worker 使用；键前缀 `platform:`，任务流 `platform:jobs`（`platform-runtime/server.js:406`、`docker-compose.yml:481`）。
 - 主机仅绑定 `127.0.0.1:16379`（`docker-compose.yml:190`）。
 
 ## 6. 配置矩阵（根 `.env`，见 `.env.example`）
@@ -232,6 +233,7 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 | KB 重排（可选） | `KB_RERANK_ENABLED`、`KB_RERANK_MODEL`、`KB_RERANK_URL`、`KB_RERANK_TOP_N`、`KB_RERANK_INSTRUCT` | 仅注入 n8n 服务（Code 节点在 n8n 容器内读 `$env`）；默认 `ENABLED=false` → 零回归；`MODEL=qwen3-rerank`、`URL` 空→模块默认经典 host、`TOP_N=0`→用 k、`INSTRUCT` 空→不传；复用 `DASHSCOPE_API_KEY`，无新密钥（`.env.example`、`docker-compose.yml:71-75`、§4.4） |
 | KB CRAG-lite（可选） | `KB_CRAG_ENABLED`、`KB_CRAG_LOW_THRESHOLD`、`KB_CRAG_HIGH_THRESHOLD`、`KB_CRAG_WEB_FALLBACK`、`KB_CRAG_WEB_URL`、`KB_CRAG_WEB_TOP_N`、`KB_CRAG_WEB_TIMEOUT_MS` | 仅注入 n8n 服务；默认 `ENABLED=false` → 零回归，即便开也默认 `WEB_FALLBACK=false`=只评分；`LOW=0.2`/`HIGH=0.5` 余弦三档阈值（校准未验）、`WEB_URL` 空→模块默认 `http://searxng:8080/search`、`WEB_TOP_N=3`、`WEB_TIMEOUT_MS=12000`；复用 SearXNG，无新密钥（`.env.example:113-129`、`docker-compose.yml:79-85`、§4.4） |
 | 事件总线（可选） | `PLATFORM_OUTBOX_*`、`PLATFORM_CONSUMER_GROUP`、`PLATFORM_CONSUMER_FROM_BEGINNING` | 仅 `event-bus-outbox` profile 生效；`PLATFORM_OUTBOX_WRITE_MODE` 保持 `off`（Runtime 不写 outbox）；指标端口 9101/9102 为容器内固定值（`.env.example`、`docker-compose.yml:559-617`） |
+| 链路追踪（可选） | `OTEL_EXPORTER_OTLP_ENDPOINT`、`OTEL_SDK_DISABLED`、`N8N_OTEL_ENABLED`、`OTEL_TRACES_SAMPLE_RATE`、`N8N_OTEL_TRACES_PRODUCTION_ONLY`、`OTEL_COLLECTOR_HTTP_PORT`、`JAEGER_PORT`、`JAEGER_MEMORY_MAX_TRACES` | 仅 `tracing` profile 生效；默认全关（endpoint 空 / `N8N_OTEL_ENABLED=false`）= 与改造前逐字一致；n8n 只用 2.37.7 可用的 `N8N_OTEL_*`（protocol/propagators 是更晚版本，别设）；导出 fail-open（`.env.example`、`docker-compose.yml:537-567`） |
 | 备份 | `BACKUP_INTERVAL_HOURS=6`、`BACKUP_MIN_AGE_HOURS=20`、`BACKUP_OFFSITE_DIR` | 新鲜度守卫（`.env.example:126-136`） |
 | 控制台 | `CONSOLE_CLERK_PUBLISHABLE_KEY`、`frontent/.env.local` | 前者是构建参数（改后需重建镜像），后者被 compose 以 `required:false` 挂入（`docker-compose.yml:129-140`） |
 
@@ -330,7 +332,7 @@ N8N_URL=... N8N_API_KEY=... node n8n/scripts/seed-projects.mjs apply   # 写入�
 | D12 | `searxng` 使用明文弱密钥 `n8nsecretkey123` | `searxng/settings.yml:40` | SearXNG 仅内网可达，但仍属弱配置 |
 | D13 | `.probe.txt` 是 docker 探测输出残留 | `.probe.txt:1-4` | 无功能影响，易误认为凭证 |
 | D14 | backup 容器只读挂载整个 `.env` | `docker-compose.yml:547` | 容器内任意执行即可读到全部密钥 |
-| D15 | 用字符串拼接绕过密钥扫描：`stream-bridge` 的 `'Bea'+'rer '`，`smoke-test.mjs` 的 `"proc"+"ess"` 与 `["DASH","SCOPE_API","_KEY"].join("")` | `stream-bridge/server.js:23`、`n8n/scripts/smoke-test.mjs:348` | 规避密钥扫描的写法，审计时要认得出 |
+| D15 | 用字符串拼接绕过密钥扫描：`stream-bridge` 的 `'Bea'+'rer '`，`smoke-test.mjs` 的 `"proc"+"ess"` 与 `["DASH","SCOPE_API","_KEY"].join("")` | `stream-bridge/server.js:24`、`n8n/scripts/smoke-test.mjs:348` | 规避密钥扫描的写法，审计时要认得出 |
 | D16 | 断言数以代码为准：`selfcheck.json` 现有 **49** 条 `add()`（含新增的 `schedules fresh`；README 里同一个数写了 20 / 42 / 43 / 47 / 48 五种，全是历史运行输出），`smoke-test.mjs` 现有 **65** 处 `check()` 调用，而它打印的 `total` 只算实际跑到的 pass/fail，缺 env 时整组 SKIP | `n8n/workflows/selfcheck.json`、`n8n/scripts/smoke-test.mjs:51,268,350,423,451` vs `README.md:52,78,447,476-477,487,744,944,1096` | README 那些数字是历史运行输出，引用前先数代码 |
 | D17 | doc-forge 的业务错误走 **HTTP 200**：只有 `Auth` 接了 `Respond Error`（真状态码），`Run Doc Forge` 的 `bad()` 直接进 `Respond Doc Forge`（`firstIncomingItem`），所以 `unknown_kind` / `not_found` / `unknown_project` 都返回 200 + `{__error:true,status,body}` 信封。MCP 的 `doc_create` 原来只判 `r.ok === false`，于是把失败报成 `Document #undefined (weekly) created: undefined` 且 `isError:false`（**已修**：现在要求 `r.id` 存在）；`doc_get` 因为有 `!r.html` 兜底一直是对的 | `n8n/workflows/doc-forge.json` 的 connections 与 `bad()`、`n8n/workflows/mcp-server.json` 的 `doc_create` | 集成方只看状态码会以为成功；新加 `bad()` 分支时必须同时检查调用方。**同形状、尚未修的一处**：`memory.json` 的 6 个 action 分支只有 `try/finally`、没有 `catch`，节点一抛错（例如 §9 第 13 条那个 pgvector 缺失守卫）webhook 就回 **200 空 body**，于是 selfcheck 的 `memory api` 只能报 `bad payload`，真因只留在执行日志里 |
 
@@ -360,7 +362,7 @@ grep -cE "^  [a-z_]+: \[" n8n/scripts/deploy.mjs         # 本评测分支 26，
 # §3 的目录文件数：只数受版本控制的文件（构建产物如 tsconfig.tsbuildinfo 不算）
 for d in n8n frontent platform-runtime stream-bridge monitoring deploy scripts; do
   echo "$d=$(git ls-files $d | wc -l)"
-done                                                      # 88 620 13 1 22 51 28
+done                                                      # 88 620 14 2 29 51 28
 
 # 密钥闸门
 node n8n/scripts/validate-workflows.mjs

@@ -1,0 +1,50 @@
+# OpenTelemetry Collector config for the agent-platform `tracing` profile.
+#
+# One OTLP receiver accepts both transports the platform emits:
+#   - n8n native tracing  -> OTLP/HTTP **protobuf** (n8n 2.37.7 default)
+#   - stream-bridge / platform-runtime hand-rolled tracer -> OTLP/HTTP **JSON**
+# The receiver distinguishes them by Content-Type on the same :4318/v1/traces
+# endpoint, so no per-service receiver is needed. Spans are batched and forwarded
+# to Jaeger over OTLP/gRPC (jaeger:4317). Jaeger all-in-one stores them in memory
+# and serves the UI on :16686.
+#
+# This is a pilot/demo pipeline: in-memory storage, no persistence, no auth. It is
+# bound to host loopback only (see docker-compose.yml) and is never required by the
+# core stack — every exporter in the services is fail-open.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 2s
+    send_batch_size: 512
+
+exporters:
+  # Forward to Jaeger's OTLP/gRPC receiver. TLS is off inside the docker network.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  # Echo a one-line summary per batch to collector stdout so an operator can
+  # confirm spans are arriving with `docker logs platform-otel-collector` even
+  # before opening the Jaeger UI.
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger, debug]
