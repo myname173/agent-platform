@@ -6,10 +6,11 @@
 
 ## English
 
-**A self-hosted AI agent platform that runs on one machine.** Eight Docker
-Compose services, **26 n8n workflows** as the orchestration core, and four ways
-in — a chat front end (LobeHub), an ops console (Next.js), a Telegram bridge,
-and an MCP server for external agent clients.
+**A self-hosted AI agent platform that runs on one machine.** Twelve resident
+Docker Compose services (plus three optional profiles), **26 n8n workflows** as
+the orchestration core, and four ways in — a chat front end (LobeHub), an ops
+console (Next.js), a Telegram bridge, and an MCP server for external agent
+clients.
 
 The organising idea: **the entry points never call each other.** Chat, console
 and Telegram all talk to n8n and stop there. Business logic lives in one place,
@@ -28,7 +29,7 @@ surface.
 
 **What it actually does**
 
-- **Tool-using chat loop.** 12 server-side tools (web search, KB search, todos,
+- **Tool-using chat loop.** 16 static server-side tools (web search, KB search, todos,
   reminders, KB writes, daily brief, alerts…) that the model calls on its own,
   capped at 2 rounds. Tool errors come back as structured messages so the model
   can recover instead of the whole turn failing.
@@ -47,9 +48,12 @@ surface.
   silent when nothing of theirs changed), daily brief at 08:30, topic watch at
   21:00, weekly review, a self-test four times a day, and five-artifact nightly backups with a restore drill into a throwaway database.
 
-**Numbers** (verified 2026-09-21): 8 containers · 24 workflows · 39 webhook
-paths · 12 agent tools · 19 data tables · 25 console API routes · smoke test
-71/71 · self-check 42/42 · MCP regression 27/27.
+**Numbers** (source-of-truth, verified 2026-11-10): 12 resident services +
+3 optional profiles · 26 deployable workflows · 43 unique webhook paths ·
+16 static gateway tools (17 over MCP) · 26 data-table *definitions* (24
+deployed, 2 eval tables still pending deployment) · 28 console API routes ·
+49 self-check assertions · 65 smoke checks. Older counts in this README are
+historical run output; see `AGENTS.md` §11 for the discrepancy list.
 
 **Quick start on a fresh machine**
 
@@ -57,7 +61,12 @@ paths · 12 agent tools · 19 data tables · 25 console API routes · smoke test
 git clone https://github.com/myname173/agent-platform && cd agent-platform
 cp .env.example .env                                  # fill in the real values
 cp frontent/env.example.txt frontent/.env.local       # console secrets (gitignored)
-docker compose up -d                                  # 8 containers
+# n8n-net and n8n_data are declared external:true — create them once on a
+# fresh machine, otherwise `up -d` aborts. Equivalent scripted path:
+# pwsh deploy/one-click/bootstrap.ps1 -Action check
+docker network create n8n-net
+docker volume create n8n_data
+docker compose up -d                                  # 12 resident services
 
 # once n8n answers (30–60s): create an n8n API key (Settings → n8n API),
 # put it in .env as N8N_API_KEY, then load the workflows
@@ -75,7 +84,8 @@ run `node n8n/scripts/lobehub-config.mjs`. Full Chinese walkthrough: [部署到�
 | --- | --- |
 | `node n8n/scripts/validate-workflows.mjs` | structure, unique webhook paths, env/compose consistency, secret scan |
 | `node n8n/scripts/smoke-test.mjs` | 71 end-to-end checks |
-| `POST /webhook/admin/selfcheck/run` | 43 checks, also daily at 04:15 |
+| `node n8n/scripts/selfcheck-test-stub.mjs` | Offline self-check Code-node execution with mocked HTTP, in-memory writes, and a simulated n8n outage |
+| `POST /webhook/admin/selfcheck/run` | 49 deployment checks, also daily at 04:15 |
 | `node n8n/scripts/mcp-test.mjs` | MCP protocol + all 17 tools |
 | `node --env-file=.env n8n/scripts/test-client-tools.mjs` | client-tool path (LobeHub): no server tool may pass through unexecuted |
 | `node --env-file=.env n8n/scripts/agent-eval.mjs` | Phase 4.2 Agent quality + security evaluation: injection, unauthorized tools, KB poisoning and Sandbox policy |
@@ -258,13 +268,14 @@ LobeChat 的自定义模型服务商已在 `docker-compose.yml` 中预配置，�
      主 key（n8n env `CHAT_API_KEY`，与 LobeChat 共用，不限流）+ 托管 key
      （SHA-256 哈希存于 Data Table `gateway_keys`，按 key 限流与记账，
      用 `n8n/scripts/keys.mjs` 管理），命中限流返回 429 + OpenAI 错误格式
-   - 解析 `messages`，映射模型别名（`deepseek-agent` → `deepseek-chat`），未知模型返回 404
+   - 解析 `messages`，映射模型别名，未知模型返回 404；`task_lane`（body 或 `X-Task-Lane`）支持 `auto`、`light`、`agent`
    - session 身份：`X-Session-Id` 头 > OpenAI `user` 字段 > anonymous
    - 请求只带单条消息时，自动从 Data Table `chat_messages` 合并该会话最近 20 轮历史（服务端记忆）；
      LobeChat 等全量历史的客户端走透传路径
    - 调用 DeepSeek（60s 超时 + 1 次重试），包装为 OpenAI 标准响应（含真实 token usage）
    - **模型路由**：`deepseek-agent`（默认，携工具：web_search + kb_search）、`deepseek-chat`（纯对话）、
-     `deepseek-reasoner`（推理，较慢）、`deepseek-v4-flash`（V4 代，快且支持工具）；别名映射在网关
+     `deepseek-reasoner`、`deepseek-v4-flash`（支持工具）、`deepseek-light`（轻任务，无工具、关闭思考、最多 512 输出 token）。`auto` 只将首轮、无工具的短文本转换任务（翻译、总结、改写、校对、格式化、提取、分类）送入轻通道；有历史、工具或搜索/行动意图时保留 Agent 通道。可显式传 `task_lane` 覆盖；路由结果与原因记入 `chat_executions`。轻通道默认使用 DeepSeek Flash；当前默认 Agent 上游也按 Flash 价位计费，因此主要节省来自避免工具轮次和限制输出。也可通过 `UPSTREAM_LIGHT_BASE_URL`、`UPSTREAM_LIGHT_API_KEY`、`UPSTREAM_LIGHT_MODEL` 指向独立的 OpenAI 兼容模型。
+   - **LoRA 暂缓**：小型产品/Agent 团队先用低成本模型路由、提示词、工具契约、知识库和评测集解决重复问题。只有当日志中出现稳定重复、且上述手段仍无法消除的失败模式，并有脱敏/授权样本与留出评测证明适配器能提升效果、抵回训练和托管成本时，再把蒸馏数据用于小型开源学生模型；不对数百 B 参数的 DeepSeek Flash 本体做团队级 LoRA。
      Parse & Validate 节点（含计价表），新增模型 = 加一条别名 + LobeHub 侧 CUSTOM_MODELS / OPENAI_MODEL_LIST 同步
    - **多模态（4b）**：`deepseek-v4-flash` 已声明 vision（显示名「DeepSeek V4 Flash（网关）」）→ 网关保留其 `image_url` 内容段，并将本地来源图片（`localhost:3210/f/…` 等）改写容器内地址 + 内联 base64 后转上游；其余模型仍拍平为文本
    - **Agent 工具循环**（优先级 5）：请求携带 web_search（SearXNG 公网）与 kb_search（私域知识库）

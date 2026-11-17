@@ -154,7 +154,7 @@ services:
   # --------------------------------------------------------------------------
   postgres:
     # ParadeDB PG17: postgres + pgvector (kb) + pg_search (LobeHub 2.x full-text)
-    image: paradedb/paradedb:latest-pg17
+    image: paradedb/paradedb:${PARADEDB_VERSION}
     container_name: postgres
     # pg_cron must be preloaded too: on a FRESH volume paradedb's
     # 10_bootstrap_paradedb.sh runs `CREATE EXTENSION IF NOT EXISTS pg_cron`
@@ -203,9 +203,14 @@ services:
   # SearXNG - Privacy-respecting search engine (used by n8n tools)
   # --------------------------------------------------------------------------
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:${SEARXNG_VERSION}
     container_name: searxng
     restart: unless-stopped
+    environment:
+      # Official image overrides server.secret_key from this variable when set.
+      # Leave empty on the local Pilot (settings.yml carries a strong default);
+      # every customer deployment MUST set SEARXNG_SECRET (openssl rand -hex 32).
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-}
     ports:
       - "${SEARXNG_PORT:-8080}:8080"
     volumes:
@@ -251,18 +256,18 @@ services:
   # --------------------------------------------------------------------------
   lobechat:
     # LobeHub 2.x — server-DB only (Better Auth, email/password built-in)
-    image: lobehub/lobehub:latest
+    image: lobehub/lobehub:${LOBEHUB_VERSION}
     container_name: lobechat
     restart: unless-stopped
     ports:
       - "${LOBECHAT_PORT:-3210}:3210"
     environment:
       # Custom model provider pointing to n8n's OpenAI-compatible webhook
-      - CUSTOM_MODELS=deepseek-agent,deepseek-chat,deepseek-reasoner,deepseek-v4-flash
+      - CUSTOM_MODELS=deepseek-agent,deepseek-chat,deepseek-reasoner,deepseek-v4-flash,deepseek-light
       - OPENAI_PROXY_URL=http://stream-bridge:3211/v1
       # Same key as n8n's CHAT_API_KEY — gateway auth depends on the match
       - OPENAI_API_KEY=${LOBECHAT_OPENAI_API_KEY}
-      - OPENAI_MODEL_LIST=deepseek-agent,deepseek-chat,deepseek-reasoner,deepseek-v4-flash=DeepSeek V4 Flash（网关）<1048576:vision>
+      - OPENAI_MODEL_LIST=deepseek-agent,deepseek-chat,deepseek-reasoner,deepseek-v4-flash=DeepSeek V4 Flash（网关）<1048576:vision>,deepseek-light=DeepSeek Flash（轻任务）
       # Server database (drizzle auto-migrates on start)
       - DATABASE_URL=${LOBECHAT_DATABASE_URL}
       # Better Auth (email/password built-in; SSO optional via AUTH_SSO_PROVIDERS)
@@ -320,7 +325,7 @@ services:
     # compatible, MinIO-shaped: :9000 API, :9001 console, path-style + presigned
     # URLs). The service is still called `minio` and still uses the `minio_data`
     # volume so nothing else in the stack (or in lobechat's S3_* wiring) changes.
-    image: rustfs/rustfs:latest
+    image: rustfs/rustfs:${RUSTFS_VERSION}
     container_name: minio
     restart: unless-stopped
     # RustFS ships a non-root default user, but a docker volume is created
@@ -347,7 +352,7 @@ services:
 # Shared network & persistent volumes
 # ============================================================================
   stream-bridge:
-    image: n8nio/runners:latest
+    image: n8nio/runners:${N8N_RUNNERS_VERSION}
     container_name: stream-bridge
     entrypoint: ["node", "/app/server.js"]
     working_dir: /app
@@ -358,6 +363,9 @@ services:
       - GATEWAY_URL=http://n8n:5678/webhook/v1
       - UPSTREAM_BASE_URL=https://api.deepseek.com
       - UPSTREAM_API_KEY=${UPSTREAM_API_KEY}
+      - UPSTREAM_LIGHT_BASE_URL=${UPSTREAM_LIGHT_BASE_URL:-https://api.deepseek.com}
+      - UPSTREAM_LIGHT_API_KEY=${UPSTREAM_LIGHT_API_KEY:-}
+      - UPSTREAM_LIGHT_MODEL=${UPSTREAM_LIGHT_MODEL:-deepseek-flash}
       - CHAT_API_KEY=${CHAT_API_KEY}
       - LOG_URL=http://n8n:5678/webhook/internal/log-turn
       - PLATFORM_RUNTIME_URL=http://platform-runtime:3220
@@ -611,7 +619,13 @@ services:
       - n8n_data:/vol/n8n_data:ro
       - minio_data:/vol/minio_data:ro
       - ./docker-compose.yml:/cfg/docker-compose.yml:ro
+      # D14 design trade-off: this .env belongs to the self-contained restore
+      # bundle (backup/backup.sh:65, migration/restore.sh:51). Removing the
+      # mount silently breaks recovery. Compensating control below; customer
+      # deliveries encrypt the bundle. See roadmap/CREDENTIAL-ROTATION-RUNBOOK.md §5.
       - ./.env:/cfg/.env:ro
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy

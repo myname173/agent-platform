@@ -62,6 +62,8 @@ const DATA_TABLE_COLUMNS = {
     { name: 'session_id', type: 'string' },
     { name: 'model', type: 'string' },
     { name: 'client', type: 'string' },
+    { name: 'task_lane', type: 'string' },
+    { name: 'task_route_reason', type: 'string' },
     // priority 3: multi-key attribution + per-request cost
     { name: 'key_name', type: 'string' },
     { name: 'cost_usd', type: 'number' },

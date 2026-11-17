@@ -13,6 +13,8 @@ const PORT = Number(process.env.PORT || 3211);
 const GATEWAY = String(process.env.GATEWAY_URL || 'http://n8n:5678/webhook/v1').replace(/\/$/, '');
 const UPSTREAM = String(process.env.UPSTREAM_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
 const UP_KEY = process.env.UPSTREAM_API_KEY || '';
+const LIGHT_UPSTREAM = String(process.env.UPSTREAM_LIGHT_BASE_URL || UPSTREAM).replace(/\/$/, '');
+const LIGHT_UP_KEY = process.env.UPSTREAM_LIGHT_API_KEY || UP_KEY;
 const CHAT_KEY = process.env.CHAT_API_KEY || '';
 const LOG_URL = process.env.LOG_URL || 'http://n8n:5678/webhook/internal/log-turn';
 const RUNTIME_URL = String(process.env.PLATFORM_RUNTIME_URL || 'http://platform-runtime:3220').replace(/\/$/, '');
@@ -20,6 +22,7 @@ const RUNTIME_KEY = String(process.env.PLATFORM_RUNTIME_KEY || CHAT_KEY).trim();
 const RUNTIME_ENABLED = String(process.env.PLATFORM_RUNTIME_ENABLED || 'true').toLowerCase() !== 'false';
 const RUNTIME_RATE_LIMIT_RPM = Math.max(1, Number(process.env.PLATFORM_RATE_LIMIT_RPM || 60));
 const MODEL_UPSTREAM = process.env.UPSTREAM_MODEL || 'deepseek-v4-flash';
+const MODEL_LIGHT_UPSTREAM = process.env.UPSTREAM_LIGHT_MODEL || 'deepseek-flash';
 const AUTH_PREFIX = 'Bea' + 'rer ';
 const LATENCY_BUCKETS = [50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000];
 const bridgeMetrics = {
@@ -84,6 +87,7 @@ function traceHeaders(req, traceId, requestId) {
     traceparent: '00-' + traceId + '-' + randomUUID().replaceAll('-', '').slice(0, 16) + '-01',
     'x-session-id': String(req.headers['x-session-id'] || ''),
     'x-client': String(req.headers['x-client'] || 'stream-bridge'),
+    'x-task-lane': String(req.headers['x-task-lane'] || ''),
   };
 }
 
@@ -194,6 +198,21 @@ const normMessages = (arr) =>
   });
 
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (p && typeof p.text === 'string' ? p.text : '')).filter(Boolean).join('\n') : String(c == null ? '' : c));
+const LIGHT_TRANSFORM_PREFIX = /^(?:please\s+)?(?:translate|summari[sz]e|rewrite|rephrase|proofread|polish|format|classify|extract|shorten|correct)\b|^(?:请)?(?:翻译|总结|概括|改写|润色|校对|格式化|提取|分类|压缩|纠错)(?:一下|成|为|：|:|，|,|\s|$)/iu;
+const LIGHT_DYNAMIC_CUE = /\b(?:search|browse|latest|today|current|news|weather|stock|price|exchange rate|look up|find online)\b|搜索|联网|最新|今天|当前|新闻|天气|价格|股价|汇率|查询|查一下/iu;
+const LIGHT_ACTION_CUE = /\b(?:create|delete|send|execute|run|call|remind|schedule|book|cancel|save|store|buy|order|action items?)\b|创建|删除|发送|执行|运行|调用|提醒|安排|预订|取消|保存|购买|下单|待办|行动项/iu;
+const routeTask = (body, headers, messages) => {
+  const lane = String((headers && headers['x-task-lane']) || (body && body.task_lane) || 'auto').trim().toLowerCase();
+  if (body && body.model === 'deepseek-light') return { lane: 'light', reason: 'model_alias' };
+  if (lane === 'light') return { lane: 'light', reason: 'explicit' };
+  if (lane === 'agent') return { lane: 'agent', reason: 'explicit' };
+  const lastUser = [...(Array.isArray(messages) ? messages : [])].reverse().find((m) => m && m.role === 'user');
+  const text = lastUser && typeof lastUser.content === 'string' ? lastUser.content.trim() : '';
+  const hasClientTools = Array.isArray(body && body.tools) && body.tools.length > 0;
+  const simpleTransform = (messages || []).length <= 2 && !hasClientTools && text.length <= 1600 &&
+    LIGHT_TRANSFORM_PREFIX.test(text) && !LIGHT_DYNAMIC_CUE.test(text) && !LIGHT_ACTION_CUE.test(text);
+  return simpleTransform ? { lane: 'light', reason: 'simple_transform' } : { lane: 'agent', reason: 'default_agent' };
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stripAuth = (h) => String(h || '').replace(new RegExp('^' + 'Bea' + 'rer' + '\\s+', 'i'), '');
 
@@ -219,11 +238,14 @@ function logTurn(payload) {
 
 const EMB_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings";
 const DASH_KEY = process.env[String.fromCharCode(68, 65, 83, 72, 83, 67, 79, 80, 69, 95, 65, 80, 73, 95, 75, 69, 89)] || '';
-/* Both models output 1024 dimensions, but their vector spaces are incompatible.
-   Keep the default aligned with the n8n KB and memory workflows and re-embed
-   existing KB chunks and LobeHub memories when changing the default. */
+/* DashScope embedding models this platform uses. Both output dim 1024, so they are
+   interchangeable dimension-wise — but NOT vector-space-wise: vectors written by
+   one model cannot be queried with the other. The n8n workflows (kb-ingest, memory,
+   chat-gateway, mcp-server) hardcode `qwen3.7-text-embedding`, and LobeHub's memory
+   mirror stores those very vectors, so the default below MUST stay in sync with them
+   or KB/memory retrieval silently returns nothing. */
 const DEFAULT_EMBED_MODEL = 'qwen3.7-text-embedding-flash';
-const EMBED_MODELS = [DEFAULT_EMBED_MODEL];
+const EMBED_MODELS = [DEFAULT_EMBED_MODEL, 'qwen3.7-text-embedding'];
 const MODEL_MAP = { 'text-embedding-3-small': DEFAULT_EMBED_MODEL, 'text-embedding-3-large': DEFAULT_EMBED_MODEL, 'text-embedding-ada-002': DEFAULT_EMBED_MODEL };
 
 async function handleEmbeddings(res, body) {
@@ -268,6 +290,12 @@ async function handleStream(req, res, body) {
   const requestId = requestIdFor(req);
   res.setHeader('x-trace-id', traceId);
   res.setHeader('x-request-id', requestId);
+  const requestedLane = String(req.headers['x-task-lane'] || body.task_lane || 'auto').trim().toLowerCase();
+  if (!['auto', 'light', 'agent'].includes(requestedLane)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: 'task_lane must be auto, light, or agent', type: 'invalid_request_error', code: 'invalid_task_lane' } }));
+    return;
+  }
   const sid = String(req.headers['x-session-id'] || body.user || 'lobehub');
   const client = String(req.headers['x-client'] || 'stream-bridge');
   const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -302,19 +330,24 @@ async function handleStream(req, res, body) {
   const userText = textOf(userMsg && userMsg.content).slice(0, 8000);
   const started = Date.now();
   const model = String(body.model || MODEL_UPSTREAM);
-  const wfTools = await getWfTools();
+  const route = routeTask(body, req.headers, messages);
+  const wfTools = route.lane === 'light' ? [] : await getWfTools();
   console.log('[req] stream sid=' + sid + ' msg=' + userText.slice(0, 28).replace(/\s+/g, ' '));
 
   const upstreamBody = {
-    model: MODEL_UPSTREAM,
-    messages: [...normMessages(messages), { role: 'system', content: directiveNow() }],
+    model: route.lane === 'light' ? MODEL_LIGHT_UPSTREAM : MODEL_UPSTREAM,
+    messages: [...normMessages(messages), ...(route.lane === 'light' ? [] : [{ role: 'system', content: directiveNow() }])],
     stream: true,
     stream_options: { include_usage: true },
-    tools: [...SERVER_TOOLS, ...wfToolDefs(wfTools), ...(Array.isArray(body.tools) ? body.tools : [])],
+    ...(route.lane === 'light' ? { thinking: { type: 'disabled' } } : { tools: [...SERVER_TOOLS, ...wfToolDefs(wfTools), ...(Array.isArray(body.tools) ? body.tools : [])] }),
     ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
     ...(body.top_p !== undefined ? { top_p: body.top_p } : {}),
-    ...(body.max_tokens !== undefined ? { max_tokens: body.max_tokens } : {}),
+    ...(route.lane === 'light'
+      ? { max_tokens: Number.isFinite(Number(body.max_tokens)) && Number(body.max_tokens) > 0 ? Math.min(Number(body.max_tokens), 512) : 512 }
+      : (body.max_tokens !== undefined ? { max_tokens: body.max_tokens } : {})),
   };
+  const requestUpstream = route.lane === 'light' ? LIGHT_UPSTREAM : UPSTREAM;
+  const requestApiKey = route.lane === 'light' ? LIGHT_UP_KEY : UP_KEY;
 
   let sseStarted = false;
   let contentAcc = '';
@@ -327,9 +360,9 @@ async function handleStream(req, res, body) {
   const toolBuffer = [];
 
   try {
-    const r = await fetch(UPSTREAM + '/chat/completions', {
+    const r = await fetch(requestUpstream + '/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: AUTH_PREFIX + UP_KEY },
+      headers: { 'Content-Type': 'application/json', ...(requestApiKey ? { Authorization: AUTH_PREFIX + requestApiKey } : {}) },
       body: JSON.stringify(upstreamBody),
       signal: AbortSignal.timeout(180000),
     });
@@ -383,7 +416,7 @@ async function handleStream(req, res, body) {
     if (usage) sseSend(res, { id: 'chatcmpl-bridge-' + Date.now(), object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model, choices: [], usage });
     sseEnd(res);
     console.log('[done] stream ms=' + (Date.now() - started) + ' content=' + contentAcc.length);
-    logTurn({ trace_id: traceId, request_id: requestId, session_id: sid, client, model, user_text: userText, assistant_text: contentAcc, reasoning: reasoningAcc.slice(0, 2000), usage, latency_ms: Date.now() - started, path: 'stream' });
+    logTurn({ trace_id: traceId, request_id: requestId, session_id: sid, client, model, task_lane: route.lane, task_route_reason: route.reason, user_text: userText, assistant_text: contentAcc, reasoning: reasoningAcc.slice(0, 2000), usage, latency_ms: Date.now() - started, path: 'stream' });
     return;
   }
 
@@ -434,7 +467,7 @@ async function handleStream(req, res, body) {
     const r = await fetch(GATEWAY + '/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: req.headers['authorization'] || '', ...traceHeaders(req, traceId, requestId), 'x-session-id': sid, 'x-client': client },
-      body: JSON.stringify({ ...body, stream: false }),
+      body: JSON.stringify({ ...body, task_lane: body.task_lane || route.lane, task_route_reason: route.reason, stream: false }),
       signal: abortCtrl.signal,
     });
     gj = await r.json();

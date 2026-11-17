@@ -37,7 +37,11 @@ engines:
   - name: 360search
     disabled: false
 server:
-  secret_key: "n8nsecretkey123"
+  # 实例本地会话签名密钥，不是外部凭证。这个默认值供单机 Pilot 使用，
+  # 不授予任何外部系统权限；对外交付时必须设置 SEARXNG_SECRET
+  # （openssl rand -hex 32）由镜像在启动时覆盖，且每个客户一份。
+  # 详见 roadmap/CREDENTIAL-ROTATION-RUNBOOK.md §2。
+  secret_key: "8f3c1a9d2e7b4056ac91fd83e2b6a70c4d51e9f2a8b3c7d604e15af92b8e3d70c1"
 search:
   formats:
     - html

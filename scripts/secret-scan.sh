@@ -4,6 +4,7 @@
 # 用法：
 #   bash scripts/secret-scan.sh                  # 全量：已提交树 + 暂存区（原有行为）
 #   bash scripts/secret-scan.sh --added <range>  # 只扫这段范围【新增的行】：凭据类命中 exit 1
+#   bash scripts/secret-scan.sh --added <range> --strict  # 对外交付闸门：短敏感值也算凭据
 #   bash scripts/secret-scan.sh --self-test      # 证明这道闸门双向可判（会拦、也不误伤）
 #
 # 为什么要 --added：全量扫描把历史遗留泄露一遍遍列出来，"这次新加了什么"
@@ -24,19 +25,42 @@
 set -u
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
+# ---------- 参数解析 ----------
+# --strict 默认不开启：仓库里存在「既是短值、又大量出现在代码里」的配置
+# （LOBECHAT_ACCESS_CODE 同时是 namespace / 包名），一刀切把短值全判 cred
+# 会让每个提交都命中，闸门反而被 --no-verify 绕过。对外交付时先轮换这些
+# 短值为长随机值，再打开 --strict。
+MODE=full
+RANGE=""
+SECRET_SCAN_STRICT=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --strict) SECRET_SCAN_STRICT=1 ;;
+    --self-test) MODE=self-test ;;
+    --added) MODE=added; RANGE="${2:-}"; shift ;;
+    *) : ;;
+  esac
+  shift
+done
+
 PAIRS="${TMPDIR:-/tmp}/secret_scan_pairs.$$"
 BLOB="${TMPDIR:-/tmp}/secret_scan_blob.$$"
-trap 'rm -f "$PAIRS" "$BLOB"' EXIT
+SYNTH="${TMPDIR:-/tmp}/secret_scan_synth.$$"
+trap 'rm -f "$PAIRS" "$BLOB" "$SYNTH"' EXIT
 
-# ---------- .env -> key<TAB>value<TAB>class ----------
+# ---------- env -> key<TAB>value<TAB>class ----------
+# $1 可指定 env 文件（self-test 用合成文件），默认 .env。
 build_pairs() {
-  [ -f .env ] || { echo "!! 没有 .env，无法按实际值判断（首次使用请先 cp .env.example .env）" >&2; return 1; }
-  awk '
-    function classify(k, v,   n) {
-      if (length(v) < 16) return "cfg"
+  local envfile="${1:-.env}"
+  [ -f "$envfile" ] || { echo "!! 没有 $envfile，无法按实际值判断（首次使用请先 cp .env.example .env）" >&2; return 1; }
+  awk -v strict="$SECRET_SCAN_STRICT" '
+    function classify(k, v) {
       if (v ~ /^https?:\/\//) return "cfg"
       if (v ~ /^[a-z0-9.-]+\.[a-z][a-z0-9-]*$/ && v !~ /[A-Z]/) return "cfg"   # 裸域名
       if (v ~ /^[0-9.]+$/) return "cfg"                                        # 纯数字/IP
+      # 短值盲区：敏感键名即使是短值，strict 下也按凭据处理。
+      if (strict && k ~ /(KEY|TOKEN|PASSWORD|SECRET|ACCESS_CODE|CREDENTIAL)/) return "cred"
+      if (length(v) < 16) return "cfg"
       return "cred"
     }
     /^[[:space:]]*#/ {next}
@@ -52,7 +76,7 @@ build_pairs() {
       gsub(/^[ \t]+/,"",k); gsub(/[ \t]+$/,"",k);
       if (length(k)>0 && length(v)>=10) printf "%s\t%s\t%s\n", k, v, classify(k, v);
     }
-  ' .env > "$PAIRS"
+  ' "$envfile" > "$PAIRS"
   # 分隔符是 TAB：读它的循环必须用同一个 IFS，否则 value 全空 = 永远"零命中"的假绿
   [ -s "$PAIRS" ] || { echo "!! .env 里没有 >=10 字符的值可查" >&2; return 1; }
 }
@@ -92,7 +116,7 @@ added_blob() {  # $1=range -> BLOB = 该范围新增的行，每行前缀文件�
 }
 
 # ---------- --self-test ----------
-if [ "${1:-full}" = "--self-test" ]; then
+if [ "$MODE" = "self-test" ]; then
   build_pairs || exit 2
   echo "=== self-test：--added 必须双向可判 ==="
   cred_val=$(awk -F'\t' '$3=="cred"{print $2; exit}' "$PAIRS")
@@ -120,13 +144,29 @@ if [ "${1:-full}" = "--self-test" ]; then
   else
     echo "FAIL: 干净文本被判成命中"; exit 2
   fi
+
+  # 短值盲区双向自检：合成 env，验证 --strict 只把短「敏感键」升级为 cred，
+  # 不会把域名 / 普通短配置误伤成拦截项。
+  printf 'SYNTH_API_KEY=shortval12345\nPLATFORM_DOMAIN=example.com\n' > "$SYNTH"
+  build_pairs "$SYNTH" || exit 2
+  plain_cls=$(awk -F'\t' '$1=="SYNTH_API_KEY"{print $3}' "$PAIRS")
+  domain_plain=$(awk -F'\t' '$1=="PLATFORM_DOMAIN"{print $3}' "$PAIRS")
+  SECRET_SCAN_STRICT=1 build_pairs "$SYNTH" || exit 2
+  strict_cls=$(awk -F'\t' '$1=="SYNTH_API_KEY"{print $3}' "$PAIRS")
+  domain_strict=$(awk -F'\t' '$1=="PLATFORM_DOMAIN"{print $3}' "$PAIRS")
+  if [ "$plain_cls" = "cfg" ] && [ "$strict_cls" = "cred" ] \
+     && [ "$domain_plain" = "cfg" ] && [ "$domain_strict" = "cfg" ]; then
+    echo "OK  : 短敏感值在 --strict 下升级为 cred，域名/普通短值仍只提示"
+  else
+    echo "FAIL: --strict 分类不符合预期（short=$plain_cls/$strict_cls domain=$domain_plain/$domain_strict）"; exit 2
+  fi
   echo "-- self-test 通过 --"
   exit 0
 fi
 
 # ---------- --added <range> ----------
-if [ "${1:-full}" = "--added" ]; then
-  range="${2:-}"
+if [ "$MODE" = "added" ]; then
+  range="$RANGE"
   [ -n "$range" ] || { echo "用法: secret-scan.sh --added <git 范围，如 origin/main..HEAD>" >&2; exit 2; }
   build_pairs || exit 2
   added_blob "$range"

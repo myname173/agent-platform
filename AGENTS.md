@@ -2,7 +2,8 @@
 doc: agent-platform 项目地图（面向 LLM / coding agent）
 verified_at: 2026-11-10
 verified_commit: 342959a
-verified_scope: 评测分支基点 + 未提交接续工作树（§15）；其余架构仍沿用 f5060c5 核验口径，不表示全量重新核验
+verified_scope: 评测分支基点 + 未提交接续工作树（§15）+ 2026-11-10 只读立项核验（§16）；其余架构仍沿用 f5060c5 核验口径，不表示全量重新核验
+product_roadmap: roadmap/ISSUE-BACKLOG.md（唯一索引）、roadmap/DECOUPLING-CONTRACT.md、roadmap/INDUSTRY-BENCHMARK-2026.md
 root: C:\Users\hzh\Documents\Qoder\2026-10-31\4bda7702
 human_docs: README.md（1168 行）、DEPLOY-NOTES.md（1044 行）
 conventions: 文中 `路径:行号` 为证据位置；标注「确认」= 已读代码，「推断」= 由代码推导
@@ -219,11 +220,11 @@ LobeHub :3210 --OPENAI_PROXY_URL--> stream-bridge:3211/v1
 
 | 类别 | 变量 | 关键约束 |
 |---|---|---|
-| 身份/密钥 | `CHAT_API_KEY`、`N8N_API_KEY`、`N8N_ENCRYPTION_KEY`、`MCP_API_KEY`、`DASHSCOPE_API_KEY`、`UPSTREAM_API_KEY`、`POSTGRES_*`、`MINIO_ROOT_*`、`AUTH_SECRET`、`KEY_VAULTS_SECRET`、`JWKS_KEY`、`TELEGRAM_*` | `CHAT_API_KEY` 必须与 LobeHub 的 `OPENAI_API_KEY` 一致；`N8N_ENCRYPTION_KEY` 有凭据后不可改（`.env.example:9-25`、`docker-compose.yml:40-44`） |
+| 身份/密钥 | `CHAT_API_KEY`、`N8N_API_KEY`、`N8N_ENCRYPTION_KEY`、`MCP_API_KEY`、`DASHSCOPE_API_KEY`、`UPSTREAM_API_KEY`、`UPSTREAM_LIGHT_API_KEY`、`POSTGRES_*`、`MINIO_ROOT_*`、`AUTH_SECRET`、`KEY_VAULTS_SECRET`、`JWKS_KEY`、`TELEGRAM_*` | `CHAT_API_KEY` 必须与 LobeHub 的 `OPENAI_API_KEY` 一致；`UPSTREAM_LIGHT_API_KEY` 留空时复用 `UPSTREAM_API_KEY`（`.env.example:9-25`、`docker-compose.yml:40-44`） |
 | 运行时回退 | `PLATFORM_RUNTIME_KEY` | 留空即复用 `CHAT_API_KEY`（`.env.example:34-36`、`platform-runtime/server.js:11`） |
 | 局域网 | `PLATFORM_LAN_IP`、`LAN_IP` | 手机访问、预签名上传、Caddy 证书 SAN 都依赖它（`.env.example:108-118`） |
 | 端口 | `N8N_PORT`、`CONSOLE_PORT`、`LOBECHAT_PORT`、`SEARXNG_PORT`、`MINIO_*_PORT`、`STREAM_BRIDGE_PORT`、`CADDY_PORT_*` | 只改宿主端口，容器端口固定（`docker-compose.yml:11-18`） |
-| 资源/行为 | `RETENTION_DAYS_*`、`IDEMPOTENCY_WINDOW_SEC`、`MAX_TOOL_ROUNDS`、`PLATFORM_RATE_LIMIT_RPM`、`EMBEDDING_*`、`ALERT_*` | 多数有代码内默认值 |
+| 资源/行为 | `RETENTION_DAYS_*`、`IDEMPOTENCY_WINDOW_SEC`、`MAX_TOOL_ROUNDS`、`PLATFORM_RATE_LIMIT_RPM`、`EMBEDDING_*`、`UPSTREAM_LIGHT_BASE_URL`、`UPSTREAM_LIGHT_MODEL`、`ALERT_*` | 多数有代码内默认值；轻任务端点默认与 DeepSeek 主端点相同 |
 | 备份 | `BACKUP_INTERVAL_HOURS=6`、`BACKUP_MIN_AGE_HOURS=20`、`BACKUP_OFFSITE_DIR` | 新鲜度守卫（`.env.example:126-136`） |
 | 控制台 | `CONSOLE_CLERK_PUBLISHABLE_KEY`、`frontent/.env.local` | 前者是构建参数（改后需重建镜像），后者被 compose 以 `required:false` 挂入（`docker-compose.yml:129-140`） |
 
@@ -412,3 +413,18 @@ OpenClaw 的 bootstrap 对标准文件是**无条件** `writeFileIfMissing`（`D
 - `eval-mine.mjs` 用实际验证过的 `nextCursor` 分页，排除 eval 流量，按 trace/时间关联消息、明确截断与近似关联，输出不可覆盖同日人工标注。默认 `.eval-local/candidates`；runner 原始报告/回放同在 `.eval-local`，目录已 ignore，人工脱敏前不得提交。
 - CI 增加 `Eval offline contracts (not live acceptance)`，运行无密钥、无真实模型调用的正负回归；不是线上 26×3 已通过。回放仍需完整真实批次，不能造 fixture 让门禁绿。KB 的不可答题单列 pending，不混入检索分母；50 条 KB 查询也不能计入 26 条 Agent 场景来冒充凑齐 60。
 - 一次近三天只读挖矿已完成：2026-11-07 至 11-10 窗口内执行/消息/候选均为 0，扫描未截断；最新执行和消息仍为 11-02。零数据不是零失败。nightly 尚未安装，连续三天、60 条人工筛选、judge 真人校准、三批基线落库仍待验收。命令与边界见 `monitoring/README.md` 的 Evaluation foundation 节。
+
+## 16. 产品化路线图（2026-11-10 只读立项）
+
+- 定位（用户确认）：**对外交付给多个客户的标准产品**；周期半年；交付物是可执行的 issue 级任务清单；硬约束是**解耦**（商业化能力不侵入业务核心，每个任务可独立实现/验收/合并/回滚）。三份文档：`roadmap/ISSUE-BACKLOG.md`（唯一索引）、`roadmap/DECOUPLING-CONTRACT.md`（技术边界）、`roadmap/INDUSTRY-BENCHMARK-2026.md`（一手/二手证据分级）。三份都是**不参与运行**的文档。
+- 架构分层：入口层（现有）→ **AD-1 架构决策门** → 数据面（现有 26 workflows / runtime，**业务逻辑保持不动**）→ 交付面（新增 compose overlay）。**撤回**上一版把 `TenantContext` / 签名断言 / 全量 service principal 登记写成「唯一耦合点 / 已冻结契约」的说法：客户交付形态（共享实例 vs 每客户独立部署）尚未经试点验证，这些属于 AD-2/AD-3 待决候选，R7 禁止 AD-1 前实现。
+- 证据分级：`F<n>` = 已验证事实（附路径:行号 + 核验范围，源码定义 / 隔离环境实测 / 线上状态分开写）；`AD<n>` = 架构待决项（附决策所需试点证据与判据）。AD-1 的 E1–E4 绑定 M1 W6 书面结论，未出结论不得启动租户身份平台或 per-tenant 聚合。
+- **本次只读核验纠正了几处行号漂移**，引用时以当前树为准：backup 挂载 `.env` 在 `docker-compose.yml:617`（§11 写的 `:547` 已过期）；`deploy.mjs` 的 `DATA_TABLE_COLUMNS` 是 `:46-356`（§11 写 `:46-353`）；`chat-stats-api.json:128` **源码已有** `const bizRows` eval 隔离，缺的是**部署**不是补代码；`n8n/workflows/chat-gateway.json:25`（`Parse & Validate`）才是读请求头的地方，不是 `Build Upstream Payload`。
+- 改动面核验结论：`frontent/src/app/api/**/route.ts` 28 个中 24 个调用 `requireUser`，唯一完全无鉴权的是 `n8n/health/route.ts:4-11`；管理读缓存是 `frontent/src/lib/admin-read-cache.ts:19` 的进程内 `Map`，**key 不含租户归属**，10 个 GET 的 key 在各自 `:11`；牌价唯一权威在 `chat-gateway.json:248` 的 `PRICING`；`platform-runtime/server.js` 是手写 `if (path===...)` 路由链（`:495-546`），`platform.events` 唯一写入在 `:128-132`。
+- 共享栈冲突面：本分支有 12 处 MODIFY + 未跟踪 `n8n/scripts/selfcheck-test-stub.mjs` + 7 个 eval 提交。**新增文件优先**；必须改共享文件时只用最小替换，禁止整文件重写；`.env` 绝对不写（§14.5）；全量 deploy 不自动执行（§15）。
+- 维护规则沿用 §14：任何结构变更（新增服务、workflow、route、数据表、环境变量）同步更新本文件并刷新 `verified_commit` / `verified_at`。
+- roadmap 新增：`roadmap/EVAL-ACCEPTANCE-PRECONDITIONS.md`（B1 隔离环境前置条件与验收步骤；无隔离目标不部署，不碰共享 `.env` / Docker 栈 / 全量 workflow 部署；judge 校准只用真人标签）与 `roadmap/METERING-CONTRACT.md`（C0 **只定四问业务计量语义**：什么算一次成本 / 失败重试 / eval 流量排除 / 牌价依据；`cost_usd` 为派生字段、遥测或牌价缺失记 `unknown` 不计入聚合；事件 envelope、传输、队列、告警、read-back、导入回放等实现选择全部下放后续 issue；不含租户结构、不建表、不接运行链路）。
+- **completed 语义**：本轮 4 个 completed todo 仅表示对应文档 / 定义 / 决策门完成，**不代表评测闭环、计量链路或租户控制面已落地**。默认关闭 flag、逐字节等价与一行回滚**只约束会改变运行时行为的 issue**；纯文档、口径定义、架构决策门与独立部署 overlay 不套这套仪式。
+- 「每日议程」是**现有内部验收样例，不是旗舰客户场景**；旗舰客户场景与北极星指标据以验收的工作流，以目标团队试点为准，在 AD-1 证据 E1–E4 到位前不预设。
+- 授权边界（2026-11-11 更新）：仅 roadmap 草稿修订与可独立推进的工作；**未改共享运行环境、未执行真实凭证轮换**。`A1b` 已由用户决定**不执行（非完成、非阻塞）**，风险保留登记；`A1a`（配置加固 + Runbook）/ `A2`（配置冻结）已完成。L1 仅做只读源码核对（`roadmap/L1-SOURCE-REVIEW.md`），**未改** `n8n/scripts/selfcheck-test-stub.mjs` 与轻任务分流接续文件。
+- 本轮新增 `roadmap/AD1-PILOT-EVIDENCE.md`（AD-1 试点证据采集模板，**不含客户反馈**）、`roadmap/L1-SOURCE-REVIEW.md`（只读核对），并完善 `deploy/one-click/README.md` 的配置与交付步骤；**实际部署验收仍需隔离目标**。真人 judge 校准样本当前为 0：无 `.eval-local` 回放，`calibration-30.json` 全为占位，需先有真实任务—回答对再由真人标注。
